@@ -132,3 +132,13 @@ input,select,textarea,button{font-family:inherit;font-size:inherit;color:inherit
 .prop-action-btn:hover{background:var(--bg-hover);color:var(--text-primary)}
 .prop-action-btn.danger:hover{color:var(--red)}
 .prop-key-rename{flex:1;background:var(--bg-surface);border:1px solid var(--accent);border-radius:3px;color:var(--text-primary);font-family:var(--font-mono),monospace;font-size:11px;padding:1px 5px;min-width:60px;outline:none}
+/* ── Type badge interactive ─────────────────────── */
+.prop-type-badge-interactive{cursor:pointer;transition:background .1s,color .1s;user-select:none}
+.prop-type-badge-interactive:hover{background:var(--bg-hover);color:var(--text-primary)}
+/* ── Type cast dropdown ─────────────────────────── */
+.prop-type-dropdown{position:fixed;z-index:2000;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);box-shadow:0 6px 20px rgba(0,0,0,.5);padding:3px 0;min-width:100px;animation:fadeIn .08s ease}
+.prop-type-dropdown-item{padding:5px 12px;font-size:11px;font-family:var(--font-mono),monospace;color:var(--text-secondary);cursor:pointer;white-space:nowrap}
+.prop-type-dropdown-item:hover{background:var(--bg-hover);color:var(--text-primary)}
+/* ── Double-click rename key hint ───────────────── */
+.prop-key-text{cursor:default;transition:color .1s}
+.prop-row:hover .prop-key-text{color:var(--text-primary)}
