@@ -10,5 +10,3 @@
 | Platform | Stable release | Latest build |
 |----------|---------------|---------------|
 | 🪟 Windows | [**Download .exe**](https://github.com/dertwist/VDataEditor/releases/latest) | [Latest build ↗](https://github.com/dertwist/VDataEditor/releases/tag/latest-build) |
-
-If your GitHub repository is still named `VsmartEditor2`, update the badge and link URLs above to match.
