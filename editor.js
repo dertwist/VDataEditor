@@ -311,9 +311,139 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx) {
       buildStringWidget(valEl, String(value ?? ''), onScalarChange);
   }
 
+  const actions = document.createElement('div');
+  actions.className = 'prop-row-actions';
+
+  const isArrayIndex = typeof arrayIdx === 'number';
+
+  if (!isArrayIndex) {
+    const renameBtn = document.createElement('button');
+    renameBtn.type = 'button';
+    renameBtn.className = 'prop-action-btn';
+    renameBtn.title = 'Rename key';
+    renameBtn.textContent = '✎';
+    renameBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      startInlineRename(keyEl, keyText, key, parentRef);
+    });
+    actions.appendChild(renameBtn);
+  }
+
+  const dupBtn = document.createElement('button');
+  dupBtn.type = 'button';
+  dupBtn.className = 'prop-action-btn';
+  dupBtn.title = 'Duplicate';
+  dupBtn.textContent = '⧉';
+  dupBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (isArrayIndex) {
+      withDocUndo(() => {
+        parentRef.splice(arrayIdx + 1, 0, deepClone(value));
+      });
+    } else {
+      withDocUndo(() => {
+        let newKey = key + '_copy';
+        let n = 1;
+        while (Object.prototype.hasOwnProperty.call(parentRef, newKey)) newKey = key + '_copy' + ++n;
+        parentRef[newKey] = deepClone(value);
+      });
+    }
+  });
+  actions.appendChild(dupBtn);
+
+  if (type === 'object' || type === 'array') {
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'prop-action-btn';
+    addBtn.title = type === 'array' ? 'Add item' : 'Add property';
+    addBtn.textContent = '+';
+    addBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      withDocUndo(() => {
+        if (type === 'array') {
+          value.push('');
+        } else {
+          let newKey = 'new_key';
+          let n = 1;
+          while (Object.prototype.hasOwnProperty.call(value, newKey)) newKey = 'new_key_' + ++n;
+          value[newKey] = '';
+        }
+      });
+    });
+    actions.appendChild(addBtn);
+  }
+
+  const delBtn = document.createElement('button');
+  delBtn.type = 'button';
+  delBtn.className = 'prop-action-btn danger';
+  delBtn.title = 'Delete';
+  delBtn.textContent = '✕';
+  delBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    withDocUndo(() => {
+      if (isArrayIndex) parentRef.splice(arrayIdx, 1);
+      else delete parentRef[key];
+    });
+  });
+  actions.appendChild(delBtn);
+
+  valEl.appendChild(actions);
+
   row.appendChild(keyEl);
   row.appendChild(valEl);
   return row;
+}
+
+function startInlineRename(keyEl, keyTextSpan, oldKey, parentRef) {
+  if (keyEl.querySelector('.prop-key-rename')) return;
+
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.className = 'prop-key-rename';
+  inp.value = oldKey;
+
+  keyTextSpan.replaceWith(inp);
+  inp.focus();
+  inp.select();
+
+  let aborted = false;
+
+  function commit() {
+    if (aborted) return;
+    const newKey = inp.value.trim();
+    inp.replaceWith(keyTextSpan);
+    if (!newKey || newKey === oldKey) {
+      keyTextSpan.textContent = oldKey;
+      return;
+    }
+    if (Object.prototype.hasOwnProperty.call(parentRef, newKey)) {
+      keyTextSpan.textContent = oldKey;
+      setStatus(`Key "${newKey}" already exists`);
+      return;
+    }
+    withDocUndo(() => {
+      const entries = Object.entries(parentRef);
+      for (const [k] of entries) delete parentRef[k];
+      for (const [k, v] of entries) {
+        parentRef[k === oldKey ? newKey : k] = v;
+      }
+    });
+  }
+
+  inp.addEventListener('blur', commit);
+  inp.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      inp.blur();
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      aborted = true;
+      inp.removeEventListener('blur', commit);
+      inp.replaceWith(keyTextSpan);
+      keyTextSpan.textContent = oldKey;
+    }
+  });
 }
 
 function buildBoolWidget(container, value, onChange) {
