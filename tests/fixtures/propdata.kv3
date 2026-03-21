@@ -1,0 +1,7 @@
+<!-- kv3 encoding:text -->
+{
+	generic_data_type = "prop_data"
+	dmg.bullets = 10.5
+	dmg.club = 2.0
+	_not_pickable = 1
+}

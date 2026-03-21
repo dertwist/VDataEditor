@@ -1,0 +1,27 @@
+<!-- kv3 encoding:text -->
+{
+	generic_data_type = "light_styles"
+	styles = 
+	{
+		default_style = 
+		{
+			m_Curve = 
+			{
+				m_spline = 
+				[
+					{
+						x = 0.0
+						y = 0.0
+					},
+					{
+						x = 1.0
+						y = 1.0
+					}
+				]
+				m_tangents = [0.0, 0.0, 0.0, 0.0]
+				m_vDomainMins = [0.0, 0.0]
+				m_vDomainMaxs = [1.0, 1.0]
+			}
+		}
+	}
+}

@@ -1,0 +1,8 @@
+<!-- kv3 encoding:text -->
+{
+	generic_data_type = "CBasePlayerWeaponVData"
+	_base = "Cloth.Base"
+	_class = "CWeaponExample"
+	shoot = soundevent:"c4.plant"
+	wpn = resource_name:"weapons/ak47.vmdl"
+}

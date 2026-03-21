@@ -1,0 +1,7 @@
+<!-- kv3 encoding:text -->
+{
+	generic_data_type = "CToolSceneLightRig"
+	"Dark (Thumbnail)" = "thumb"
+	"Dark + Headlight" = true
+	manifest = resource_name:"maps/tools/example.vmap"
+}
