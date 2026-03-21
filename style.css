@@ -125,3 +125,10 @@ input,select,textarea,button{font-family:inherit;font-size:inherit;color:inherit
 .prop-tree-search-inline{height:22px;width:140px;max-width:40vw;min-width:80px;font-size:11px;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:3px;color:var(--text-primary);padding:0 6px;-webkit-app-region:no-drag}
 .prop-tree-search-inline:focus{border-color:var(--accent);outline:none}
 .prop-tree-search-inline::placeholder{color:var(--text-muted)}
+/* ── Row action buttons ─────────────────────────── */
+.prop-row-actions{display:flex;align-items:center;gap:1px;margin-left:auto;flex-shrink:0;opacity:0;transition:opacity .1s;pointer-events:none}
+.prop-row:hover .prop-row-actions{opacity:1;pointer-events:auto}
+.prop-action-btn{background:none;border:none;color:var(--text-muted);cursor:pointer;padding:2px 4px;border-radius:3px;font-size:11px;line-height:1;display:inline-flex;align-items:center}
+.prop-action-btn:hover{background:var(--bg-hover);color:var(--text-primary)}
+.prop-action-btn.danger:hover{color:var(--red)}
+.prop-key-rename{flex:1;background:var(--bg-surface);border:1px solid var(--accent);border-radius:3px;color:var(--text-primary);font-family:var(--font-mono),monospace;font-size:11px;padding:1px 5px;min-width:60px;outline:none}
