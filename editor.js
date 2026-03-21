@@ -2,11 +2,13 @@
 const { jsonToKV3, kv3ToJSON } = KV3Format;
 
 // ===== DATA MODEL =====
-let doc = {
-  generic_data_type: "CSmartPropRoot",
-  m_Children: [],
-  m_Variables: []
-};
+const kv3Document = VDataKV3.KV3Document.createSmartPropDefault();
+let doc = kv3Document.getRoot();
+
+function assignDocRoot(nextRoot) {
+  kv3Document.setRoot(nextRoot);
+  doc = kv3Document.getRoot();
+}
 let nextElementId = 1;
 let selectedNodePath = null; // path like "children.0.m_Modifiers.1"
 let currentFileName = 'Untitled';
@@ -217,11 +219,11 @@ function captureEditorState() {
 function applyState(snapshot) {
   const state = JSON.parse(snapshot);
   if (state && state.doc) {
-    doc = state.doc;
+    assignDocRoot(state.doc);
     selectedNodePath = state.selectedNodePath || null;
     expandedNodes = new Set(state.expandedNodes || ['root', 'children', 'variables']);
   } else {
-    doc = state;
+    assignDocRoot(state);
     selectedNodePath = null;
     expandedNodes = new Set(['root', 'children', 'variables']);
   }
@@ -1797,7 +1799,7 @@ function applyJSONEdit() {
   try {
     const newDoc = JSON.parse(document.getElementById('jsonEditor').value);
     pushUndo('Apply JSON');
-    doc = newDoc;
+    assignDocRoot(newDoc);
     recalcAllIds();
     renderAll();
     setStatus('JSON applied successfully');
@@ -1812,7 +1814,7 @@ function applyKV3Edit() {
     const kv3 = document.getElementById('kv3Editor').value;
     const parsed = kv3ToJSON(kv3);
     pushUndo('Apply KV3');
-    doc = parsed;
+    assignDocRoot(parsed);
     recalcAllIds();
     renderAll();
     setStatus('KV3 applied successfully');
@@ -1829,7 +1831,7 @@ function copyKV3() {
 // ===== FILE OPERATIONS =====
 function newDocument() {
   pushUndo('New Document');
-  doc = { generic_data_type: 'CSmartPropRoot', m_Children: [], m_Variables: [] };
+  assignDocRoot({ generic_data_type: 'CSmartPropRoot', m_Children: [], m_Variables: [] });
   nextElementId = 1;
   selectedNodePath = null;
   currentFilePath = null;
@@ -1849,7 +1851,7 @@ function importKV3() {
       try {
         const parsed = kv3ToJSON(ev.target.result);
         pushUndo('Open');
-        doc = parsed;
+        assignDocRoot(parsed);
         if (!doc.m_Children) doc.m_Children = [];
         if (!doc.m_Variables) doc.m_Variables = [];
         recalcAllIds();
@@ -2232,7 +2234,7 @@ if (window.electronAPI) {
           : JSON.parse(content);
         const fileName = filePath.split(/[\\/]/).pop();
         pushUndo('Open File');
-        doc = parsed;
+        assignDocRoot(parsed);
         if (!doc.m_Children) doc.m_Children = [];
         if (!doc.m_Variables) doc.m_Variables = [];
         recalcAllIds();
