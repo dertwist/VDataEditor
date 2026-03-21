@@ -1,4 +1,4 @@
-// Root document wrapper: parsed KV3 body, dirty flag, SmartProp default factory.
+// Root document wrapper: parsed KV3 body, dirty flag, default SmartProp-root factory.
 (function (root, factory) {
   const api = factory();
   if (typeof module === 'object' && module.exports) {

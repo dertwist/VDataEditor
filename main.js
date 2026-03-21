@@ -39,7 +39,8 @@ app.on('open-file', (event, filePath) => {
 app.whenReady().then(() => {
   // Windows: file path passed as CLI argument
   const args = process.argv.slice(app.isPackaged ? 1 : 2)
-  const filePath = args.find(a => a.endsWith('.vsmart')) || null
+  const filePath =
+    args.find((a) => /\.(vsmart|vdata|vpcf|kv3)$/i.test(a)) || null
   createWindow(filePath)
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow(null)

@@ -1,4 +1,4 @@
-// ===== SMARTPROP EDITOR – SVG ICON LIBRARY =====
+// ===== VDataEditor – SVG ICON LIBRARY =====
 // Lucide-style icons (24x24 viewBox, stroke-based, currentColor)
 // All icons use class="icon" for CSS targeting.
 
@@ -18,7 +18,7 @@
     // Model – 3-D cube
     box: ic('<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>'),
 
-    // SmartProp – sparkle / star
+    // Smart prop element – sparkle / star
     sparkles: ic('<path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/>'),
 
     // PlaceOnPath – route / spline

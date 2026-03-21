@@ -1,7 +1,7 @@
 {
-  "name": "vsmart-editor",
-  "productName": "VsmartEditor2",
-  "description": "VsmartEditor 2 is a desktop editor for Vsmart files.",
+  "name": "vdata-editor",
+  "productName": "VDataEditor",
+  "description": "Desktop editor for Source 2 KV3 data (.vsmart, .vdata, .vpcf, .kv3, …).",
   "keywords": [],
   "main": "./main.js",
   "version": "0.2.0",
@@ -12,13 +12,13 @@
     "build:win": "electron-builder --win --publish never"
   },
   "build": {
-    "appId": "com.dertwist.vsmarteditor2",
-    "productName": "VsmartEditor2",
+    "appId": "com.dertwist.vdataeditor",
+    "productName": "VDataEditor",
     "fileAssociations": [
       {
         "ext": "vsmart",
-        "name": "SmartProp File",
-        "description": "Source 2 SmartProp",
+        "name": "VData (SmartProp)",
+        "description": "Source 2 KV3 / SmartProp",
         "role": "Editor"
       }
     ],

@@ -1842,7 +1842,7 @@ function newDocument() {
 
 function importKV3() {
   const input = document.getElementById('fileInput');
-  input.accept = '.vsmart,.vdata,.kv3,.txt';
+  input.accept = '.vsmart,.vdata,.vpcf,.kv3,.txt';
   input.onchange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -1883,9 +1883,9 @@ function saveFileAs() {
   if (window.electronAPI?.showSaveDialog) {
     const base = currentFileName.replace(/\.[^.]+$/, '') || 'untitled';
     window.electronAPI.showSaveDialog({
-      defaultPath: base + '.vsmart',
+      defaultPath: base + '.vdata',
       filters: [
-        { name: 'SmartProp', extensions: ['vsmart', 'vdata'] },
+        { name: 'VData / KV3', extensions: ['vsmart', 'vdata', 'vpcf', 'kv3'] },
         { name: 'All Files', extensions: ['*'] }
       ]
     }).then(result => {
@@ -1900,7 +1900,7 @@ function saveFileAs() {
     });
   } else {
     const base = currentFileName.replace(/\.[^.]+$/, '') || 'untitled';
-    downloadBlob(new Blob([jsonToKV3(doc)], { type: 'text/plain' }), base + '.vsmart');
+    downloadBlob(new Blob([jsonToKV3(doc)], { type: 'text/plain' }), base + '.vdata');
   }
 }
 
@@ -1973,7 +1973,7 @@ function setStatus(msg) { document.getElementById('statusBar').textContent = msg
 
 function setDocumentTitle(name) {
   currentFileName = name;
-  document.title = 'VsmartEditor2 - ' + name;
+  document.title = 'VDataEditor - ' + name;
 }
 function updateStatus() {
   const elCount = countNodes(doc.m_Children);
@@ -2197,9 +2197,9 @@ function initMenuBar() {
       else if (action === 'fullscreen' && window.electronAPI?.toggleFullScreen) window.electronAPI.toggleFullScreen();
       else if (action === 'about') {
         if (window.electronAPI?.getVersion) {
-          window.electronAPI.getVersion().then(v => setStatus(`SmartProp Editor v${v}`));
+          window.electronAPI.getVersion().then(v => setStatus(`VDataEditor v${v}`));
         } else {
-          setStatus('SmartProp Editor');
+          setStatus('VDataEditor');
         }
       }
       dropdowns.forEach(d => d.classList.remove('open'));
@@ -2221,7 +2221,7 @@ if (btnCrit) btnCrit.classList.toggle('active', showSelectionCriteriaInTree);
 if (window.electronAPI?.getVersion) {
   window.electronAPI.getVersion().then(v => {
     const lbl = document.getElementById('versionLabel');
-    if (lbl) lbl.textContent = `SmartProp Editor v${v}`;
+    if (lbl) lbl.textContent = `VDataEditor v${v}`;
   });
 }
 

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import formats from '../src/formats/registry.js';
 
 describe('format registry', () => {
-  it('resolves SmartProp and generic_data_type keys', () => {
+  it('resolves CSmartPropRoot profile from generic_data_type', () => {
     const doc = { generic_data_type: 'CSmartPropRoot' };
     expect(formats.getFormatProfileKey(doc, 'vsmart')).toBe('generic/CSmartPropRoot');
     expect(formats.getProfile(doc, 'vsmart').id).toBe('generic/CSmartPropRoot');
