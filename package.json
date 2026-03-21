@@ -1,0 +1,53 @@
+{
+  "name": "vsmart-editor",
+  "productName": "VsmartEditor2",
+  "description": "VsmartEditor 2 is a desktop editor for Vsmart files.",
+  "keywords": [],
+  "main": "./main.js",
+  "version": "0.2.0",
+  "author": "dertwist",
+  "scripts": {
+    "start": "electron .",
+    "test": "vitest",
+    "build:win": "electron-builder --win --publish never"
+  },
+  "build": {
+    "appId": "com.dertwist.vsmarteditor2",
+    "productName": "VsmartEditor2",
+    "fileAssociations": [
+      {
+        "ext": "vsmart",
+        "name": "SmartProp File",
+        "description": "Source 2 SmartProp",
+        "role": "Editor"
+      }
+    ],
+    "files": [
+      "**/*",
+      "!node_modules/**",
+      ".git/**",
+      "!dist/**",
+      "!*.md"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/images/vdata_editor/appicon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "devDependencies": {
+    "electron": "^41.0.0",
+    "electron-builder": "^25.1.8",
+    "vitest": "^4.1.0"
+  }
+}
