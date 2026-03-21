@@ -150,6 +150,26 @@
 
     parseKey() {
       this.skipWhitespace();
+      if (this.pos < this.text.length && this.text[this.pos] === '"') {
+        this.consume('"');
+        let key = '';
+        while (this.pos < this.text.length) {
+          const c = this.text[this.pos];
+          if (c === '"') {
+            this.consume('"');
+            return key;
+          }
+          if (c === '\\' && this.pos + 1 < this.text.length) {
+            this.pos++;
+            key += this.text[this.pos];
+            this.pos++;
+            continue;
+          }
+          key += c;
+          this.pos++;
+        }
+        return key;
+      }
       let key = '';
       while (this.pos < this.text.length && /[a-zA-Z0-9_]/.test(this.text[this.pos])) {
         key += this.text[this.pos];
