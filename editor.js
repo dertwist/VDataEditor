@@ -92,7 +92,24 @@ function syncRawEditors() {
   if (kv3El) kv3El.value = jsonToKV3(doc);
 }
 
+let _syncDebounceTimer = null;
+function syncRawEditorsDebounced() {
+  clearTimeout(_syncDebounceTimer);
+  _syncDebounceTimer = setTimeout(() => {
+    _syncDebounceTimer = null;
+    syncRawEditors();
+  }, 400);
+}
+
+function flushSyncDebounce() {
+  if (_syncDebounceTimer) {
+    clearTimeout(_syncDebounceTimer);
+    _syncDebounceTimer = null;
+  }
+}
+
 function renderAll() {
+  flushSyncDebounce();
   buildPropertyTree();
   syncRawEditors();
   updateStatusBar();
@@ -163,6 +180,118 @@ function inferType(key, value) {
   return 'unknown';
 }
 
+const TYPE_CAST_OPTIONS = {
+  string: ['int', 'float', 'bool', 'resource', 'soundevent'],
+  int: ['float', 'string', 'bool'],
+  float: ['int', 'string', 'bool'],
+  bool: ['int', 'string'],
+  resource: ['string', 'soundevent'],
+  soundevent: ['string', 'resource']
+};
+
+const STATIC_TYPE_BADGE = new Set(['object', 'array', 'null', 'color', 'vec3', 'unknown']);
+
+function buildTypeBadge(currentType, onCast) {
+  const wrap = document.createElement('span');
+  wrap.className = 'prop-type-badge prop-type-badge-interactive';
+  wrap.title = 'Click to change type';
+  wrap.textContent = currentType;
+
+  const options = TYPE_CAST_OPTIONS[currentType];
+  if (!options || options.length === 0) {
+    wrap.classList.remove('prop-type-badge-interactive');
+    wrap.removeAttribute('title');
+    return wrap;
+  }
+
+  wrap.addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.querySelectorAll('.prop-type-dropdown').forEach((el) => el.remove());
+
+    const dropdown = document.createElement('div');
+    dropdown.className = 'prop-type-dropdown';
+    const rect = wrap.getBoundingClientRect();
+    dropdown.style.top = rect.bottom + 2 + 'px';
+    dropdown.style.left = rect.left + 'px';
+
+    options.forEach((opt) => {
+      const item = document.createElement('div');
+      item.className = 'prop-type-dropdown-item';
+      item.textContent = opt;
+      item.addEventListener('mousedown', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        dropdown.remove();
+        onCast(opt);
+      });
+      dropdown.appendChild(item);
+    });
+
+    document.body.appendChild(dropdown);
+
+    const close = (ev) => {
+      if (!dropdown.contains(ev.target) && ev.target !== wrap) {
+        dropdown.remove();
+        document.removeEventListener('mousedown', close, true);
+      }
+    };
+    setTimeout(() => document.addEventListener('mousedown', close, true), 0);
+  });
+
+  return wrap;
+}
+
+function castPropertyType(parentRef, key, value, fromType, toType, arrayIdx) {
+  let newValue;
+  try {
+    switch (toType) {
+      case 'int': {
+        const n = parseInt(value, 10);
+        newValue = Number.isNaN(n) ? 0 : n;
+        break;
+      }
+      case 'float': {
+        const n = parseFloat(value);
+        newValue = Number.isNaN(n) ? 0 : n;
+        break;
+      }
+      case 'bool':
+        if (value === true || value === false) newValue = Boolean(value);
+        else if (typeof value === 'string') {
+          const s = value.toLowerCase();
+          newValue = s === 'true' || s === '1' || s === 'yes';
+        } else newValue = Number(value) !== 0 && !Number.isNaN(Number(value));
+        break;
+      case 'string':
+        if (fromType === 'resource') newValue = typedResourceDisplay(value, 'resource_name');
+        else if (fromType === 'soundevent') newValue = typedResourceDisplay(value, 'soundevent');
+        else newValue = String(value);
+        break;
+      case 'resource':
+        newValue = {
+          type: 'resource_name',
+          value: typeof value === 'string' ? value : typedResourceDisplay(value, 'resource_name') || ''
+        };
+        break;
+      case 'soundevent':
+        newValue = {
+          type: 'soundevent',
+          value: typeof value === 'string' ? value : typedResourceDisplay(value, 'soundevent') || ''
+        };
+        break;
+      default:
+        newValue = value;
+    }
+  } catch (_) {
+    newValue = value;
+  }
+  withDocUndo(() => {
+    const isArrayIndex = typeof arrayIdx === 'number' && Array.isArray(parentRef);
+    if (isArrayIndex) parentRef[arrayIdx] = newValue;
+    else parentRef[key] = newValue;
+  });
+}
+
 function buildPropertyTree() {
   const container = document.getElementById('propTreeRoot');
   if (!container) return;
@@ -183,13 +312,27 @@ function renderObjectRows(container, obj, depth) {
     if (type === 'object' && value !== null) {
       const children = document.createElement('div');
       children.className = 'prop-row-children';
-      renderObjectRows(children, value, depth + 1);
+      if (depth >= 1) {
+        children.dataset.lazy = '1';
+        children.style.display = 'none';
+      } else {
+        renderObjectRows(children, value, depth + 1);
+      }
       container.appendChild(children);
+      const toggle = row.querySelector('.prop-key-toggle');
+      if (toggle && depth >= 1) toggle.textContent = '▸';
     } else if (type === 'array') {
       const children = document.createElement('div');
       children.className = 'prop-row-children';
-      renderArrayRows(children, value, depth + 1);
+      if (depth >= 1) {
+        children.dataset.lazy = '1';
+        children.style.display = 'none';
+      } else {
+        renderArrayRows(children, value, depth + 1);
+      }
       container.appendChild(children);
+      const toggle = row.querySelector('.prop-key-toggle');
+      if (toggle && depth >= 1) toggle.textContent = '▸';
     }
   }
 }
@@ -203,13 +346,27 @@ function renderArrayRows(container, arr, depth) {
     if (itemType === 'object' && item !== null) {
       const children = document.createElement('div');
       children.className = 'prop-row-children';
-      renderObjectRows(children, item, depth + 1);
+      if (depth >= 1) {
+        children.dataset.lazy = '1';
+        children.style.display = 'none';
+      } else {
+        renderObjectRows(children, item, depth + 1);
+      }
       container.appendChild(children);
+      const toggle = row.querySelector('.prop-key-toggle');
+      if (toggle && depth >= 1) toggle.textContent = '▸';
     } else if (itemType === 'array') {
       const children = document.createElement('div');
       children.className = 'prop-row-children';
-      renderArrayRows(children, item, depth + 1);
+      if (depth >= 1) {
+        children.dataset.lazy = '1';
+        children.style.display = 'none';
+      } else {
+        renderArrayRows(children, item, depth + 1);
+      }
       container.appendChild(children);
+      const toggle = row.querySelector('.prop-key-toggle');
+      if (toggle && depth >= 1) toggle.textContent = '▸';
     }
   });
 }
@@ -221,18 +378,26 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx) {
   row.dataset.depth = String(d);
   if (depth > 9) row.style.setProperty('--prop-depth', String(depth));
 
+  const isArrayIndex = typeof arrayIdx === 'number';
+
   const keyEl = document.createElement('div');
   keyEl.className = 'prop-key';
   const pad = Math.min(depth, 12) * 16;
   keyEl.style.paddingLeft = pad + 'px';
 
   if (type === 'object' || type === 'array') {
+    const childrenWillBeLazy = depth >= 1;
     const toggle = document.createElement('span');
     toggle.className = 'prop-key-toggle';
-    toggle.textContent = '▾';
+    toggle.textContent = childrenWillBeLazy ? '▸' : '▾';
     toggle.addEventListener('click', () => {
       const ch = row.nextElementSibling;
       if (!ch || !ch.classList.contains('prop-row-children')) return;
+      if (ch.dataset.lazy === '1') {
+        ch.removeAttribute('data-lazy');
+        if (type === 'object') renderObjectRows(ch, value, depth + 1);
+        else renderArrayRows(ch, value, depth + 1);
+      }
       const collapsed = ch.style.display === 'none';
       ch.style.display = collapsed ? '' : 'none';
       toggle.textContent = collapsed ? '▾' : '▸';
@@ -247,18 +412,39 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx) {
   }
 
   const keyText = document.createElement('span');
+  keyText.className = 'prop-key-text';
   keyText.textContent = key;
+  if (!isArrayIndex) {
+    keyText.title = 'Double-click to rename';
+    keyText.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      startInlineRename(keyEl, keyText, key, parentRef);
+    });
+  }
   keyEl.appendChild(keyText);
 
   const valEl = document.createElement('div');
   valEl.className = 'prop-value';
 
-  const badge = document.createElement('span');
-  badge.className = 'prop-type-badge';
-  badge.textContent = type;
-  valEl.appendChild(badge);
+  if (STATIC_TYPE_BADGE.has(type)) {
+    const badge = document.createElement('span');
+    badge.className = 'prop-type-badge';
+    if (type === 'object') badge.textContent = `{ ${Object.keys(value).length} }`;
+    else if (type === 'array') badge.textContent = `[ ${value.length} ]`;
+    else if (type === 'null') badge.textContent = 'null';
+    else if (type === 'color') badge.textContent = 'color';
+    else if (type === 'vec3') badge.textContent = 'vec3';
+    else badge.textContent = type;
+    valEl.appendChild(badge);
+  } else {
+    valEl.appendChild(
+      buildTypeBadge(type, (newType) => {
+        castPropertyType(parentRef, key, value, type, newType, arrayIdx);
+      })
+    );
+  }
 
-  const onScalarChange = (v) => commitValue(parentRef, key, v, arrayIdx);
+  const onScalarChange = (v) => commitValue(parentRef, key, v, arrayIdx, false);
 
   switch (type) {
     case 'bool':
@@ -284,28 +470,8 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx) {
       buildVec3Widget(valEl, value, onScalarChange);
       break;
     case 'object':
-      valEl.appendChild(
-        Object.assign(document.createElement('span'), {
-          className: 'prop-type-badge',
-          textContent: `{ ${Object.keys(value).length} keys }`
-        })
-      );
-      break;
     case 'array':
-      valEl.appendChild(
-        Object.assign(document.createElement('span'), {
-          className: 'prop-type-badge',
-          textContent: `[ ${value.length} ]`
-        })
-      );
-      break;
     case 'null':
-      valEl.appendChild(
-        Object.assign(document.createElement('span'), {
-          className: 'prop-type-badge',
-          textContent: 'null'
-        })
-      );
       break;
     default:
       buildStringWidget(valEl, String(value ?? ''), onScalarChange);
@@ -313,21 +479,6 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx) {
 
   const actions = document.createElement('div');
   actions.className = 'prop-row-actions';
-
-  const isArrayIndex = typeof arrayIdx === 'number';
-
-  if (!isArrayIndex) {
-    const renameBtn = document.createElement('button');
-    renameBtn.type = 'button';
-    renameBtn.className = 'prop-action-btn';
-    renameBtn.title = 'Rename key';
-    renameBtn.textContent = '✎';
-    renameBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      startInlineRename(keyEl, keyText, key, parentRef);
-    });
-    actions.appendChild(renameBtn);
-  }
 
   const dupBtn = document.createElement('button');
   dupBtn.type = 'button';
@@ -590,7 +741,7 @@ function buildVec3Widget(container, value, onChange) {
   });
 }
 
-function commitValue(parentRef, key, newValue, arrayIdx) {
+function commitValue(parentRef, key, newValue, arrayIdx, isStructural = false) {
   const useIdx = arrayIdx !== undefined && arrayIdx !== null && Array.isArray(parentRef);
   const oldValue = useIdx ? deepClone(parentRef[arrayIdx]) : deepClone(parentRef[key]);
   const newSnapshot = deepClone(newValue);
@@ -600,6 +751,7 @@ function commitValue(parentRef, key, newValue, arrayIdx) {
       if (useIdx) parentRef[arrayIdx] = deepClone(oldValue);
       else parentRef[key] = deepClone(oldValue);
       markDirty();
+      flushSyncDebounce();
       buildPropertyTree();
       syncRawEditors();
     },
@@ -607,6 +759,7 @@ function commitValue(parentRef, key, newValue, arrayIdx) {
       if (useIdx) parentRef[arrayIdx] = deepClone(newSnapshot);
       else parentRef[key] = deepClone(newSnapshot);
       markDirty();
+      flushSyncDebounce();
       buildPropertyTree();
       syncRawEditors();
     }
@@ -615,8 +768,13 @@ function commitValue(parentRef, key, newValue, arrayIdx) {
   if (useIdx) parentRef[arrayIdx] = newValue;
   else parentRef[key] = newValue;
   markDirty();
-  buildPropertyTree();
-  syncRawEditors();
+  if (isStructural) {
+    flushSyncDebounce();
+    buildPropertyTree();
+    syncRawEditors();
+  } else {
+    syncRawEditorsDebounced();
+  }
 }
 
 function filterPropTree(query) {
@@ -646,6 +804,7 @@ function initPropTreeSearch() {
 // ── Tabs & raw apply ───────────────────────────────────────────────────
 
 function switchTab(btn, tabId) {
+  flushSyncDebounce();
   btn.parentElement.querySelectorAll('.panel-tab').forEach((t) => t.classList.remove('active'));
   btn.classList.add('active');
   btn.closest('.panel').querySelectorAll('.tab-content').forEach((t) => t.classList.remove('active'));
