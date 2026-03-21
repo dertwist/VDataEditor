@@ -8,6 +8,16 @@
     root.KV3Format = factory();
   }
 })(typeof self !== 'undefined' ? self : this, function () {
+  function escapeKV3String(s) {
+    return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  }
+
+  /** Unquoted keys are only safe for identifier-like segments (incl. dotted names like dmg.bullets). */
+  function kv3ObjectKey(key) {
+    if (/^[A-Za-z_][A-Za-z0-9_.]*$/.test(key)) return key;
+    return `"${escapeKV3String(key)}"`;
+  }
+
   function jsonToKV3(obj) {
     const header =
       '<!-- kv3 encoding:text:version{e21c7f3c-8a33-41c5-9977-a76d3a32aa0d} format:vrfunknown:version{5ab656f0-06de-478a-804e-489e82994fb5} -->';
@@ -22,8 +32,8 @@
     if (typeof val === 'number') return String(val);
     if (typeof val === 'string') {
       if (val.endsWith('.vmdl') || val.endsWith('.vsmart') || val.endsWith('.vmat'))
-        return `resource_name:"${val}"`;
-      return `"${val}"`;
+        return `resource_name:"${escapeKV3String(val)}"`;
+      return `"${escapeKV3String(val)}"`;
     }
     if (Array.isArray(val)) {
       if (val.length === 0) return '[]';
@@ -39,6 +49,20 @@
       return s;
     }
     if (typeof val === 'object') {
+      if (
+        val.type === 'resource_name' &&
+        typeof val.value === 'string' &&
+        Object.keys(val).every((k) => k === 'type' || k === 'value')
+      ) {
+        return `resource_name:"${escapeKV3String(val.value)}"`;
+      }
+      if (
+        val.type === 'soundevent' &&
+        typeof val.value === 'string' &&
+        Object.keys(val).every((k) => k === 'type' || k === 'value')
+      ) {
+        return `soundevent:"${escapeKV3String(val.value)}"`;
+      }
       const keys = Object.keys(val);
       if (keys.length === 0) return '{}';
       let s = '\n' + indent + '{\n';
@@ -46,10 +70,11 @@
         const v = val[key];
         if (v === undefined) return;
         const serialized = serializeKV3Value(v, depth + 1);
+        const k = kv3ObjectKey(key);
         if (serialized.startsWith('\n')) {
-          s += indent1 + key + ' = ' + serialized.trimStart() + '\n';
+          s += indent1 + k + ' = ' + serialized.trimStart() + '\n';
         } else {
-          s += indent1 + key + ' = ' + serialized + '\n';
+          s += indent1 + k + ' = ' + serialized + '\n';
         }
       });
       s += indent + '}';
@@ -100,7 +125,11 @@
       // resource_name:"..."
       if (this.text.substring(this.pos, this.pos + 14) === 'resource_name:') {
         this.pos += 14;
-        return this.parseString();
+        return { type: 'resource_name', value: this.parseString() };
+      }
+      if (this.text.substring(this.pos, this.pos + 11) === 'soundevent:') {
+        this.pos += 11;
+        return { type: 'soundevent', value: this.parseString() };
       }
       return this.parseLiteral();
     }
