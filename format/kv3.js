@@ -171,7 +171,7 @@
         return key;
       }
       let key = '';
-      while (this.pos < this.text.length && /[a-zA-Z0-9_]/.test(this.text[this.pos])) {
+      while (this.pos < this.text.length && /[a-zA-Z0-9_.]/.test(this.text[this.pos])) {
         key += this.text[this.pos];
         this.pos++;
       }
