@@ -17,7 +17,9 @@
     RESOURCE: 'resource',
     SOUNDEVENT: 'soundevent',
     ENUM_STRING: 'enum_string',
-    CURVE: 'curve'
+    CURVE: 'curve',
+    VEC2: 'vec2',
+    VEC4: 'vec4'
   };
 
   class KV3Node {

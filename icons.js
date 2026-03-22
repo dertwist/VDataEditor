@@ -198,5 +198,21 @@
 
     // KV3 / code file
     fileCode: ic('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><polyline points="10 17 8 15 10 13"/><polyline points="14 13 16 15 14 17"/>'),
+
+    // ── Property type icons ───────────────────────────────────────────────
+    typeString: ic('<path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/>'),
+    typeInt: ic('<polyline points="8 6 10 6 10 18 8 18"/><line x1="10" y1="12" x2="14" y2="12"/><polyline points="14 6 16 6 16 18 14 18"/>'),
+    typeFloat: ic('<circle cx="12" cy="12" r="1" fill="currentColor"/><path d="M5 8h14M5 12h8M5 16h5"/>'),
+    typeBool: ic('<rect x="2" y="6" width="20" height="12" rx="6"/><circle cx="16" cy="12" r="4" fill="currentColor"/>'),
+    typeColor: ic('<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 6.36 15.36" stroke-width="2.5"/><circle cx="12" cy="12" r="3" fill="currentColor"/>'),
+    typeObject: ic('<path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1"/><path d="M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1"/>'),
+    typeArray: ic('<polyline points="5 9 2 12 5 15"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/>'),
+    typeVec2: ic('<line x1="5" y1="12" x2="19" y2="12"/><circle cx="9" cy="12" r="2" fill="currentColor"/><circle cx="15" cy="12" r="2" fill="currentColor"/>'),
+    typeVec3: ic('<circle cx="12" cy="5" r="2" fill="currentColor"/><circle cx="5" cy="17" r="2" fill="currentColor"/><circle cx="19" cy="17" r="2" fill="currentColor"/><line x1="12" y1="7" x2="5" y2="15"/><line x1="12" y1="7" x2="19" y2="15"/><line x1="5" y1="17" x2="19" y2="17"/>'),
+    typeVec4: ic('<rect x="3" y="10" width="4" height="4" rx="1"/><rect x="10" y="10" width="4" height="4" rx="1"/><rect x="17" y="10" width="4" height="4" rx="1"/><rect x="10" y="3" width="4" height="4" rx="1"/>'),
+    typeResource: ic('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/>'),
+    typeSound: ic('<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>'),
+    typeNull: ic('<circle cx="12" cy="12" r="9" stroke-dasharray="3 3"/>'),
+    typeUnknown: ic('<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>')
   };
 }());
