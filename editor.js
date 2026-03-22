@@ -149,33 +149,298 @@ function withDocUndo(applyFn) {
   renderAll();
 }
 
-function syncRawEditors() {
-  const jsonEl = document.getElementById('jsonEditor');
-  if (jsonEl) jsonEl.value = JSON.stringify(doc, null, 2);
-  const kv3El = document.getElementById('kv3Editor');
-  if (kv3El) kv3El.value = serializeDocument();
+let _meFormat = 'json';
+let _meLiveSyncTimer = null;
+
+function updateMeGutter() {
+  const ta = document.getElementById('manualEditor');
+  const gutter = document.getElementById('meGutter');
+  if (!ta || !gutter) return;
+  const lines = ta.value.split('\n').length;
+  let t = '';
+  for (let i = 1; i <= lines; i++) t += i + '\n';
+  gutter.textContent = t;
+  gutter.scrollTop = ta.scrollTop;
 }
 
-let _syncDebounceTimer = null;
-function syncRawEditorsDebounced() {
-  clearTimeout(_syncDebounceTimer);
-  _syncDebounceTimer = setTimeout(() => {
-    _syncDebounceTimer = null;
-    syncRawEditors();
+function refreshManualEditor() {
+  const ta = document.getElementById('manualEditor');
+  if (!ta) return;
+  const prev = ta.scrollTop;
+  if (_meFormat === 'json') ta.value = JSON.stringify(doc, null, 2);
+  else ta.value = serializeDocument();
+  ta.scrollTop = prev;
+  updateMeGutter();
+}
+
+function applyManualEdit() {
+  const ta = document.getElementById('manualEditor');
+  if (!ta) return;
+  try {
+    let parsed;
+    if (_meFormat === 'json') {
+      parsed = JSON.parse(ta.value);
+      withDocUndo(() => {
+        documentFormat = 'json';
+        assignDocRoot(parsed);
+        ensureSmartPropRootArrays();
+        recalcAllIds();
+      });
+    } else {
+      parsed = documentFormat === 'keyvalue' ? keyValueToJSON(ta.value) : kv3ToJSON(ta.value);
+      withDocUndo(() => {
+        assignDocRoot(parsed);
+        ensureSmartPropRootArrays();
+        recalcAllIds();
+      });
+    }
+    setStatus(_meFormat === 'json' ? 'JSON applied' : documentFormat === 'keyvalue' ? 'KeyValues applied' : 'KV3 applied');
+  } catch (e) {
+    setStatus('Parse error: ' + e.message);
+  }
+}
+
+function toggleMeSearchBar(forceOpen) {
+  const bar = document.getElementById('meSearchBar');
+  if (!bar) return;
+  const open = forceOpen ?? bar.style.display === 'none';
+  bar.style.display = open ? 'flex' : 'none';
+  if (open) document.getElementById('meSearchInput')?.focus();
+}
+
+function initMeSearch(ta) {
+  const searchInput = document.getElementById('meSearchInput');
+  const replaceInput = document.getElementById('meReplaceInput');
+  const matchCount = document.getElementById('meMatchCount');
+  const closeBtn = document.getElementById('meSearchClose');
+  if (!searchInput) return;
+
+  let _matches = [];
+  let _matchIdx = 0;
+
+  function findMatches() {
+    const needle = searchInput.value;
+    _matches = [];
+    _matchIdx = 0;
+    if (!needle) {
+      matchCount.textContent = '0/0';
+      return;
+    }
+    const text = ta.value;
+    let idx = 0;
+    while (true) {
+      const pos = text.indexOf(needle, idx);
+      if (pos === -1) break;
+      _matches.push({ start: pos, end: pos + needle.length });
+      idx = pos + 1;
+    }
+    matchCount.textContent = _matches.length > 0 ? `1/${_matches.length}` : '0/0';
+  }
+
+  function jumpToMatch(idx) {
+    if (_matches.length === 0) return;
+    _matchIdx = ((idx % _matches.length) + _matches.length) % _matches.length;
+    const m = _matches[_matchIdx];
+    ta.focus();
+    ta.setSelectionRange(m.start, m.end);
+    const linesBefore = ta.value.slice(0, m.start).split('\n').length - 1;
+    const lineHeight = parseFloat(getComputedStyle(ta).lineHeight) || 18;
+    ta.scrollTop = Math.max(0, linesBefore * lineHeight - ta.clientHeight / 2);
+    matchCount.textContent = `${_matchIdx + 1}/${_matches.length}`;
+  }
+
+  searchInput.addEventListener('input', () => {
+    findMatches();
+    if (_matches.length) jumpToMatch(0);
+  });
+  document.getElementById('meNextMatch')?.addEventListener('click', () => jumpToMatch(_matchIdx + 1));
+  document.getElementById('mePrevMatch')?.addEventListener('click', () => jumpToMatch(_matchIdx - 1));
+
+  document.getElementById('meReplaceOne')?.addEventListener('click', () => {
+    if (_matches.length === 0) return;
+    const m = _matches[_matchIdx];
+    const repVal = replaceInput.value;
+    ta.setSelectionRange(m.start, m.end);
+    document.execCommand('insertText', false, repVal);
+    findMatches();
+    if (_matches.length) jumpToMatch(Math.min(_matchIdx, _matches.length - 1));
+    updateMeGutter();
+  });
+
+  document.getElementById('meReplaceAll')?.addEventListener('click', () => {
+    const needle = searchInput.value;
+    if (!needle) return;
+    const repVal = replaceInput.value;
+    ta.value = ta.value.split(needle).join(repVal);
+    findMatches();
+    updateMeGutter();
+  });
+
+  closeBtn?.addEventListener('click', () => toggleMeSearchBar(false));
+
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      jumpToMatch(e.shiftKey ? _matchIdx - 1 : _matchIdx + 1);
+    }
+    if (e.key === 'Escape') toggleMeSearchBar(false);
+  });
+}
+
+function initManualEditPanel() {
+  const ta = document.getElementById('manualEditor');
+  const gutter = document.getElementById('meGutter');
+  if (!ta) return;
+
+  document.querySelectorAll('input[name="meFormat"]').forEach((radio) => {
+    radio.addEventListener('change', () => {
+      if (radio.checked) _meFormat = radio.value;
+      refreshManualEditor();
+    });
+  });
+
+  document.getElementById('meApplyBtn')?.addEventListener('click', applyManualEdit);
+  document.getElementById('meCopyBtn')?.addEventListener('click', () => {
+    navigator.clipboard.writeText(ta.value);
+    setStatus('Copied to clipboard');
+  });
+
+  ta.addEventListener('scroll', () => {
+    if (gutter) gutter.scrollTop = ta.scrollTop;
+  });
+  ta.addEventListener('input', () => {
+    updateMeGutter();
+    if (document.getElementById('meLiveSync')?.checked) {
+      clearTimeout(_meLiveSyncTimer);
+      _meLiveSyncTimer = setTimeout(applyManualEdit, 800);
+    }
+  });
+
+  ta.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'h') {
+      e.preventDefault();
+      toggleMeSearchBar();
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+      e.preventDefault();
+      toggleMeSearchBar(true);
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      applyManualEdit();
+    }
+  });
+
+  initMeSearch(ta);
+  updateMeGutter();
+}
+
+function openWidgetConfigDialog() {
+  document.getElementById('widgetConfigDialog')?.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'widgetConfigDialog';
+  overlay.className = 'modal-overlay';
+
+  const dialog = document.createElement('div');
+  dialog.className = 'modal-dialog';
+  dialog.innerHTML = `
+    <div class="modal-header">
+      <span class="modal-title">Widget Config</span>
+      <button type="button" class="modal-close" id="wc-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section-label">User Rules <span class="modal-hint">(overwrite system)</span></div>
+      <div id="wc-user-rules"></div>
+      <div class="modal-row" style="margin-top:8px">
+        <input type="text" id="wc-new-match" class="prop-input" placeholder="key or /regex/" style="flex:1">
+        <select id="wc-new-type" class="prop-input" style="width:110px">
+          <option>string</option><option>int</option><option>float</option><option>bool</option>
+          <option>color</option><option>vec2</option><option>vec3</option><option>vec4</option>
+          <option>resource</option><option>soundevent</option>
+        </select>
+        <button type="button" class="btn btn-sm btn-accent" id="wc-add-btn">Add</button>
+      </div>
+      <div class="modal-section-label" style="margin-top:12px">System Rules <span class="modal-hint">(read-only)</span></div>
+      <div id="wc-sys-rules" class="wc-readonly-list"></div>
+    </div>
+  `;
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  function refreshUserRules() {
+    const container = document.getElementById('wc-user-rules');
+    container.innerHTML = '';
+    VDataSettings.getUserRules().forEach((rule) => {
+      const row = document.createElement('div');
+      row.className = 'modal-row';
+      row.innerHTML = `<span class="wc-match"></span><span class="wc-type prop-type-badge">${rule.type}</span>`;
+      row.querySelector('.wc-match').textContent = rule.match;
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'btn btn-sm btn-danger';
+      del.textContent = '✕';
+      del.addEventListener('click', () => {
+        VDataSettings.removeUserRule(rule.match);
+        refreshUserRules();
+        renderAll();
+      });
+      row.appendChild(del);
+      container.appendChild(row);
+    });
+  }
+
+  const sysContainer = document.getElementById('wc-sys-rules');
+  VDataSettings.SYSTEM_CONFIG.rules.forEach((rule) => {
+    const row = document.createElement('div');
+    row.className = 'modal-row wc-sys-row';
+    row.innerHTML = `<span class="wc-match"></span><span class="wc-type prop-type-badge">${rule.type}</span>`;
+    row.querySelector('.wc-match').textContent = rule.match;
+    sysContainer.appendChild(row);
+  });
+
+  refreshUserRules();
+
+  document.getElementById('wc-add-btn').addEventListener('click', () => {
+    const match = document.getElementById('wc-new-match').value.trim();
+    const wtype = document.getElementById('wc-new-type').value;
+    if (!match) return;
+    VDataSettings.setUserRule(match, wtype);
+    document.getElementById('wc-new-match').value = '';
+    refreshUserRules();
+    renderAll();
+  });
+
+  document.getElementById('wc-close').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+}
+
+function syncManualEditor() {
+  refreshManualEditor();
+}
+
+let _meDebounceTimer = null;
+function syncManualEditorDebounced() {
+  clearTimeout(_meDebounceTimer);
+  _meDebounceTimer = setTimeout(() => {
+    _meDebounceTimer = null;
+    syncManualEditor();
   }, 400);
 }
 
 function flushSyncDebounce() {
-  if (_syncDebounceTimer) {
-    clearTimeout(_syncDebounceTimer);
-    _syncDebounceTimer = null;
+  if (_meDebounceTimer) {
+    clearTimeout(_meDebounceTimer);
+    _meDebounceTimer = null;
   }
 }
 
 function renderAll() {
   flushSyncDebounce();
   buildPropertyTree();
-  syncRawEditors();
+  syncManualEditor();
   updateStatusBar();
 }
 
@@ -199,6 +464,38 @@ function countNodes(arr) {
 
 // ── Property Tree ───────────────────────────────────────────────────────
 
+/** Stable paths like `m_Children/[0]/m_Foo` — kept across full tree rebuilds (undo, duplicate, etc.). */
+const propTreeExpandedPaths = new Set();
+/** Depth-0 rows only: user collapsed this branch (nested defaults are lazy + expandedPaths). */
+const propTreeCollapsedPaths = new Set();
+
+function escapePropPathRe(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Path to the array value for a row that represents an array element (strip trailing `/[i]`). */
+function arrayContainerPathFromRowPath(rowPath) {
+  return rowPath.replace(/\/\[\d+\]$/, '');
+}
+
+/** After splice, indices under this array change — drop expansion state for those rows (and descendants). */
+function invalidatePropTreePathsForArrayContainer(arrayPath) {
+  const re = new RegExp('^' + escapePropPathRe(arrayPath) + '/\\[\\d+\\](?:/|$)');
+  for (const p of [...propTreeExpandedPaths]) if (re.test(p)) propTreeExpandedPaths.delete(p);
+  for (const p of [...propTreeCollapsedPaths]) if (re.test(p)) propTreeCollapsedPaths.delete(p);
+}
+
+function invalidatePropTreePathsUnderObjectKey(keyPath) {
+  const re = new RegExp('^' + escapePropPathRe(keyPath) + '(?:/|$)');
+  for (const p of [...propTreeExpandedPaths]) if (re.test(p)) propTreeExpandedPaths.delete(p);
+  for (const p of [...propTreeCollapsedPaths]) if (re.test(p)) propTreeCollapsedPaths.delete(p);
+}
+
+function clearPropTreeViewState() {
+  propTreeExpandedPaths.clear();
+  propTreeCollapsedPaths.clear();
+}
+
 const COLOUR_KEYS = new Set([
   'm_Color',
   'm_Background',
@@ -221,6 +518,18 @@ function isVec3Array(key, arr) {
   return /[Dd]ir|[Pp]os|[Vv]ec|[Oo]ffset|[Ss]cale/.test(key);
 }
 
+function isVec2Array(key, arr) {
+  if (!Array.isArray(arr) || arr.length !== 2) return false;
+  if (!arr.every((v) => typeof v === 'number')) return false;
+  return /[Uu][Vv]$|[Uu][Vv][0-9]$|[Ss]ize2[Dd]$|[Tt]exel/.test(key);
+}
+
+function isVec4Array(key, arr) {
+  if (!Array.isArray(arr) || arr.length !== 4) return false;
+  if (!arr.every((v) => typeof v === 'number')) return false;
+  return /[Qq]uat$|[Rr]otation$|[Pp]lane$|[Vv]ec4/.test(key);
+}
+
 function inferType(key, value) {
   if (value === null || value === undefined) return 'null';
   if (typeof value === 'boolean') return 'bool';
@@ -236,6 +545,8 @@ function inferType(key, value) {
     if (value.type === 'soundevent' && typeof value.value === 'string' && keysOk(value)) return 'soundevent';
   }
   if (Array.isArray(value)) {
+    if (isVec4Array(key, value)) return 'vec4';
+    if (isVec2Array(key, value)) return 'vec2';
     if (isColorArray(key, value)) return 'color';
     if (isVec3Array(key, value)) return 'vec3';
     return 'array';
@@ -244,27 +555,54 @@ function inferType(key, value) {
   return 'unknown';
 }
 
+const TYPE_ICONS = {
+  string: 'typeString',
+  int: 'typeInt',
+  float: 'typeFloat',
+  bool: 'typeBool',
+  color: 'typeColor',
+  object: 'typeObject',
+  array: 'typeArray',
+  vec2: 'typeVec2',
+  vec3: 'typeVec3',
+  vec4: 'typeVec4',
+  resource: 'typeResource',
+  soundevent: 'typeSound',
+  null: 'typeNull',
+  unknown: 'typeUnknown'
+};
+
+function resolveRowWidgetType(key, value) {
+  const inferred = inferType(key, value);
+  return VDataSettings.resolveWidgetType(key, inferred);
+}
+
 const TYPE_CAST_OPTIONS = {
   string: ['int', 'float', 'bool', 'resource', 'soundevent'],
   int: ['float', 'string', 'bool'],
   float: ['int', 'string', 'bool'],
   bool: ['int', 'string'],
   resource: ['string', 'soundevent'],
-  soundevent: ['string', 'resource']
+  soundevent: ['string', 'resource'],
+  vec2: ['vec3', 'vec4', 'array', 'string'],
+  vec3: ['vec2', 'vec4', 'array', 'string'],
+  vec4: ['vec2', 'vec3', 'array', 'string']
 };
 
-const STATIC_TYPE_BADGE = new Set(['object', 'array', 'null', 'color', 'vec3', 'unknown']);
+const STATIC_TYPE_SUMMARY = new Set(['object', 'array', 'null', 'unknown']);
 
 function buildTypeBadge(currentType, onCast) {
   const wrap = document.createElement('span');
-  wrap.className = 'prop-type-badge prop-type-badge-interactive';
-  wrap.title = 'Click to change type';
-  wrap.textContent = currentType;
+  wrap.className = 'prop-type-icon-badge prop-type-badge-interactive';
+  wrap.title = `Type: ${currentType} (click to change)`;
+  const ik = TYPE_ICONS[currentType];
+  if (ik && ICONS[ik]) wrap.innerHTML = ICONS[ik];
 
   const options = TYPE_CAST_OPTIONS[currentType];
   if (!options || options.length === 0) {
     wrap.classList.remove('prop-type-badge-interactive');
     wrap.removeAttribute('title');
+    wrap.title = currentType;
     return wrap;
   }
 
@@ -343,6 +681,24 @@ function castPropertyType(parentRef, key, value, fromType, toType, arrayIdx) {
           value: typeof value === 'string' ? value : typedResourceDisplay(value, 'soundevent') || ''
         };
         break;
+      case 'vec2': {
+        const a = Array.isArray(value) ? value.map((x) => Number(x)) : [];
+        newValue = [0, 0].map((_, i) => (Number.isFinite(a[i]) ? a[i] : 0));
+        break;
+      }
+      case 'vec3': {
+        const a = Array.isArray(value) ? value.map((x) => Number(x)) : [];
+        newValue = [0, 0, 0].map((_, i) => (Number.isFinite(a[i]) ? a[i] : 0));
+        break;
+      }
+      case 'vec4': {
+        const a = Array.isArray(value) ? value.map((x) => Number(x)) : [];
+        newValue = [0, 0, 0, 0].map((_, i) => (Number.isFinite(a[i]) ? a[i] : 0));
+        break;
+      }
+      case 'array':
+        newValue = Array.isArray(value) ? [...value] : value != null ? [value] : [];
+        break;
       default:
         newValue = value;
     }
@@ -359,87 +715,131 @@ function castPropertyType(parentRef, key, value, fromType, toType, arrayIdx) {
 function buildPropertyTree() {
   const container = document.getElementById('propTreeRoot');
   if (!container) return;
+  const scrollTop = container.scrollTop;
   container.innerHTML = '';
   if (!doc || typeof doc !== 'object') return;
-  renderObjectRows(container, doc, 0);
+  renderObjectRows(container, doc, 0, '');
   const q = document.getElementById('propTreeSearch')?.value?.trim().toLowerCase() ?? '';
   if (q) filterPropTree(q);
+  requestAnimationFrame(() => {
+    container.scrollTop = scrollTop;
+  });
 }
 
-function renderObjectRows(container, obj, depth) {
+function renderObjectRows(container, obj, depth, parentPath) {
   if (!obj || typeof obj !== 'object') return;
   for (const [key, value] of Object.entries(obj)) {
     if (value === undefined) continue;
-    const type = inferType(key, value);
-    const row = buildPropRow(key, value, type, depth, obj, undefined);
+    const type = resolveRowWidgetType(key, value);
+    const rowPath = parentPath ? `${parentPath}/${key}` : key;
+    const row = buildPropRow(key, value, type, depth, obj, undefined, rowPath);
     container.appendChild(row);
     if (type === 'object' && value !== null) {
       const children = document.createElement('div');
       children.className = 'prop-row-children';
       if (depth >= 1) {
-        children.dataset.lazy = '1';
-        children.style.display = 'none';
+        if (propTreeExpandedPaths.has(rowPath)) {
+          renderObjectRows(children, value, depth + 1, rowPath);
+          children.style.display = '';
+        } else {
+          children.dataset.lazy = '1';
+          children.style.display = 'none';
+        }
       } else {
-        renderObjectRows(children, value, depth + 1);
+        renderObjectRows(children, value, depth + 1, rowPath);
+        if (propTreeCollapsedPaths.has(rowPath)) {
+          children.style.display = 'none';
+        }
       }
       container.appendChild(children);
       const toggle = row.querySelector('.prop-key-toggle');
-      if (toggle && depth >= 1) toggle.textContent = '▸';
+      if (toggle && depth >= 1) toggle.textContent = propTreeExpandedPaths.has(rowPath) ? '▾' : '▸';
+      else if (toggle && depth === 0 && propTreeCollapsedPaths.has(rowPath)) toggle.textContent = '▸';
     } else if (type === 'array') {
       const children = document.createElement('div');
       children.className = 'prop-row-children';
       if (depth >= 1) {
-        children.dataset.lazy = '1';
-        children.style.display = 'none';
+        if (propTreeExpandedPaths.has(rowPath)) {
+          renderArrayRows(children, value, depth + 1, rowPath);
+          children.style.display = '';
+        } else {
+          children.dataset.lazy = '1';
+          children.style.display = 'none';
+        }
       } else {
-        renderArrayRows(children, value, depth + 1);
+        renderArrayRows(children, value, depth + 1, rowPath);
+        if (propTreeCollapsedPaths.has(rowPath)) {
+          children.style.display = 'none';
+        }
       }
       container.appendChild(children);
       const toggle = row.querySelector('.prop-key-toggle');
-      if (toggle && depth >= 1) toggle.textContent = '▸';
+      if (toggle && depth >= 1) toggle.textContent = propTreeExpandedPaths.has(rowPath) ? '▾' : '▸';
+      else if (toggle && depth === 0 && propTreeCollapsedPaths.has(rowPath)) toggle.textContent = '▸';
     }
   }
 }
 
-function renderArrayRows(container, arr, depth) {
+function renderArrayRows(container, arr, depth, parentPath) {
   if (!Array.isArray(arr)) return;
   arr.forEach((item, idx) => {
-    const itemType = inferType(`[${idx}]`, item);
-    const row = buildPropRow(`[${idx}]`, item, itemType, depth, arr, idx);
+    const itemType = resolveRowWidgetType(`[${idx}]`, item);
+    const rowPath = `${parentPath}/[${idx}]`;
+    const row = buildPropRow(`[${idx}]`, item, itemType, depth, arr, idx, rowPath);
     container.appendChild(row);
     if (itemType === 'object' && item !== null) {
       const children = document.createElement('div');
       children.className = 'prop-row-children';
       if (depth >= 1) {
-        children.dataset.lazy = '1';
-        children.style.display = 'none';
+        if (propTreeExpandedPaths.has(rowPath)) {
+          renderObjectRows(children, item, depth + 1, rowPath);
+          children.style.display = '';
+        } else {
+          children.dataset.lazy = '1';
+          children.style.display = 'none';
+        }
       } else {
-        renderObjectRows(children, item, depth + 1);
+        renderObjectRows(children, item, depth + 1, rowPath);
+        if (propTreeCollapsedPaths.has(rowPath)) {
+          children.style.display = 'none';
+        }
       }
       container.appendChild(children);
       const toggle = row.querySelector('.prop-key-toggle');
-      if (toggle && depth >= 1) toggle.textContent = '▸';
+      if (toggle && depth >= 1) toggle.textContent = propTreeExpandedPaths.has(rowPath) ? '▾' : '▸';
+      else if (toggle && depth === 0 && propTreeCollapsedPaths.has(rowPath)) toggle.textContent = '▸';
     } else if (itemType === 'array') {
       const children = document.createElement('div');
       children.className = 'prop-row-children';
       if (depth >= 1) {
-        children.dataset.lazy = '1';
-        children.style.display = 'none';
+        if (propTreeExpandedPaths.has(rowPath)) {
+          renderArrayRows(children, item, depth + 1, rowPath);
+          children.style.display = '';
+        } else {
+          children.dataset.lazy = '1';
+          children.style.display = 'none';
+        }
       } else {
-        renderArrayRows(children, item, depth + 1);
+        renderArrayRows(children, item, depth + 1, rowPath);
+        if (propTreeCollapsedPaths.has(rowPath)) {
+          children.style.display = 'none';
+        }
       }
       container.appendChild(children);
       const toggle = row.querySelector('.prop-key-toggle');
-      if (toggle && depth >= 1) toggle.textContent = '▸';
+      if (toggle && depth >= 1) toggle.textContent = propTreeExpandedPaths.has(rowPath) ? '▾' : '▸';
+      else if (toggle && depth === 0 && propTreeCollapsedPaths.has(rowPath)) toggle.textContent = '▸';
     }
   });
 }
 
-function buildPropRow(key, value, type, depth, parentRef, arrayIdx) {
+function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath) {
   const row = document.createElement('div');
   row.className = 'prop-row' + (type === 'object' || type === 'array' ? ' is-object' : '');
   const d = Math.min(depth, 9);
   row.dataset.depth = String(d);
+  row.dataset.type = type;
+  row.dataset.propPath = propPath;
   if (depth > 9) row.style.setProperty('--prop-depth', String(depth));
 
   const isArrayIndex = typeof arrayIdx === 'number';
@@ -448,6 +848,13 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx) {
   keyEl.className = 'prop-key';
   const pad = Math.min(depth, 12) * 16;
   keyEl.style.paddingLeft = pad + 'px';
+
+  const keyIcon = document.createElement('span');
+  keyIcon.className = 'prop-type-icon-badge';
+  keyIcon.title = type;
+  const iconKey = TYPE_ICONS[type];
+  if (iconKey && ICONS[iconKey]) keyIcon.innerHTML = ICONS[iconKey];
+  keyEl.appendChild(keyIcon);
 
   if (type === 'object' || type === 'array') {
     const childrenWillBeLazy = depth >= 1;
@@ -459,12 +866,19 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx) {
       if (!ch || !ch.classList.contains('prop-row-children')) return;
       if (ch.dataset.lazy === '1') {
         ch.removeAttribute('data-lazy');
-        if (type === 'object') renderObjectRows(ch, value, depth + 1);
-        else renderArrayRows(ch, value, depth + 1);
+        if (type === 'object') renderObjectRows(ch, value, depth + 1, propPath);
+        else renderArrayRows(ch, value, depth + 1, propPath);
       }
-      const collapsed = ch.style.display === 'none';
-      ch.style.display = collapsed ? '' : 'none';
-      toggle.textContent = collapsed ? '▾' : '▸';
+      const wasCollapsed = ch.style.display === 'none';
+      ch.style.display = wasCollapsed ? '' : 'none';
+      toggle.textContent = wasCollapsed ? '▾' : '▸';
+      if (depth >= 1) {
+        if (wasCollapsed) propTreeExpandedPaths.add(propPath);
+        else propTreeExpandedPaths.delete(propPath);
+      } else {
+        if (wasCollapsed) propTreeCollapsedPaths.delete(propPath);
+        else propTreeCollapsedPaths.add(propPath);
+      }
     });
     keyEl.appendChild(toggle);
   } else {
@@ -490,16 +904,14 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx) {
   const valEl = document.createElement('div');
   valEl.className = 'prop-value';
 
-  if (STATIC_TYPE_BADGE.has(type)) {
-    const badge = document.createElement('span');
-    badge.className = 'prop-type-badge';
-    if (type === 'object') badge.textContent = `{ ${Object.keys(value).length} }`;
-    else if (type === 'array') badge.textContent = `[ ${value.length} ]`;
-    else if (type === 'null') badge.textContent = 'null';
-    else if (type === 'color') badge.textContent = 'color';
-    else if (type === 'vec3') badge.textContent = 'vec3';
-    else badge.textContent = type;
-    valEl.appendChild(badge);
+  if (STATIC_TYPE_SUMMARY.has(type)) {
+    const sum = document.createElement('span');
+    sum.className = 'prop-value-summary';
+    if (type === 'object' && value !== null) sum.textContent = `{ ${Object.keys(value).length} keys }`;
+    else if (type === 'array') sum.textContent = `[ ${value.length} items ]`;
+    else if (type === 'null') sum.textContent = 'null';
+    else sum.textContent = type;
+    valEl.appendChild(sum);
   } else {
     valEl.appendChild(
       buildTypeBadge(type, (newType) => {
@@ -530,8 +942,14 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx) {
     case 'color':
       buildColorWidget(valEl, value, onScalarChange);
       break;
+    case 'vec2':
+      buildVec2Widget(valEl, value, onScalarChange);
+      break;
     case 'vec3':
       buildVec3Widget(valEl, value, onScalarChange);
+      break;
+    case 'vec4':
+      buildVec4Widget(valEl, value, onScalarChange);
       break;
     case 'object':
     case 'array':
@@ -553,6 +971,7 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx) {
     e.stopPropagation();
     if (isArrayIndex) {
       withDocUndo(() => {
+        invalidatePropTreePathsForArrayContainer(arrayContainerPathFromRowPath(propPath));
         parentRef.splice(arrayIdx + 1, 0, deepClone(value));
       });
     } else {
@@ -596,8 +1015,13 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx) {
   delBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     withDocUndo(() => {
-      if (isArrayIndex) parentRef.splice(arrayIdx, 1);
-      else delete parentRef[key];
+      if (isArrayIndex) {
+        invalidatePropTreePathsForArrayContainer(arrayContainerPathFromRowPath(propPath));
+        parentRef.splice(arrayIdx, 1);
+      } else {
+        invalidatePropTreePathsUnderObjectKey(propPath);
+        delete parentRef[key];
+      }
     });
   });
   actions.appendChild(delBtn);
@@ -805,6 +1229,50 @@ function buildVec3Widget(container, value, onChange) {
   });
 }
 
+function buildVec2Widget(container, value, onChange) {
+  const v = Array.isArray(value) ? [...value] : [0, 0];
+  ['X', 'Y'].forEach((axis, i) => {
+    const lbl = document.createElement('span');
+    lbl.className = 'prop-type-badge';
+    lbl.textContent = axis;
+    const inp = document.createElement('input');
+    inp.type = 'number';
+    inp.className = 'prop-input';
+    inp.style.width = '62px';
+    inp.style.flex = 'none';
+    inp.step = 'any';
+    inp.value = String(v[i]);
+    inp.addEventListener('change', () => {
+      v[i] = parseFloat(inp.value) || 0;
+      onChange([...v]);
+    });
+    container.appendChild(lbl);
+    container.appendChild(inp);
+  });
+}
+
+function buildVec4Widget(container, value, onChange) {
+  const v = Array.isArray(value) ? [...value] : [0, 0, 0, 0];
+  ['X', 'Y', 'Z', 'W'].forEach((axis, i) => {
+    const lbl = document.createElement('span');
+    lbl.className = 'prop-type-badge';
+    lbl.textContent = axis;
+    const inp = document.createElement('input');
+    inp.type = 'number';
+    inp.className = 'prop-input';
+    inp.style.width = '55px';
+    inp.style.flex = 'none';
+    inp.step = 'any';
+    inp.value = String(v[i]);
+    inp.addEventListener('change', () => {
+      v[i] = parseFloat(inp.value) || 0;
+      onChange([...v]);
+    });
+    container.appendChild(lbl);
+    container.appendChild(inp);
+  });
+}
+
 function commitValue(parentRef, key, newValue, arrayIdx, isStructural = false) {
   const useIdx = arrayIdx !== undefined && arrayIdx !== null && Array.isArray(parentRef);
   const oldValue = useIdx ? deepClone(parentRef[arrayIdx]) : deepClone(parentRef[key]);
@@ -817,7 +1285,7 @@ function commitValue(parentRef, key, newValue, arrayIdx, isStructural = false) {
       markDirty();
       flushSyncDebounce();
       buildPropertyTree();
-      syncRawEditors();
+      syncManualEditor();
     },
     redo: () => {
       if (useIdx) parentRef[arrayIdx] = deepClone(newSnapshot);
@@ -825,7 +1293,7 @@ function commitValue(parentRef, key, newValue, arrayIdx, isStructural = false) {
       markDirty();
       flushSyncDebounce();
       buildPropertyTree();
-      syncRawEditors();
+      syncManualEditor();
     }
   });
 
@@ -835,9 +1303,9 @@ function commitValue(parentRef, key, newValue, arrayIdx, isStructural = false) {
   if (isStructural) {
     flushSyncDebounce();
     buildPropertyTree();
-    syncRawEditors();
+    syncManualEditor();
   } else {
-    syncRawEditorsDebounced();
+    syncManualEditorDebounced();
   }
 }
 
@@ -865,58 +1333,11 @@ function initPropTreeSearch() {
   inp.addEventListener('input', () => filterPropTree(inp.value.trim().toLowerCase()));
 }
 
-// ── Tabs & raw apply ───────────────────────────────────────────────────
-
-function switchTab(btn, tabId) {
-  flushSyncDebounce();
-  btn.parentElement.querySelectorAll('.panel-tab').forEach((t) => t.classList.remove('active'));
-  btn.classList.add('active');
-  btn.closest('.panel').querySelectorAll('.tab-content').forEach((t) => t.classList.remove('active'));
-  document.getElementById(tabId).classList.add('active');
-  if (tabId === 'jsonEdit') document.getElementById('jsonEditor').value = JSON.stringify(doc, null, 2);
-  if (tabId === 'kv3Tab') document.getElementById('kv3Editor').value = serializeDocument();
-}
-
-function applyJSONEdit() {
-  try {
-    const newDoc = JSON.parse(document.getElementById('jsonEditor').value);
-    withDocUndo(() => {
-      documentFormat = 'json';
-      assignDocRoot(newDoc);
-      ensureSmartPropRootArrays();
-      recalcAllIds();
-    });
-    setStatus('JSON applied successfully');
-  } catch (e) {
-    setStatus('Invalid JSON: ' + e.message);
-  }
-}
-
-function applyKV3Edit() {
-  try {
-    document.getElementById('kv3Editor').removeAttribute('readonly');
-    const raw = document.getElementById('kv3Editor').value;
-    const parsed = documentFormat === 'keyvalue' ? keyValueToJSON(raw) : kv3ToJSON(raw);
-    withDocUndo(() => {
-      assignDocRoot(parsed);
-      ensureSmartPropRootArrays();
-      recalcAllIds();
-    });
-    setStatus(documentFormat === 'keyvalue' ? 'KeyValues applied successfully' : 'KV3 applied successfully');
-  } catch (e) {
-    setStatus((documentFormat === 'keyvalue' ? 'KeyValues' : 'KV3') + ' parse error: ' + e.message);
-  }
-}
-
-function copyKV3() {
-  navigator.clipboard.writeText(document.getElementById('kv3Editor').value);
-  setStatus('KV3 copied to clipboard');
-}
-
 // ── File operations ──────────────────────────────────────────────────────
 
 function newDocument() {
   withDocUndo(() => {
+    clearPropTreeViewState();
     documentFormat = 'kv3';
     assignDocRoot({ generic_data_type: 'CSmartPropRoot', m_Children: [], m_Variables: [] });
     nextElementId = 1;
@@ -937,6 +1358,7 @@ function importKV3() {
       try {
         const { root, format } = parseDocumentContent(ev.target.result, file.name);
         withDocUndo(() => {
+          clearPropTreeViewState();
           documentFormat = format;
           assignDocRoot(root);
           ensureSmartPropRootArrays();
@@ -1221,7 +1643,31 @@ function initMenuBar() {
         else window.close();
       } else if (action === 'undo') undo();
       else if (action === 'redo') redo();
-      else if (action === 'minimize' && window.electronAPI?.minimize) window.electronAPI.minimize();
+      else if (action === 'exportUserConfig') {
+        downloadBlob(new Blob([VDataSettings.exportUserConfig()], { type: 'application/json' }), 'vdata_widget_config.json');
+      } else if (action === 'importUserConfig') {
+        const inp = document.createElement('input');
+        inp.type = 'file';
+        inp.accept = '.json';
+        inp.onchange = (ev) => {
+          const f = ev.target.files[0];
+          if (!f) return;
+          const r = new FileReader();
+          r.onload = (ev2) => {
+            try {
+              VDataSettings.importUserConfig(ev2.target.result);
+              renderAll();
+              setStatus('Widget config imported');
+            } catch (err) {
+              setStatus('Import error: ' + err.message);
+            }
+          };
+          r.readAsText(f);
+        };
+        inp.click();
+      } else if (action === 'openWidgetConfig') {
+        openWidgetConfigDialog();
+      } else if (action === 'minimize' && window.electronAPI?.minimize) window.electronAPI.minimize();
       else if (action === 'zoom' && window.electronAPI?.zoom) window.electronAPI.zoom();
       else if (action === 'fullscreen' && window.electronAPI?.toggleFullScreen) window.electronAPI.toggleFullScreen();
       else if (action === 'about') {
@@ -1271,6 +1717,7 @@ document.addEventListener('keydown', (e) => {
 setDocumentTitle('Untitled');
 initMenuBar();
 initPropTreeSearch();
+initManualEditPanel();
 renderAll();
 
 if (window.electronAPI?.getVersion) {
@@ -1287,6 +1734,7 @@ if (window.electronAPI) {
         const fileName = filePath.split(/[\\/]/).pop();
         const { root, format } = parseDocumentContent(content, fileName);
         withDocUndo(() => {
+          clearPropTreeViewState();
           documentFormat = format;
           assignDocRoot(root);
           ensureSmartPropRootArrays();

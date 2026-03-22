@@ -13,6 +13,7 @@
   <div class="app-menu-bar">
     <div class="menu-item" data-menu="file">File</div>
     <div class="menu-item" data-menu="edit">Edit</div>
+    <div class="menu-item" data-menu="settings">Settings</div>
     <div class="menu-item" data-menu="window">Window</div>
     <div class="menu-item" data-menu="help">Help</div>
   </div>
@@ -29,6 +30,12 @@
   <div class="menu-dropdown" id="menuEdit">
     <div class="menu-dropdown-item" data-action="undo"><span class="menu-item-label"><span class="menu-icon" id="mi-undo"></span>Undo</span><span class="shortcut">Ctrl+Z</span></div>
     <div class="menu-dropdown-item" data-action="redo"><span class="menu-item-label"><span class="menu-icon" id="mi-redo"></span>Redo</span><span class="shortcut">Ctrl+Shift+Z</span></div>
+  </div>
+  <div class="menu-dropdown" id="menuSettings">
+    <div class="menu-dropdown-item" data-action="openWidgetConfig"><span class="menu-item-label">Widget Config…</span></div>
+    <div class="menu-sep"></div>
+    <div class="menu-dropdown-item" data-action="exportUserConfig"><span class="menu-item-label">Export User Config</span></div>
+    <div class="menu-dropdown-item" data-action="importUserConfig"><span class="menu-item-label">Import User Config…</span></div>
   </div>
   <div class="menu-dropdown" id="menuWindow">
     <div class="menu-dropdown-item" data-action="minimize"><span class="menu-item-label"><span class="menu-icon" id="mi-minimize"></span>Minimize</span></div>
@@ -52,19 +59,41 @@
       </div>
     </div>
     <div class="dock-resize-h" data-resize="props-editors"></div>
-    <div class="dock-panel panel" id="editorsPanel" style="width:380px;min-width:220px;background:var(--bg-secondary)">
+    <div class="dock-panel panel panel-manual-edit" id="editorsPanel" style="width:380px;min-width:220px;background:var(--bg-secondary)">
       <div class="dock-handle" data-dock-id="editors">
-        <span class="dock-handle-title">Source</span>
+        <span class="dock-handle-title">Manual Edit</span>
         <div class="dock-handle-actions">
           <button id="tb-undock-editors" onclick="undockPanel('editors')" title="Undock"></button>
         </div>
       </div>
-      <div class="panel-tabs">
-        <button class="panel-tab active" onclick="switchTab(this,'jsonEdit')">JSON Edit</button>
-        <button class="panel-tab" onclick="switchTab(this,'kv3Tab')">KV3</button>
+      <div class="manual-edit-toolbar">
+        <label class="me-format-label">
+          <input type="radio" name="meFormat" value="json" id="meFormatJson" checked> JSON
+        </label>
+        <label class="me-format-label">
+          <input type="radio" name="meFormat" value="kv3" id="meFormatKv3"> KV3
+        </label>
+        <label class="me-format-label" title="Parse and apply on every keystroke (slow for large docs)">
+          <input type="checkbox" id="meLiveSync"> Live
+        </label>
+        <div style="flex:1"></div>
+        <button type="button" class="btn btn-sm btn-accent" id="meApplyBtn">Apply</button>
+        <button type="button" class="btn btn-sm" id="meCopyBtn">Copy</button>
       </div>
-      <div class="tab-content active" id="jsonEdit"><textarea class="code-area" id="jsonEditor" spellcheck="false"></textarea><div style="padding:6px;flex-shrink:0;border-top:1px solid var(--border-subtle)"><button class="btn btn-sm btn-accent" onclick="applyJSONEdit()">Apply Changes</button></div></div>
-      <div class="tab-content" id="kv3Tab"><textarea class="code-area" id="kv3Editor" spellcheck="false" readonly></textarea><div style="padding:6px;flex-shrink:0;border-top:1px solid var(--border-subtle);display:flex;gap:4px"><button class="btn btn-sm" onclick="copyKV3()">Copy KV3</button><button class="btn btn-sm btn-accent" onclick="applyKV3Edit()">Apply KV3</button></div></div>
+      <div class="me-search-bar" id="meSearchBar" style="display:none">
+        <input type="text" id="meSearchInput" class="prop-input" placeholder="Find…" style="flex:1">
+        <input type="text" id="meReplaceInput" class="prop-input" placeholder="Replace…" style="flex:1">
+        <span id="meMatchCount" class="me-match-count">0/0</span>
+        <button type="button" class="btn btn-sm" id="mePrevMatch" title="Previous (Shift+Enter)">↑</button>
+        <button type="button" class="btn btn-sm" id="meNextMatch" title="Next (Enter)">↓</button>
+        <button type="button" class="btn btn-sm btn-accent" id="meReplaceOne">Replace</button>
+        <button type="button" class="btn btn-sm" id="meReplaceAll">All</button>
+        <button type="button" class="btn btn-sm" id="meSearchClose">✕</button>
+      </div>
+      <div class="me-editor-wrap">
+        <div class="me-gutter" id="meGutter"></div>
+        <textarea class="code-area me-textarea" id="manualEditor" spellcheck="false"></textarea>
+      </div>
     </div>
   </div>
   <div class="footer">
@@ -78,6 +107,8 @@
 <script src="src/model/kv3-node.js"></script>
 <script src="src/model/kv3-document.js"></script>
 <script src="src/formats/registry.js"></script>
+<script src="src/settings/system-config.js"></script>
+<script src="src/settings/widget-config.js"></script>
 <script src="icons.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {

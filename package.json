@@ -4,7 +4,7 @@
   "description": "Desktop editor for Source 2 KV3 data (.vsmart, .vdata, .vpcf, .kv3, …).",
   "keywords": [],
   "main": "./main.js",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "author": "dertwist",
   "scripts": {
     "start": "electron .",
