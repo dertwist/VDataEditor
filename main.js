@@ -4,7 +4,7 @@ const fs = require('fs')
 
 /** Keep in sync with package.json build.fileAssociations */
 const OPEN_FILE_EXTENSIONS =
-  'vdata|vsmart|vpcf|kv3|vsurf|vsndstck|vpulse|vmdl|vmat'
+  'vdata|vsmart|vpcf|kv3|vsurf|vsndstck|vsndevts|vpulse|vmdl|vmat|vmt'
 const OPEN_FILE_RE = new RegExp(`\\.(${OPEN_FILE_EXTENSIONS})$`, 'i')
 
 let mainWindow = null

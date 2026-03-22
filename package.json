@@ -52,6 +52,12 @@
         "role": "Editor"
       },
       {
+        "ext": "vsndevts",
+        "name": "Sound events",
+        "description": "Source 2 sound events (KV3)",
+        "role": "Editor"
+      },
+      {
         "ext": "vpulse",
         "name": "Pulse",
         "description": "Source 2 Pulse / script graph (KV3)",
@@ -66,7 +72,7 @@
       {
         "ext": "vmat",
         "name": "Material",
-        "description": "Source 2 material (KV3)",
+        "description": "Source 2 material (Valve KeyValues text)",
         "role": "Editor"
       }
     ],
