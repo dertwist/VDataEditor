@@ -1,5 +1,9 @@
 // Delegate KV3 serialisation/parsing to the shared library (format/kv3.js).
 const { jsonToKV3, kv3ToJSON } = KV3Format;
+const { keyValueToJSON, jsonToKeyValue } = KeyValueFormat;
+
+/** How the right-hand "source" tab and Save serialise: KV3, JSON, or Valve KeyValues (.vmat / .vmt). */
+let documentFormat = 'kv3';
 
 const kv3Document = VDataKV3.KV3Document.createSmartPropDefault();
 let doc = kv3Document.getRoot();
@@ -15,6 +19,62 @@ let currentFilePath = null;
 
 function deepClone(obj) {
   return JSON.parse(JSON.stringify(obj));
+}
+
+function fileExtension(name) {
+  if (!name || typeof name !== 'string') return '';
+  const m = /\.([^.\\/]+)$/.exec(name);
+  return m ? m[1].toLowerCase() : '';
+}
+
+function syncDocumentFormatFromFilename(name) {
+  const ext = fileExtension(name);
+  if (ext === 'vmat' || ext === 'vmt') documentFormat = 'keyvalue';
+  else if (ext === 'json') documentFormat = 'json';
+  else documentFormat = 'kv3';
+}
+
+function parseDocumentContent(text, hintFileName) {
+  const ext = fileExtension(hintFileName);
+  if (ext === 'vmat' || ext === 'vmt') return { root: keyValueToJSON(text), format: 'keyvalue' };
+  if (ext === 'json') return { root: JSON.parse(text), format: 'json' };
+  return { root: kv3ToJSON(text), format: 'kv3' };
+}
+
+function serializeDocument() {
+  if (documentFormat === 'keyvalue') return jsonToKeyValue(doc);
+  if (documentFormat === 'json') return JSON.stringify(doc, null, 2);
+  return jsonToKV3(doc);
+}
+
+/** KV3 text extensions we can round-trip; used for Save As default name in browser. */
+const KV3_LIKE_EXT = new Set([
+  'vdata',
+  'vsmart',
+  'vpcf',
+  'kv3',
+  'vsurf',
+  'vsndstck',
+  'vsndevts',
+  'vpulse',
+  'vmdl',
+  'txt'
+]);
+
+function defaultDownloadExtension() {
+  if (documentFormat === 'keyvalue') return 'vmat';
+  if (documentFormat === 'json') return 'json';
+  const ext = fileExtension(currentFileName);
+  if (KV3_LIKE_EXT.has(ext)) return ext;
+  return 'vdata';
+}
+
+/** Smart-prop roots expect these arrays; do not add them to arbitrary KeyValues trees (e.g. VMAT). */
+function ensureSmartPropRootArrays() {
+  if (doc && doc.generic_data_type === 'CSmartPropRoot') {
+    if (!doc.m_Children) doc.m_Children = [];
+    if (!doc.m_Variables) doc.m_Variables = [];
+  }
 }
 
 function markDirty() {
@@ -60,13 +120,16 @@ function redo() {
   commandUndoStack.push(cmd);
 }
 
-/** Wrap a synchronous document mutation with undo/redo that snapshots `doc`. */
+/** Wrap a synchronous document mutation with undo/redo that snapshots `doc` and `documentFormat`. */
 function withDocUndo(applyFn) {
   const prev = deepClone(doc);
+  const prevFormat = documentFormat;
   applyFn();
   const next = deepClone(doc);
+  const nextFormat = documentFormat;
   pushUndoCommand({
     undo: () => {
+      documentFormat = prevFormat;
       assignDocRoot(deepClone(prev));
       doc = kv3Document.getRoot();
       recalcAllIds();
@@ -74,6 +137,7 @@ function withDocUndo(applyFn) {
       renderAll();
     },
     redo: () => {
+      documentFormat = nextFormat;
       assignDocRoot(deepClone(next));
       doc = kv3Document.getRoot();
       recalcAllIds();
@@ -89,7 +153,7 @@ function syncRawEditors() {
   const jsonEl = document.getElementById('jsonEditor');
   if (jsonEl) jsonEl.value = JSON.stringify(doc, null, 2);
   const kv3El = document.getElementById('kv3Editor');
-  if (kv3El) kv3El.value = jsonToKV3(doc);
+  if (kv3El) kv3El.value = serializeDocument();
 }
 
 let _syncDebounceTimer = null;
@@ -810,16 +874,16 @@ function switchTab(btn, tabId) {
   btn.closest('.panel').querySelectorAll('.tab-content').forEach((t) => t.classList.remove('active'));
   document.getElementById(tabId).classList.add('active');
   if (tabId === 'jsonEdit') document.getElementById('jsonEditor').value = JSON.stringify(doc, null, 2);
-  if (tabId === 'kv3Tab') document.getElementById('kv3Editor').value = jsonToKV3(doc);
+  if (tabId === 'kv3Tab') document.getElementById('kv3Editor').value = serializeDocument();
 }
 
 function applyJSONEdit() {
   try {
     const newDoc = JSON.parse(document.getElementById('jsonEditor').value);
     withDocUndo(() => {
+      documentFormat = 'json';
       assignDocRoot(newDoc);
-      if (!doc.m_Children) doc.m_Children = [];
-      if (!doc.m_Variables) doc.m_Variables = [];
+      ensureSmartPropRootArrays();
       recalcAllIds();
     });
     setStatus('JSON applied successfully');
@@ -831,17 +895,16 @@ function applyJSONEdit() {
 function applyKV3Edit() {
   try {
     document.getElementById('kv3Editor').removeAttribute('readonly');
-    const kv3 = document.getElementById('kv3Editor').value;
-    const parsed = kv3ToJSON(kv3);
+    const raw = document.getElementById('kv3Editor').value;
+    const parsed = documentFormat === 'keyvalue' ? keyValueToJSON(raw) : kv3ToJSON(raw);
     withDocUndo(() => {
       assignDocRoot(parsed);
-      if (!doc.m_Children) doc.m_Children = [];
-      if (!doc.m_Variables) doc.m_Variables = [];
+      ensureSmartPropRootArrays();
       recalcAllIds();
     });
-    setStatus('KV3 applied successfully');
+    setStatus(documentFormat === 'keyvalue' ? 'KeyValues applied successfully' : 'KV3 applied successfully');
   } catch (e) {
-    setStatus('KV3 parse error: ' + e.message);
+    setStatus((documentFormat === 'keyvalue' ? 'KeyValues' : 'KV3') + ' parse error: ' + e.message);
   }
 }
 
@@ -854,6 +917,7 @@ function copyKV3() {
 
 function newDocument() {
   withDocUndo(() => {
+    documentFormat = 'kv3';
     assignDocRoot({ generic_data_type: 'CSmartPropRoot', m_Children: [], m_Variables: [] });
     nextElementId = 1;
     currentFilePath = null;
@@ -864,19 +928,20 @@ function newDocument() {
 
 function importKV3() {
   const input = document.getElementById('fileInput');
-  input.accept = '.json,.vdata,.vsmart,.vpcf,.kv3,.vsurf,.vsndstck,.vpulse,.vmdl,.vmat,.txt';
+  input.accept = '.json,.vdata,.vsmart,.vpcf,.kv3,.vsurf,.vsndstck,.vsndevts,.vpulse,.vmdl,.vmat,.vmt,.txt';
   input.onchange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
-        const parsed = kv3ToJSON(ev.target.result);
+        const { root, format } = parseDocumentContent(ev.target.result, file.name);
         withDocUndo(() => {
-          assignDocRoot(parsed);
-          if (!doc.m_Children) doc.m_Children = [];
-          if (!doc.m_Variables) doc.m_Variables = [];
+          documentFormat = format;
+          assignDocRoot(root);
+          ensureSmartPropRootArrays();
           recalcAllIds();
+          currentFilePath = null;
           setDocumentTitle(file.name);
         });
         setStatus('Opened: ' + file.name);
@@ -893,7 +958,7 @@ function importKV3() {
 function saveFile() {
   if (currentFilePath && window.electronAPI?.saveFile) {
     window.electronAPI
-      .saveFile(currentFilePath, jsonToKV3(doc))
+      .saveFile(currentFilePath, serializeDocument())
       .then(() => setStatus('Saved: ' + currentFileName))
       .catch((e) => setStatus('Save error: ' + e.message));
   } else {
@@ -906,29 +971,44 @@ function saveFileAs() {
     const base = currentFileName.replace(/\.[^.]+$/, '') || 'untitled';
     window.electronAPI
       .showSaveDialog({
-        defaultPath: base + '.vdata',
+        defaultPath: base + '.' + defaultDownloadExtension(),
         filters: [
           {
             name: 'VData / KV3',
-            extensions: ['vdata', 'vsmart', 'vpcf', 'kv3', 'vsurf', 'vsndstck', 'vpulse', 'vmdl', 'vmat']
+            extensions: [
+              'vdata',
+              'vsmart',
+              'vpcf',
+              'kv3',
+              'vsurf',
+              'vsndstck',
+              'vsndevts',
+              'vpulse',
+              'vmdl',
+              'vmat',
+              'vmt'
+            ]
           },
           { name: 'All Files', extensions: ['*'] }
         ]
       })
       .then((result) => {
         if (result.canceled || !result.filePath) return;
+        const savedName = result.filePath.split(/[\\/]/).pop();
         window.electronAPI
-          .saveFile(result.filePath, jsonToKV3(doc))
+          .saveFile(result.filePath, serializeDocument())
           .then(() => {
             currentFilePath = result.filePath;
-            setDocumentTitle(result.filePath.split(/[\\/]/).pop());
+            syncDocumentFormatFromFilename(savedName);
+            setDocumentTitle(savedName);
             setStatus('Saved: ' + currentFileName);
           })
           .catch((e) => setStatus('Save error: ' + e.message));
       });
   } else {
     const base = currentFileName.replace(/\.[^.]+$/, '') || 'untitled';
-    downloadBlob(new Blob([jsonToKV3(doc)], { type: 'text/plain' }), base + '.vdata');
+    const ext = defaultDownloadExtension();
+    downloadBlob(new Blob([serializeDocument()], { type: 'text/plain' }), base + '.' + ext);
   }
 }
 
@@ -1204,12 +1284,12 @@ if (window.electronAPI) {
   window.electronAPI.onOpenFile((filePath) => {
     window.electronAPI.readFile(filePath).then((content) => {
       try {
-        const parsed = content.trim().startsWith('<!--') ? kv3ToJSON(content) : JSON.parse(content);
         const fileName = filePath.split(/[\\/]/).pop();
+        const { root, format } = parseDocumentContent(content, fileName);
         withDocUndo(() => {
-          assignDocRoot(parsed);
-          if (!doc.m_Children) doc.m_Children = [];
-          if (!doc.m_Variables) doc.m_Variables = [];
+          documentFormat = format;
+          assignDocRoot(root);
+          ensureSmartPropRootArrays();
           recalcAllIds();
           currentFilePath = filePath;
           setDocumentTitle(fileName);
