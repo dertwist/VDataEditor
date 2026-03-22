@@ -2,6 +2,11 @@ const { app, BrowserWindow, ipcMain, Menu, dialog } = require('electron/main')
 const path = require('node:path')
 const fs = require('fs')
 
+/** Keep in sync with package.json build.fileAssociations */
+const OPEN_FILE_EXTENSIONS =
+  'vdata|vsmart|vpcf|kv3|vsurf|vsndstck|vpulse|vmdl|vmat'
+const OPEN_FILE_RE = new RegExp(`\\.(${OPEN_FILE_EXTENSIONS})$`, 'i')
+
 let mainWindow = null
 
 function createWindow(filePath) {
@@ -39,8 +44,7 @@ app.on('open-file', (event, filePath) => {
 app.whenReady().then(() => {
   // Windows: file path passed as CLI argument
   const args = process.argv.slice(app.isPackaged ? 1 : 2)
-  const filePath =
-    args.find((a) => /\.(vsmart|vdata|vpcf|kv3)$/i.test(a)) || null
+  const filePath = args.find((a) => OPEN_FILE_RE.test(a)) || null
   createWindow(filePath)
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow(null)

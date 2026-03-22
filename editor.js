@@ -864,7 +864,7 @@ function newDocument() {
 
 function importKV3() {
   const input = document.getElementById('fileInput');
-  input.accept = '.json,.vsmart,.vdata,.vpcf,.kv3,.vsurf,.vsndstck,.vpulse,.txt';
+  input.accept = '.json,.vdata,.vsmart,.vpcf,.kv3,.vsurf,.vsndstck,.vpulse,.vmdl,.vmat,.txt';
   input.onchange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -908,7 +908,10 @@ function saveFileAs() {
       .showSaveDialog({
         defaultPath: base + '.vdata',
         filters: [
-          { name: 'VData / KV3', extensions: ['vsmart', 'vdata', 'vpcf', 'kv3'] },
+          {
+            name: 'VData / KV3',
+            extensions: ['vdata', 'vsmart', 'vpcf', 'kv3', 'vsurf', 'vsndstck', 'vpulse', 'vmdl', 'vmat']
+          },
           { name: 'All Files', extensions: ['*'] }
         ]
       })

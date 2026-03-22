@@ -16,9 +16,57 @@
     "productName": "VDataEditor",
     "fileAssociations": [
       {
+        "ext": "vdata",
+        "name": "VData",
+        "description": "Source 2 generic VData (KV3)",
+        "role": "Editor"
+      },
+      {
         "ext": "vsmart",
-        "name": "VData (SmartProp)",
-        "description": "Source 2 KV3 / SmartProp",
+        "name": "SmartProp",
+        "description": "Source 2 SmartProp (KV3)",
+        "role": "Editor"
+      },
+      {
+        "ext": "vpcf",
+        "name": "Particle system",
+        "description": "Source 2 particle system (KV3)",
+        "role": "Editor"
+      },
+      {
+        "ext": "kv3",
+        "name": "KV3",
+        "description": "Source 2 KeyValues3 text",
+        "role": "Editor"
+      },
+      {
+        "ext": "vsurf",
+        "name": "Surface properties",
+        "description": "Source 2 surface / material properties (KV3)",
+        "role": "Editor"
+      },
+      {
+        "ext": "vsndstck",
+        "name": "Sound stack",
+        "description": "Source 2 sound stack (KV3)",
+        "role": "Editor"
+      },
+      {
+        "ext": "vpulse",
+        "name": "Pulse",
+        "description": "Source 2 Pulse / script graph (KV3)",
+        "role": "Editor"
+      },
+      {
+        "ext": "vmdl",
+        "name": "Model",
+        "description": "Source 2 model compile text / KV3 sidecar",
+        "role": "Editor"
+      },
+      {
+        "ext": "vmat",
+        "name": "Material",
+        "description": "Source 2 material (KV3)",
         "role": "Editor"
       }
     ],
