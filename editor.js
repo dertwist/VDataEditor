@@ -1583,9 +1583,10 @@ document.querySelectorAll('.dock-resize-h').forEach((handle) => {
       const newLeft = Math.max(180, startLeftW + dx);
       const newRight = Math.max(200, startRightW - dx);
       leftPanel.style.width = newLeft + 'px';
-      leftPanel.style.flex = 'none';
+      // Keep the dragged widths as flex-basis, but allow both panels to resize with the window.
+      leftPanel.style.flex = `${newLeft} 1 ${newLeft}px`;
       rightPanel.style.width = newRight + 'px';
-      rightPanel.style.flex = 'none';
+      rightPanel.style.flex = `${newRight} 1 ${newRight}px`;
     }
     function onUp() {
       handle.classList.remove('active');
