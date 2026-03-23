@@ -567,7 +567,93 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath) {
     })
   );
 
-  const onScalarChange = (v) => commitValue(parentRef, key, v, arrayIdx, false);
+  // Slider scrubs update the document live but only push ONE undo entry for the whole drag.
+  let sliderScrubActive = false;
+  let sliderScrubDidChange = false;
+  let sliderScrubTx = null;
+
+  function setScalarNoUndo(v) {
+    const useIdx = arrayIdx !== undefined && arrayIdx !== null && Array.isArray(parentRef);
+    if (useIdx) parentRef[arrayIdx] = v;
+    else parentRef[key] = v;
+  }
+
+  function beginSliderScrub() {
+    if (sliderScrubActive) return;
+    const d = docManager.activeDoc;
+    if (!d) return;
+    sliderScrubActive = true;
+    sliderScrubDidChange = false;
+    sliderScrubTx = { prevRoot: deepClone(d.root), prevFormat: d.format, label: `Edit: ${key}` };
+  }
+
+  function endSliderScrub() {
+    if (!sliderScrubActive) return;
+    sliderScrubActive = false;
+
+    const tx = sliderScrubTx;
+    sliderScrubTx = null;
+
+    if (!tx || !sliderScrubDidChange) {
+      sliderScrubDidChange = false;
+      return;
+    }
+
+    const d = docManager.activeDoc;
+    if (!d) return;
+
+    const nextRoot = deepClone(d.root);
+    const nextFormat = d.format;
+    sliderScrubDidChange = false;
+
+    pushUndoCommand({
+      label: tx.label,
+      undo: () => {
+        d.format = tx.prevFormat;
+        d.root = deepClone(tx.prevRoot);
+        d.recalcElementIds();
+        d.dirty = true;
+        docManager.dispatchEvent(new Event('tabs-changed'));
+        renderAll();
+      },
+      redo: () => {
+        d.format = nextFormat;
+        d.root = deepClone(nextRoot);
+        d.recalcElementIds();
+        d.dirty = true;
+        docManager.dispatchEvent(new Event('tabs-changed'));
+        renderAll();
+      }
+    });
+
+    d.dirty = true;
+    docManager.dispatchEvent(new Event('tabs-changed'));
+    renderAll();
+    setStatus('Property edited', 'edited');
+  }
+
+  const sliderOpts = {
+    onScrubStart: beginSliderScrub,
+    onScrubEnd: endSliderScrub
+  };
+
+  const onScalarChange = (v) => {
+    if (sliderScrubActive) {
+      sliderScrubDidChange = true;
+      setScalarNoUndo(v);
+      return;
+    }
+    commitValue(parentRef, key, v, arrayIdx, false);
+  };
+
+  const onComponentsChange = (newArr) => {
+    if (sliderScrubActive) {
+      sliderScrubDidChange = true;
+      setScalarNoUndo(newArr);
+      return;
+    }
+    commitValue(parentRef, key, newArr, arrayIdx, true);
+  };
 
   switch (type) {
     case 'bool':
@@ -575,19 +661,17 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath) {
       break;
     case 'int':
     case 'float':
-      buildNumberWidget(valEl, value, type, onScalarChange);
+      buildNumberWidget(valEl, value, type, onScalarChange, sliderOpts);
       break;
     case 'float_slider_01':
-      buildFloatSlider01Widget(valEl, value, onScalarChange);
+      buildFloatSlider01Widget(valEl, value, onScalarChange, sliderOpts);
       break;
     case 'readonly_string':
       buildReadonlyStringWidget(valEl, value);
       break;
     case 'components':
       valEl.appendChild(
-        buildComponentsWidget(value, (newArr) => {
-          commitValue(parentRef, key, newArr, arrayIdx, true);
-        })
+        buildComponentsWidget(value, onComponentsChange, sliderOpts)
       );
       break;
     case 'string':
@@ -606,7 +690,7 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath) {
       buildVec2Widget(valEl, value, onScalarChange);
       break;
     case 'vec3':
-      buildVec3Widget(valEl, value, onScalarChange);
+      buildVec3Widget(valEl, value, onScalarChange, sliderOpts);
       break;
     case 'vec4':
       buildVec4Widget(valEl, value, onScalarChange);
@@ -1056,7 +1140,7 @@ function buildBoolWidget(container, value, onChange) {
   container.appendChild(cb);
 }
 
-/** Scrub slider for int/float (Shift+click input for plain edit). opts.clamp01 clamps to [0,1]. */
+/** Scrub slider for int/float. Drag scrubs; Shift+click or double-click input edits text. opts.clamp01 clamps to [0,1]. */
 function buildSliderInput(value, type, onChange, opts) {
   opts = opts || {};
   const clamp01 = !!opts.clamp01;
@@ -1073,6 +1157,12 @@ function buildSliderInput(value, type, onChange, opts) {
     type === 'float' || clamp01
       ? String(Number(value).toFixed(4)).replace(/\.?0+$/, '')
       : String(value);
+
+  input.title = clamp01
+    ? 'Drag to adjust (0..1). Shift+click to edit text.'
+    : 'Drag to adjust. Shift+click to edit text.';
+  input.setAttribute('aria-label', 'Slider value');
+  input.autocomplete = 'off';
 
   function updateTrack(v) {
     let pct = 0;
@@ -1092,12 +1182,16 @@ function buildSliderInput(value, type, onChange, opts) {
   wrap.appendChild(input);
 
   const STEP = type === 'int' ? 1 : 0.01;
+  let lastScrubVal = parseFloat(input.value) || 0;
 
   wrap.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
-    if (e.target === input && !e.shiftKey) return;
+    // Normal drag (no Shift) scrubs the value.
+    // Shift+click or double-click on the input lets the user edit the number as text.
+    if (e.target === input && (e.shiftKey || e.detail === 2)) return;
     e.preventDefault();
     e.stopPropagation();
+    if (typeof opts.onScrubStart === 'function') opts.onScrubStart();
     const startX = e.clientX;
     const startVal = parseFloat(input.value);
     const base = Number.isFinite(startVal) ? startVal : 0;
@@ -1111,9 +1205,11 @@ function buildSliderInput(value, type, onChange, opts) {
       if (clamp01) newVal = Math.max(0, Math.min(1, newVal));
       input.value = type === 'int' ? String(newVal) : newVal.toFixed(4);
       updateTrack(newVal);
+      lastScrubVal = newVal;
       onChange(newVal);
     }
     function onUp() {
+      if (typeof opts.onScrubEnd === 'function') opts.onScrubEnd(lastScrubVal);
       document.body.style.cursor = '';
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
@@ -1133,11 +1229,41 @@ function buildSliderInput(value, type, onChange, opts) {
     }
   });
 
+  input.addEventListener('dblclick', (e) => {
+    // Ensure text caret is visible/active immediately.
+    e.stopPropagation();
+    input.focus();
+    input.select();
+  });
+
+  input.addEventListener('keydown', (e) => {
+    // Basic keyboard accessibility: ArrowLeft/ArrowRight scrub values.
+    // Shift is reserved for "text edit" mode, so we don't override caret movement.
+    if (e.shiftKey) return;
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const dir = e.key === 'ArrowRight' ? 1 : -1;
+    const startVal = parseFloat(input.value);
+    const base = Number.isFinite(startVal) ? startVal : 0;
+    const delta = dir * STEP;
+
+    let newVal = base + delta;
+    if (type === 'int') newVal = Math.round(newVal);
+    else newVal = parseFloat(newVal.toFixed(6));
+    if (clamp01) newVal = Math.max(0, Math.min(1, newVal));
+
+    input.value = type === 'int' ? String(newVal) : newVal.toFixed(4);
+    updateTrack(newVal);
+    onChange(newVal);
+  });
+
   return wrap;
 }
 
-function buildNumberWidget(container, value, type, onChange) {
-  container.appendChild(buildSliderInput(value, type, onChange));
+function buildNumberWidget(container, value, type, onChange, sliderOpts) {
+  container.appendChild(buildSliderInput(value, type, onChange, sliderOpts));
 }
 
 function buildReadonlyStringWidget(container, value) {
@@ -1150,19 +1276,19 @@ function buildReadonlyStringWidget(container, value) {
   container.appendChild(inp);
 }
 
-function buildFloatSlider01Widget(container, value, onChange) {
+function buildFloatSlider01Widget(container, value, onChange, sliderOpts) {
   const v = typeof value === 'number' ? value : parseFloat(value) || 0;
   container.appendChild(
     buildSliderInput(
       v,
       'float',
       (nv) => onChange(nv),
-      { clamp01: true }
+      { clamp01: true, ...(sliderOpts || {}) }
     )
   );
 }
 
-function buildComponentsWidget(arr, onChange) {
+function buildComponentsWidget(arr, onChange, sliderOpts) {
   const wrap = document.createElement('div');
   wrap.className = 'components-widget';
   const labels = ['X', 'Y', 'Z'];
@@ -1206,7 +1332,7 @@ function buildComponentsWidget(arr, onChange) {
         const newArr = [...list];
         newArr[i] = v;
         onChange(newArr);
-      });
+      }, sliderOpts);
     }
 
     modeBtn.addEventListener('click', (e) => {
@@ -1330,7 +1456,7 @@ function buildColorWidget(container, value, onChange) {
   });
 }
 
-function buildVec3Widget(container, value, onChange) {
+function buildVec3Widget(container, value, onChange, sliderOpts) {
   const v = Array.isArray(value) ? [...value] : [0, 0, 0];
   ['X', 'Y', 'Z'].forEach((axis, i) => {
     const lbl = document.createElement('span');
@@ -1339,7 +1465,7 @@ function buildVec3Widget(container, value, onChange) {
     const wrap = buildSliderInput(v[i], 'float', (nv) => {
       v[i] = nv;
       onChange([...v]);
-    });
+    }, sliderOpts);
     wrap.style.flex = '1';
     wrap.style.minWidth = '48px';
     container.appendChild(lbl);
@@ -1393,40 +1519,17 @@ function buildVec4Widget(container, value, onChange) {
 
 function commitValue(parentRef, key, newValue, arrayIdx, isStructural = false) {
   const useIdx = arrayIdx !== undefined && arrayIdx !== null && Array.isArray(parentRef);
-  const oldValue = useIdx ? deepClone(parentRef[arrayIdx]) : deepClone(parentRef[key]);
-  const newSnapshot = deepClone(newValue);
-
-  pushUndoCommand({
-    undo: () => {
-      if (useIdx) parentRef[arrayIdx] = deepClone(oldValue);
-      else parentRef[key] = deepClone(oldValue);
-      markDirty();
-      flushSyncDebounce();
-      buildPropertyTree();
-      syncManualEditor();
+  withDocUndo(
+    () => {
+      if (useIdx) parentRef[arrayIdx] = newValue;
+      else parentRef[key] = newValue;
     },
-    redo: () => {
-      if (useIdx) parentRef[arrayIdx] = deepClone(newSnapshot);
-      else parentRef[key] = deepClone(newSnapshot);
-      markDirty();
-      flushSyncDebounce();
-      buildPropertyTree();
-      syncManualEditor();
-    },
-    label: `Edit: ${key}`
-  });
+    `Edit: ${key}`
+  );
 
-  if (useIdx) parentRef[arrayIdx] = newValue;
-  else parentRef[key] = newValue;
-  markDirty();
-  setStatus('Property edited', 'edited');
-  if (isStructural) {
-    flushSyncDebounce();
-    buildPropertyTree();
-    syncManualEditor();
-  } else {
-    syncManualEditorDebounced();
-  }
+  // withDocUndo already rebuilds the property tree + manual editor.
+  // `isStructural` is kept for compatibility with existing call sites.
+  void isStructural;
 }
 
 function filterPropTree(query) {

@@ -1,15 +1,164 @@
 /** Set true after CodeMirror + history dock are initialized, so we do not render before panels exist. */
 let _editorShellReady = false;
 
+// ── Debug Console (runtime errors + console output) ──────────────────────
+const _debugConsole = {
+  entries: [],
+  maxEntries: 400,
+  open: false,
+  hasNewErrors: false,
+  captureInstalled: false,
+  ui: {
+    btn: null,
+    panel: null,
+    output: null,
+    clearBtn: null,
+    closeBtn: null
+  },
+  originalConsole: null
+};
+
+function _dbgTime() {
+  // Short, stable time format for the console panel.
+  try {
+    return new Date().toISOString().slice(11, 19);
+  } catch (_) {
+    return '';
+  }
+}
+
+function _dbgArgToString(v) {
+  if (v instanceof Error) {
+    const head = v.name ? `${v.name}: ${v.message}` : v.message;
+    return v.stack ? `${head}\n${v.stack}` : String(head);
+  }
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean' || v == null) return String(v);
+  try {
+    return JSON.stringify(v, null, 2);
+  } catch (_) {
+    try {
+      return String(v);
+    } catch (_) {
+      return '[Unprintable]';
+    }
+  }
+}
+
+function debugConsoleRender() {
+  const out = _debugConsole.ui.output;
+  if (!out) return;
+  out.textContent = _debugConsole.entries.join('\n');
+  out.scrollTop = out.scrollHeight;
+}
+
+function debugConsoleSetOpen(open) {
+  _debugConsole.open = !!open;
+  const { panel, btn } = _debugConsole.ui;
+  if (panel) {
+    panel.classList.toggle('open', _debugConsole.open);
+    panel.setAttribute('aria-hidden', String(!_debugConsole.open));
+  }
+  if (btn) {
+    btn.classList.toggle('has-new', _debugConsole.hasNewErrors && !_debugConsole.open);
+  }
+  if (_debugConsole.open) {
+    _debugConsole.hasNewErrors = false;
+    if (btn) btn.classList.toggle('has-new', false);
+    debugConsoleRender();
+  }
+}
+
+function debugConsoleAdd(level, args, stack) {
+  const time = _dbgTime();
+  const parts = (Array.isArray(args) ? args : [args]).filter((x) => x !== undefined);
+  const msg = parts.map(_dbgArgToString).filter(Boolean).join(' ');
+  const head = time ? `[${time}] ${level.toUpperCase()}: ${msg}` : `${level.toUpperCase()}: ${msg}`;
+  const full = stack ? `${head}\n${stack}` : head;
+
+  _debugConsole.entries.push(full);
+  if (_debugConsole.entries.length > _debugConsole.maxEntries) {
+    _debugConsole.entries.splice(0, _debugConsole.entries.length - _debugConsole.maxEntries);
+  }
+
+  if ((level === 'error' || level === 'warn') && !_debugConsole.open) {
+    _debugConsole.hasNewErrors = true;
+    if (_debugConsole.ui.btn) _debugConsole.ui.btn.classList.add('has-new');
+  }
+
+  if (_debugConsole.open) debugConsoleRender();
+}
+
+function initDebugConsole() {
+  const btn = document.getElementById('debugConsoleToggleBtn');
+  const panel = document.getElementById('debugConsolePanel');
+  const output = document.getElementById('debugConsoleOutput');
+  const clearBtn = document.getElementById('debugConsoleClearBtn');
+  const closeBtn = document.getElementById('debugConsoleCloseBtn');
+  if (!btn || !panel || !output) return;
+
+  _debugConsole.ui = { btn, panel, output, clearBtn, closeBtn };
+
+  btn.addEventListener('click', () => debugConsoleSetOpen(!_debugConsole.open));
+  clearBtn?.addEventListener('click', () => {
+    _debugConsole.entries = [];
+    _debugConsole.hasNewErrors = false;
+    btn.classList.toggle('has-new', false);
+    debugConsoleRender();
+    debugConsoleAdd('info', ['Console cleared']);
+  });
+  closeBtn?.addEventListener('click', () => debugConsoleSetOpen(false));
+
+  if (!_debugConsole.captureInstalled) {
+    _debugConsole.captureInstalled = true;
+    _debugConsole.originalConsole = {
+      log: console.log,
+      info: console.info,
+      warn: console.warn,
+      error: console.error,
+      debug: console.debug
+    };
+
+    const orig = _debugConsole.originalConsole;
+    if (orig && typeof orig.error === 'function') {
+      console.error = (...args) => {
+        orig.error.apply(console, args);
+        debugConsoleAdd('error', args);
+      };
+    }
+    if (orig && typeof orig.warn === 'function') {
+      console.warn = (...args) => {
+        orig.warn.apply(console, args);
+        debugConsoleAdd('warn', args);
+      };
+    }
+
+    // Keep noise low when the console is closed.
+    const maybeCapture = (level) => (...args) => {
+      if (_debugConsole.open) debugConsoleAdd(level, args);
+    };
+    if (orig && typeof orig.log === 'function') console.log = (...args) => { orig.log.apply(console, args); if (_debugConsole.open) debugConsoleAdd('log', args); };
+    if (orig && typeof orig.info === 'function') console.info = (...args) => { orig.info.apply(console, args); if (_debugConsole.open) debugConsoleAdd('info', args); };
+    if (orig && typeof orig.debug === 'function') console.debug = (...args) => { orig.debug.apply(console, args); if (_debugConsole.open) debugConsoleAdd('debug', args); };
+
+    // If something throws before init runs, we still get `window.error` / `unhandledrejection`.
+  }
+}
+
 // If anything fails during startup/render, make it visible in the UI.
 window.addEventListener('error', (e) => {
-  if (typeof setStatus === 'function') setStatus('Runtime error: ' + e.message, 'error');
+  const msg = e && e.message ? e.message : e && e.error ? String(e.error) : 'Unknown error';
+  if (typeof setStatus === 'function') setStatus('Runtime error: ' + msg, 'error');
+  debugConsoleAdd('error', ['Runtime error: ' + msg], e && e.error && e.error.stack ? e.error.stack : undefined);
 });
 window.addEventListener('unhandledrejection', (e) => {
   const msg =
     e && e.reason && e.reason.message ? e.reason.message : e && e.reason ? String(e.reason) : 'Unknown rejection';
   if (typeof setStatus === 'function') setStatus('Unhandled promise: ' + msg, 'error');
+  debugConsoleAdd('error', ['Unhandled promise: ' + msg], e && e.reason && e.reason.stack ? e.reason.stack : undefined);
 });
+
+initDebugConsole();
 
 function markDirty() {
   const d = docManager.activeDoc;
@@ -53,7 +202,8 @@ function withDocUndo(applyFn, label) {
 
 function renderAll() {
   try {
-    flushSyncDebounce();
+    // Defined in src/manual-editor.js; accessed via window for reliability.
+    window.flushSyncDebounce?.();
     if (typeof buildPropertyTree === 'function') buildPropertyTree();
     if (typeof syncManualEditor === 'function') syncManualEditor();
     if (typeof updateStatusBar === 'function') updateStatusBar();
@@ -428,7 +578,7 @@ initTabBar();
 docManager.newDoc();
 
 initPropTreeSearch();
-initManualEditPanel();
+window.initManualEditPanel?.();
 initHistoryDock();
 initEditorModeSelect();
 initRecentFilesMenu();
