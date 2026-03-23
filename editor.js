@@ -101,9 +101,15 @@ const commandRedoStack = [];
 const MAX_UNDO_COMMANDS = 200;
 
 function pushUndoCommand(cmd) {
-  commandUndoStack.push(cmd);
+  commandUndoStack.push({
+    undo: cmd.undo,
+    redo: cmd.redo,
+    label: cmd.label ?? 'Edit',
+    time: cmd.time ?? Date.now()
+  });
   if (commandUndoStack.length > MAX_UNDO_COMMANDS) commandUndoStack.shift();
   commandRedoStack.length = 0;
+  refreshHistoryDock();
 }
 
 function undo() {
@@ -111,6 +117,7 @@ function undo() {
   if (!cmd) return;
   cmd.undo();
   commandRedoStack.push(cmd);
+  refreshHistoryDock();
 }
 
 function redo() {
@@ -118,6 +125,125 @@ function redo() {
   if (!cmd) return;
   cmd.redo();
   commandUndoStack.push(cmd);
+  refreshHistoryDock();
+}
+
+let _historyBatchDepth = 0;
+let _historyRefreshQueued = false;
+
+function buildHistoryEntry(cmd, idx, extraClass) {
+  const el = document.createElement('div');
+  el.className = `history-entry ${extraClass || ''}`.trim();
+  const timeStr = cmd.time
+    ? new Date(cmd.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : '';
+  el.innerHTML = `
+    <span class="history-entry-idx">${idx + 1}</span>
+    <span class="history-entry-label"></span>
+    <span class="history-entry-time">${timeStr}</span>
+  `;
+  const lbl = cmd.label || 'Edit';
+  el.querySelector('.history-entry-label').textContent = lbl;
+  el.title = lbl;
+
+  el.addEventListener('click', () => {
+    const currentTop = commandUndoStack.length - 1;
+    const targetIdx = idx;
+    if (targetIdx === currentTop) return;
+
+    _historyBatchDepth++;
+    try {
+      if (targetIdx < currentTop) {
+        for (let j = currentTop; j > targetIdx; j--) undo();
+      } else if (targetIdx > currentTop) {
+        for (let j = currentTop; j < targetIdx; j++) redo();
+      }
+    } finally {
+      _historyBatchDepth--;
+      if (_historyBatchDepth === 0 && _historyRefreshQueued) {
+        _historyRefreshQueued = false;
+        refreshHistoryDock();
+      }
+    }
+  });
+
+  return el;
+}
+
+function refreshHistoryDock() {
+  if (_historyBatchDepth > 0) {
+    _historyRefreshQueued = true;
+    return;
+  }
+  const list = document.getElementById('historyList');
+  if (!list) return;
+
+  list.innerHTML = '';
+
+  const totalUndo = commandUndoStack.length;
+
+  commandUndoStack.forEach((cmd, i) => {
+    const extra = totalUndo > 0 && i === totalUndo - 1 ? 'is-current' : '';
+    list.appendChild(buildHistoryEntry(cmd, i, extra));
+  });
+
+  [...commandRedoStack]
+    .reverse()
+    .forEach((cmd, i) => {
+      list.appendChild(buildHistoryEntry(cmd, totalUndo + i, 'is-redo'));
+    });
+
+  list.querySelector('.is-current')?.scrollIntoView({ block: 'nearest' });
+}
+
+function initHistoryDock() {
+  document.getElementById('historyClearBtn')?.addEventListener('click', () => {
+    commandUndoStack.length = 0;
+    commandRedoStack.length = 0;
+    refreshHistoryDock();
+  });
+
+  const meResizer = document.getElementById('meHistoryResizer');
+  if (meResizer) {
+    let startY;
+    let editorWrap;
+    let historyDock;
+    let startEditorH;
+    let startHistoryH;
+
+    meResizer.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      meResizer.classList.add('active');
+      editorWrap = meResizer.previousElementSibling;
+      historyDock = meResizer.nextElementSibling;
+      if (!editorWrap || !historyDock) return;
+
+      startY = e.clientY;
+      startEditorH = editorWrap.offsetHeight;
+      startHistoryH = historyDock.offsetHeight;
+
+      function onMove(e2) {
+        const dy = e2.clientY - startY;
+        const nextEditorH = Math.max(60, startEditorH + dy);
+        const nextHistoryH = Math.max(40, startHistoryH - dy);
+        editorWrap.style.flex = 'none';
+        editorWrap.style.height = nextEditorH + 'px';
+        historyDock.style.flex = 'none';
+        historyDock.style.height = nextHistoryH + 'px';
+      }
+
+      function onUp() {
+        meResizer.classList.remove('active');
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      }
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
+  refreshHistoryDock();
 }
 
 /** Wrap a synchronous document mutation with undo/redo that snapshots `doc` and `documentFormat`. */
@@ -147,6 +273,7 @@ function withDocUndo(applyFn) {
   });
   markDirty();
   renderAll();
+  setStatus('Property edited', 'edited');
 }
 
 let _meFormat = 'json';
@@ -194,9 +321,9 @@ function applyManualEdit() {
         recalcAllIds();
       });
     }
-    setStatus(_meFormat === 'json' ? 'JSON applied' : documentFormat === 'keyvalue' ? 'KeyValues applied' : 'KV3 applied');
+    setStatus(_meFormat === 'json' ? 'JSON applied' : documentFormat === 'keyvalue' ? 'KeyValues applied' : 'KV3 applied', 'edited');
   } catch (e) {
-    setStatus('Parse error: ' + e.message);
+    setStatus('Parse error: ' + e.message, 'error');
   }
 }
 
@@ -302,7 +429,7 @@ function initManualEditPanel() {
   document.getElementById('meApplyBtn')?.addEventListener('click', applyManualEdit);
   document.getElementById('meCopyBtn')?.addEventListener('click', () => {
     navigator.clipboard.writeText(ta.value);
-    setStatus('Copied to clipboard');
+    setStatus('Copied to clipboard', 'info');
   });
 
   ta.addEventListener('scroll', () => {
@@ -447,7 +574,7 @@ function renderAll() {
 function updateStatusBar() {
   const elCount = countNodes(doc.m_Children);
   const varCount = (doc.m_Variables && doc.m_Variables.length) || 0;
-  setStatus(`Elements: ${elCount} | Variables: ${varCount}`);
+  setStatus(`Elements: ${elCount} | Variables: ${varCount}`, 'info');
 }
 
 function countNodes(arr) {
@@ -590,6 +717,7 @@ const TYPE_CAST_OPTIONS = {
 };
 
 const STATIC_TYPE_SUMMARY = new Set(['object', 'array', 'null', 'unknown']);
+const ALL_CAST_TARGETS = ['string', 'int', 'float', 'bool', 'resource', 'soundevent', 'vec2', 'vec3', 'vec4', 'array', 'object'];
 
 function buildTypeBadge(currentType, onCast) {
   const wrap = document.createElement('span');
@@ -610,6 +738,53 @@ function buildTypeBadge(currentType, onCast) {
     e.stopPropagation();
     document.querySelectorAll('.prop-type-dropdown').forEach((el) => el.remove());
 
+    const dropdown = document.createElement('div');
+    dropdown.className = 'prop-type-dropdown';
+    const rect = wrap.getBoundingClientRect();
+    dropdown.style.top = rect.bottom + 2 + 'px';
+    dropdown.style.left = rect.left + 'px';
+
+    options.forEach((opt) => {
+      const item = document.createElement('div');
+      item.className = 'prop-type-dropdown-item';
+      item.textContent = opt;
+      item.addEventListener('mousedown', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        dropdown.remove();
+        onCast(opt);
+      });
+      dropdown.appendChild(item);
+    });
+
+    document.body.appendChild(dropdown);
+
+    const close = (ev) => {
+      if (!dropdown.contains(ev.target) && ev.target !== wrap) {
+        dropdown.remove();
+        document.removeEventListener('mousedown', close, true);
+      }
+    };
+    setTimeout(() => document.addEventListener('mousedown', close, true), 0);
+  });
+
+  return wrap;
+}
+
+function buildForceTypeBadge(currentType, onCast) {
+  // For normal types: keep the existing limited cast dropdown behavior.
+  if (!STATIC_TYPE_SUMMARY.has(currentType)) return buildTypeBadge(currentType, onCast);
+
+  const wrap = document.createElement('span');
+  wrap.className = 'prop-force-type-btn prop-type-badge-interactive';
+  wrap.title = `Type: ${currentType} (click to change)`;
+  wrap.textContent = '⊞';
+
+  wrap.addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.querySelectorAll('.prop-type-dropdown').forEach((el) => el.remove());
+
+    const options = ALL_CAST_TARGETS;
     const dropdown = document.createElement('div');
     dropdown.className = 'prop-type-dropdown';
     const rect = wrap.getBoundingClientRect();
@@ -696,6 +871,9 @@ function castPropertyType(parentRef, key, value, fromType, toType, arrayIdx) {
         newValue = [0, 0, 0, 0].map((_, i) => (Number.isFinite(a[i]) ? a[i] : 0));
         break;
       }
+      case 'object':
+        newValue = typeof value === 'object' && value !== null && !Array.isArray(value) ? value : {};
+        break;
       case 'array':
         newValue = Array.isArray(value) ? [...value] : value != null ? [value] : [];
         break;
@@ -912,13 +1090,12 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath) {
     else if (type === 'null') sum.textContent = 'null';
     else sum.textContent = type;
     valEl.appendChild(sum);
-  } else {
-    valEl.appendChild(
-      buildTypeBadge(type, (newType) => {
-        castPropertyType(parentRef, key, value, type, newType, arrayIdx);
-      })
-    );
   }
+  valEl.appendChild(
+    buildForceTypeBadge(type, (newType) => {
+      castPropertyType(parentRef, key, value, type, newType, arrayIdx);
+    })
+  );
 
   const onScalarChange = (v) => commitValue(parentRef, key, v, arrayIdx, false);
 
@@ -1057,7 +1234,7 @@ function startInlineRename(keyEl, keyTextSpan, oldKey, parentRef) {
     }
     if (Object.prototype.hasOwnProperty.call(parentRef, newKey)) {
       keyTextSpan.textContent = oldKey;
-      setStatus(`Key "${newKey}" already exists`);
+      setStatus(`Key "${newKey}" already exists`, 'error');
       return;
     }
     withDocUndo(() => {
@@ -1294,12 +1471,14 @@ function commitValue(parentRef, key, newValue, arrayIdx, isStructural = false) {
       flushSyncDebounce();
       buildPropertyTree();
       syncManualEditor();
-    }
+    },
+    label: `Edit: ${key}`
   });
 
   if (useIdx) parentRef[arrayIdx] = newValue;
   else parentRef[key] = newValue;
   markDirty();
+  setStatus('Property edited', 'edited');
   if (isStructural) {
     flushSyncDebounce();
     buildPropertyTree();
@@ -1344,7 +1523,7 @@ function newDocument() {
     currentFilePath = null;
     setDocumentTitle('Untitled');
   });
-  setStatus('New document created');
+  setStatus('New document created', 'created');
 }
 
 function importKV3() {
@@ -1366,9 +1545,9 @@ function importKV3() {
           currentFilePath = null;
           setDocumentTitle(file.name);
         });
-        setStatus('Opened: ' + file.name);
+        setStatus('Opened: ' + file.name, 'info');
       } catch (err) {
-        setStatus('Open error: ' + err.message);
+        setStatus('Open error: ' + err.message, 'error');
       }
     };
     reader.readAsText(file);
@@ -1381,8 +1560,8 @@ function saveFile() {
   if (currentFilePath && window.electronAPI?.saveFile) {
     window.electronAPI
       .saveFile(currentFilePath, serializeDocument())
-      .then(() => setStatus('Saved: ' + currentFileName))
-      .catch((e) => setStatus('Save error: ' + e.message));
+      .then(() => setStatus('Saved: ' + currentFileName, 'saved'))
+      .catch((e) => setStatus('Save error: ' + e.message, 'error'));
   } else {
     saveFileAs();
   }
@@ -1423,9 +1602,9 @@ function saveFileAs() {
             currentFilePath = result.filePath;
             syncDocumentFormatFromFilename(savedName);
             setDocumentTitle(savedName);
-            setStatus('Saved: ' + currentFileName);
+            setStatus('Saved: ' + currentFileName, 'saved');
           })
-          .catch((e) => setStatus('Save error: ' + e.message));
+          .catch((e) => setStatus('Save error: ' + e.message, 'error'));
       });
   } else {
     const base = currentFileName.replace(/\.[^.]+$/, '') || 'untitled';
@@ -1442,8 +1621,33 @@ function downloadBlob(blob, filename) {
   URL.revokeObjectURL(a.href);
 }
 
-function setStatus(msg) {
-  document.getElementById('statusBar').textContent = msg;
+const STATUS_STATES = {
+  saved: { icon: '✓', cls: 'status-saved', flash: true },
+  created: { icon: '+', cls: 'status-created', flash: false },
+  edited: { icon: '●', cls: 'status-edited', flash: false },
+  error: { icon: '✕', cls: 'status-error', flash: false },
+  info: { icon: '', cls: '', flash: false }
+};
+
+function setStatus(msg, state = 'info') {
+  const bar = document.getElementById('statusBar');
+  if (!bar) return;
+
+  const icon = document.getElementById('statusIcon');
+  const msgEl = document.getElementById('statusMsg');
+
+  bar.classList.remove('status-saved', 'status-created', 'status-edited', 'status-error', 'status-flash');
+
+  const s = STATUS_STATES[state] ?? STATUS_STATES.info;
+  if (s.cls) bar.classList.add(s.cls);
+  if (icon) icon.textContent = s.icon;
+  if (msgEl) msgEl.textContent = msg;
+
+  if (s.flash) {
+    // Restart animation reliably.
+    void bar.offsetWidth;
+    bar.classList.add('status-flash');
+  }
 }
 
 function setDocumentTitle(name) {
@@ -1658,9 +1862,9 @@ function initMenuBar() {
             try {
               VDataSettings.importUserConfig(ev2.target.result);
               renderAll();
-              setStatus('Widget config imported');
+              setStatus('Widget config imported', 'info');
             } catch (err) {
-              setStatus('Import error: ' + err.message);
+              setStatus('Import error: ' + err.message, 'error');
             }
           };
           r.readAsText(f);
@@ -1673,9 +1877,9 @@ function initMenuBar() {
       else if (action === 'fullscreen' && window.electronAPI?.toggleFullScreen) window.electronAPI.toggleFullScreen();
       else if (action === 'about') {
         if (window.electronAPI?.getVersion) {
-          window.electronAPI.getVersion().then((v) => setStatus(`VDataEditor v${v}`));
+          window.electronAPI.getVersion().then((v) => setStatus(`VDataEditor v${v}`, 'info'));
         } else {
-          setStatus('VDataEditor');
+          setStatus('VDataEditor', 'info');
         }
       }
       dropdowns.forEach((d) => d.classList.remove('open'));
@@ -1719,6 +1923,7 @@ setDocumentTitle('Untitled');
 initMenuBar();
 initPropTreeSearch();
 initManualEditPanel();
+initHistoryDock();
 renderAll();
 
 if (window.electronAPI?.getVersion) {
@@ -1743,9 +1948,9 @@ if (window.electronAPI) {
           currentFilePath = filePath;
           setDocumentTitle(fileName);
         });
-        setStatus('Opened: ' + fileName);
+        setStatus('Opened: ' + fileName, 'info');
       } catch (err) {
-        setStatus('Error opening file: ' + err.message);
+        setStatus('Error opening file: ' + err.message, 'error');
       }
     });
   });
