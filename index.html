@@ -94,10 +94,22 @@
         <div class="me-gutter" id="meGutter"></div>
         <textarea class="code-area me-textarea" id="manualEditor" spellcheck="false"></textarea>
       </div>
+      <div class="dock-resize-v" id="meHistoryResizer"></div>
+      <div id="historyDock" class="history-dock">
+        <div class="history-dock-header">
+          <span>History</span>
+          <button type="button" class="btn btn-sm btn-icon" id="historyClearBtn" title="Clear history">✕</button>
+        </div>
+        <div id="historyList" class="history-list"></div>
+      </div>
     </div>
   </div>
   <div class="footer">
-    <span id="statusBar">Ready</span>
+    <div id="statusBar" class="status-bar">
+      <span id="statusIcon" class="status-icon"></span>
+      <span id="statusMsg">Ready</span>
+      <span id="statusFile" class="status-file"></span>
+    </div>
     <span id="versionLabel">VDataEditor</span>
   </div>
 </div>
