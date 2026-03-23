@@ -68,9 +68,19 @@ class DocumentManager extends EventTarget {
   }
 
   _removeAt(idx) {
+    const prevActive = this._activeIdx;
     this._docs.splice(idx, 1);
-    const newIdx = Math.min(idx, this._docs.length - 1);
-    this._activeIdx = this._docs.length === 0 ? -1 : newIdx;
+    const len = this._docs.length;
+    if (len === 0) {
+      this._activeIdx = -1;
+    } else if (idx < prevActive) {
+      this._activeIdx = prevActive - 1;
+    } else if (idx === prevActive) {
+      this._activeIdx = Math.min(idx, len - 1);
+    } else {
+      // Closed a tab to the right; the active document stays selected at the same index.
+      this._activeIdx = prevActive;
+    }
     this.dispatchEvent(new Event('tabs-changed'));
     this.dispatchEvent(new Event('active-changed'));
   }

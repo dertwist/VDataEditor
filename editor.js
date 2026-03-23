@@ -384,6 +384,11 @@ function initRecentFilesMenu() {
 }
 
 function initPropDockToolbar() {
+  document.getElementById('tb-add-root-key')?.addEventListener('click', () => {
+    const d = docManager.activeDoc;
+    if (!d || typeof showAddKeyDialog !== 'function') return;
+    showAddKeyDialog(d.root, '');
+  });
   const c = document.getElementById('tb-collapse-all');
   const x = document.getElementById('tb-expand-all');
   c?.addEventListener('click', () => setAllCollapsed(true));
@@ -569,6 +574,8 @@ initTabBar();
 
 // Register active-changed BEFORE newDoc() so the first event is caught.
 docManager.addEventListener('active-changed', () => {
+  // Tab switches must rebuild the property tree; incremental DOM updates assume structure matches activeDoc.
+  if (typeof markPropTreeStructureDirty === 'function') markPropTreeStructureDirty();
   const d = docManager.activeDoc;
   if (d) {
     document.title = 'VDataEditor - ' + d.fileName;
@@ -581,6 +588,7 @@ docManager.addEventListener('active-changed', () => {
 docManager.newDoc(); // fires active-changed → renderAll() syncs manual editor when shell is ready
 
 initPropTreeSearch();
+if (typeof initPropTreePanelContextMenu === 'function') initPropTreePanelContextMenu();
 initHistoryDock();
 initEditorModeSelect();
 initRecentFilesMenu();

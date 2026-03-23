@@ -73,6 +73,7 @@
           <select id="editorModeSelect" class="mode-select" title="Property editor mode">
             <option value="auto">Auto</option>
           </select>
+          <button type="button" id="tb-add-root-key" class="btn btn-sm btn-icon" title="Add root property"></button>
           <button type="button" id="tb-collapse-all" class="btn btn-sm btn-icon" title="Collapse all"></button>
           <button type="button" id="tb-expand-all" class="btn btn-sm btn-icon" title="Expand all"></button>
           <input type="search" id="propTreeSearch" placeholder="Search…" class="prop-tree-search-inline" autocomplete="off" />
@@ -163,6 +164,7 @@
 <script src="src/widgets/number.js" defer></script>
 <script src="src/widgets/string.js" defer></script>
 <script src="src/widgets/components.js" defer></script>
+<script src="src/suggestions.js" defer></script>
 <script src="src/prop-tree.js" defer></script>
 <script src="src/manual-editor.js" defer></script>
 <script src="src/menu-bar.js" defer></script>
@@ -175,6 +177,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   setIcon('tb-undock-properties', ICONS.undock);
   setIcon('tb-undock-editors', ICONS.undock);
+  setIcon('tb-add-root-key', ICONS.plus);
   setIcon('tb-collapse-all', ICONS.collapseAll);
   setIcon('tb-expand-all', ICONS.expandAll);
   setIcon('mi-new',       ICONS.filePlus);

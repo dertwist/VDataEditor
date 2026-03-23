@@ -11,6 +11,9 @@ function propCol() {
 let _propTreeStructuralDirty = true;
 let _propTreeBuiltForDoc = null;
 
+/** Internal clipboard for context-menu paste (row Copy). */
+let _clipboard = null;
+
 function markPropTreeStructureDirty() {
   _propTreeStructuralDirty = true;
 }
@@ -964,6 +967,143 @@ function showContextMenu(items, x, y) {
   setTimeout(() => document.addEventListener('mousedown', close, true), 0);
 }
 
+function showAddKeyDialog(parentRef, contextPath) {
+  document.getElementById('addKeyDialog')?.remove();
+
+  const d = docManager.activeDoc;
+  if (!d) return;
+
+  const suggestions =
+    typeof VDataSuggestions !== 'undefined' && VDataSuggestions.getSuggestions
+      ? VDataSuggestions.getSuggestions(d.fileName, contextPath ?? '')
+      : [];
+
+  const overlay = document.createElement('div');
+  overlay.id = 'addKeyDialog';
+  overlay.className = 'modal-overlay';
+
+  overlay.innerHTML = `
+    <div class="modal-dialog" style="width:340px">
+      <div class="modal-header">
+        <span class="modal-title">Add Property</span>
+        <button type="button" class="modal-close" id="akd-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-row akd-key-row">
+          <label class="modal-label" for="akd-key">Key</label>
+          <div class="akd-key-field">
+            <input id="akd-key" class="prop-input" list="akd-suggestions"
+                   placeholder="property_name" autocomplete="off">
+            <datalist id="akd-suggestions"></datalist>
+          </div>
+        </div>
+        <div class="modal-row" style="margin-top:6px">
+          <label class="modal-label" for="akd-type">Type</label>
+          <select id="akd-type" class="prop-input" style="width:120px;flex:0 0 auto">
+            <option value="string">string</option>
+            <option value="int">int</option>
+            <option value="float">float</option>
+            <option value="bool">bool</option>
+            <option value="object">object {}</option>
+            <option value="array">list []</option>
+            <option value="vec2">vec2</option>
+            <option value="vec3">vec3</option>
+            <option value="vec4">vec4</option>
+            <option value="color">color</option>
+            <option value="resource">resource</option>
+            <option value="soundevent">soundevent</option>
+          </select>
+        </div>
+        <div class="modal-row" style="margin-top:8px;justify-content:flex-end;gap:8px">
+          <button type="button" class="btn btn-sm" id="akd-cancel">Cancel</button>
+          <button type="button" class="btn btn-sm btn-accent" id="akd-add">Add</button>
+        </div>
+      </div>
+    </div>`;
+
+  document.body.appendChild(overlay);
+
+  const keyInput = document.getElementById('akd-key');
+  const typeInput = document.getElementById('akd-type');
+  const datalist = document.getElementById('akd-suggestions');
+
+  suggestions.forEach((s) => {
+    const opt = document.createElement('option');
+    opt.value = s.key;
+    if (s.hint) opt.label = s.hint;
+    datalist.appendChild(opt);
+  });
+
+  keyInput.addEventListener('input', () => {
+    const match = suggestions.find((s) => s.key === keyInput.value);
+    if (match && match.type) typeInput.value = match.type;
+  });
+
+  function defaultValueFor(t) {
+    switch (t) {
+      case 'string':
+        return '';
+      case 'int':
+        return 0;
+      case 'float':
+        return 0.0;
+      case 'bool':
+        return false;
+      case 'object':
+        return {};
+      case 'array':
+        return [];
+      case 'vec2':
+        return [0, 0];
+      case 'vec3':
+        return [0, 0, 0];
+      case 'vec4':
+        return [0, 0, 0, 0];
+      case 'color':
+        return [0, 0, 0];
+      case 'resource':
+        return { type: 'resource_name', value: '' };
+      case 'soundevent':
+        return { type: 'soundevent', value: '' };
+      default:
+        return '';
+    }
+  }
+
+  function doAdd() {
+    const newKey = keyInput.value.trim();
+    if (!newKey) {
+      keyInput.focus();
+      return;
+    }
+    if (Object.prototype.hasOwnProperty.call(parentRef, newKey)) {
+      setStatus(`Key "${newKey}" already exists`, 'error');
+      return;
+    }
+    const newVal = defaultValueFor(typeInput.value);
+    withDocUndo(() => {
+      parentRef[newKey] = newVal;
+    }, 'Add key');
+    overlay.remove();
+  }
+
+  document.getElementById('akd-add').addEventListener('click', doAdd);
+  document.getElementById('akd-cancel').addEventListener('click', () => overlay.remove());
+  document.getElementById('akd-close').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+  keyInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      doAdd();
+    }
+    if (e.key === 'Escape') overlay.remove();
+  });
+
+  requestAnimationFrame(() => keyInput.focus());
+}
+
 function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPath, row) {
   const isContainer = type === 'object' || type === 'array';
   const isArrayIndex = typeof arrayIdx === 'number';
@@ -1018,6 +1158,97 @@ function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPa
             delete parentRef[key];
           }
         }, 'Delete');
+      }
+    },
+    { sep: true },
+    {
+      label: 'Copy',
+      icon: ICONS.copy,
+      action: () => {
+        _clipboard = { key, value: deepClone(value), type };
+        navigator.clipboard.writeText(JSON.stringify(value, null, 2)).catch(() => {});
+      }
+    },
+    {
+      label: 'Paste (replace value)',
+      icon: ICONS.clipboard,
+      disabled: !_clipboard,
+      action: () => {
+        if (!_clipboard) return;
+        commitValue(parentRef, key, deepClone(_clipboard.value), arrayIdx, true);
+      }
+    },
+    {
+      label: 'Paste as sibling',
+      icon: ICONS.clipboard,
+      disabled: !_clipboard,
+      action: () => {
+        if (!_clipboard) return;
+        withDocUndo(() => {
+          if (isArrayIndex) {
+            parentRef.splice(arrayIdx + 1, 0, deepClone(_clipboard.value));
+            invalidatePropTreePathsForArrayContainer(arrayContainerPathFromRowPath(propPath));
+          } else {
+            let nk = _clipboard.key || 'pasted';
+            let n = 1;
+            while (Object.prototype.hasOwnProperty.call(parentRef, nk)) nk = nk + '_' + ++n;
+            parentRef[nk] = deepClone(_clipboard.value);
+          }
+        }, 'Paste sibling');
+      }
+    },
+    { sep: true },
+    {
+      label: 'Remove duplicates in array',
+      icon: ICONS.x,
+      disabled: type !== 'array' || !Array.isArray(value),
+      action: () => {
+        if (type !== 'array' || !Array.isArray(value)) return;
+        withDocUndo(() => {
+          const seen = new Set();
+          const next = value.filter((item) => {
+            const k = JSON.stringify(item);
+            if (seen.has(k)) return false;
+            seen.add(k);
+            return true;
+          });
+          if (isArrayIndex) parentRef[arrayIdx] = next;
+          else parentRef[key] = next;
+          invalidatePropTreePathsForArrayContainer(propPath);
+        }, 'Remove duplicates');
+      }
+    },
+    { sep: true },
+    {
+      label: 'Add key here…',
+      icon: ICONS.plus,
+      disabled: isArrayIndex,
+      action: () => showAddKeyDialog(parentRef, parentPathFromRowPath(propPath))
+    },
+    {
+      label: 'Add object here…',
+      icon: ICONS.typeObject,
+      disabled: isArrayIndex,
+      action: () => {
+        withDocUndo(() => {
+          let nk = 'new_object';
+          let n = 1;
+          while (Object.prototype.hasOwnProperty.call(parentRef, nk)) nk = 'new_object_' + ++n;
+          parentRef[nk] = {};
+        }, 'Add object');
+      }
+    },
+    {
+      label: 'Add list here…',
+      icon: ICONS.typeArray,
+      disabled: isArrayIndex,
+      action: () => {
+        withDocUndo(() => {
+          let nk = 'new_list';
+          let n = 1;
+          while (Object.prototype.hasOwnProperty.call(parentRef, nk)) nk = 'new_list_' + ++n;
+          parentRef[nk] = [];
+        }, 'Add list');
       }
     },
     { sep: true }
@@ -1262,130 +1493,8 @@ function buildBoolWidget(container, value, onChange) {
   container.appendChild(cb);
 }
 
-/** Scrub slider for int/float. Drag scrubs; Shift+click or double-click input edits text. opts.clamp01 clamps to [0,1]. */
-function buildSliderInput(value, type, onChange, opts) {
-  opts = opts || {};
-  const clamp01 = !!opts.clamp01;
-  const wrap = document.createElement('div');
-  wrap.className = 'slider-input-wrap' + (clamp01 ? ' float-slider-01' : '');
-
-  const track = document.createElement('div');
-  track.className = 'slider-track';
-
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.className = 'prop-input slider-input';
-  input.value =
-    type === 'float' || clamp01
-      ? String(Number(value).toFixed(4)).replace(/\.?0+$/, '')
-      : String(value);
-
-  input.title = clamp01
-    ? 'Drag to adjust (0..1). Shift+click to edit text.'
-    : 'Drag to adjust. Shift+click to edit text.';
-  input.setAttribute('aria-label', 'Slider value');
-  input.autocomplete = 'off';
-
-  function updateTrack(v) {
-    let pct = 0;
-    if (clamp01) {
-      const n = Math.max(0, Math.min(1, Number(v)));
-      pct = n * 100;
-    } else {
-      const nv = Number(v);
-      if (!Number.isFinite(nv)) pct = 0;
-      else pct = Math.min(100, (Math.abs(nv) / (Math.abs(nv) + 100)) * 100);
-    }
-    track.style.width = pct + '%';
-  }
-  updateTrack(parseFloat(input.value) || 0);
-
-  wrap.appendChild(track);
-  wrap.appendChild(input);
-
-  const STEP = type === 'int' ? 1 : 0.01;
-  let lastScrubVal = parseFloat(input.value) || 0;
-
-  wrap.addEventListener('mousedown', (e) => {
-    if (e.button !== 0) return;
-    // Normal drag (no Shift) scrubs the value.
-    // Shift+click or double-click on the input lets the user edit the number as text.
-    if (e.target === input && (e.shiftKey || e.detail === 2)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (typeof opts.onScrubStart === 'function') opts.onScrubStart();
-    const startX = e.clientX;
-    const startVal = parseFloat(input.value);
-    const base = Number.isFinite(startVal) ? startVal : 0;
-
-    function onMove(e2) {
-      const dx = e2.clientX - startX;
-      const delta = dx * STEP;
-      let newVal = base + delta;
-      if (type === 'int') newVal = Math.round(newVal);
-      else newVal = parseFloat(newVal.toFixed(6));
-      if (clamp01) newVal = Math.max(0, Math.min(1, newVal));
-      input.value = type === 'int' ? String(newVal) : newVal.toFixed(4);
-      updateTrack(newVal);
-      lastScrubVal = newVal;
-      onChange(newVal);
-    }
-    function onUp() {
-      if (typeof opts.onScrubEnd === 'function') opts.onScrubEnd(lastScrubVal);
-      document.body.style.cursor = '';
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-    }
-    document.body.style.cursor = 'ew-resize';
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  });
-
-  input.addEventListener('change', () => {
-    const v = type === 'int' ? parseInt(input.value, 10) : parseFloat(input.value);
-    if (!Number.isNaN(v)) {
-      let nv = v;
-      if (clamp01) nv = Math.max(0, Math.min(1, nv));
-      updateTrack(nv);
-      onChange(nv);
-    }
-  });
-
-  input.addEventListener('dblclick', (e) => {
-    // Ensure text caret is visible/active immediately.
-    e.stopPropagation();
-    input.focus();
-    input.select();
-  });
-
-  input.addEventListener('keydown', (e) => {
-    // Basic keyboard accessibility: ArrowLeft/ArrowRight scrub values.
-    // Shift is reserved for "text edit" mode, so we don't override caret movement.
-    if (e.shiftKey) return;
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-    e.preventDefault();
-    e.stopPropagation();
-
-    const dir = e.key === 'ArrowRight' ? 1 : -1;
-    const startVal = parseFloat(input.value);
-    const base = Number.isFinite(startVal) ? startVal : 0;
-    const delta = dir * STEP;
-
-    let newVal = base + delta;
-    if (type === 'int') newVal = Math.round(newVal);
-    else newVal = parseFloat(newVal.toFixed(6));
-    if (clamp01) newVal = Math.max(0, Math.min(1, newVal));
-
-    input.value = type === 'int' ? String(newVal) : newVal.toFixed(4);
-    updateTrack(newVal);
-    onChange(newVal);
-  });
-
-  return wrap;
-}
-
 function buildNumberWidget(container, value, type, onChange, sliderOpts) {
-  container.appendChild(buildSliderInput(value, type, onChange, sliderOpts));
+  container.appendChild(buildSliderInput(value, type, onChange, sliderOpts || {}));
 }
 
 function buildReadonlyStringWidget(container, value) {
@@ -1753,5 +1862,78 @@ function initPropTreeSearch() {
   if (!inp || inp.dataset.bound) return;
   inp.dataset.bound = '1';
   inp.addEventListener('input', () => filterPropTree(inp.value.trim().toLowerCase()));
+}
+
+/** Right-click empty area in the property panel (not on a row) — root-level actions. */
+function initPropTreePanelContextMenu() {
+  const panel = document.getElementById('propsContainer');
+  if (!panel || panel.dataset.emptyCtxBound) return;
+  panel.dataset.emptyCtxBound = '1';
+  panel.addEventListener('contextmenu', (e) => {
+    if (e.target.closest('.prop-row')) return;
+    e.preventDefault();
+    const d = docManager.activeDoc;
+    if (!d || !d.root || typeof d.root !== 'object') return;
+
+    const items = [
+      {
+        label: 'Add property…',
+        icon: ICONS.plus,
+        action: () => showAddKeyDialog(d.root, '')
+      },
+      { sep: true },
+      {
+        label: 'Add object',
+        icon: ICONS.typeObject,
+        action: () => {
+          withDocUndo(() => {
+            let nk = 'new_object';
+            let n = 1;
+            while (Object.prototype.hasOwnProperty.call(d.root, nk)) nk = 'new_object_' + ++n;
+            d.root[nk] = {};
+          }, 'Add object');
+        }
+      },
+      {
+        label: 'Add list',
+        icon: ICONS.typeArray,
+        action: () => {
+          withDocUndo(() => {
+            let nk = 'new_list';
+            let n = 1;
+            while (Object.prototype.hasOwnProperty.call(d.root, nk)) nk = 'new_list_' + ++n;
+            d.root[nk] = [];
+          }, 'Add list');
+        }
+      },
+      { sep: true },
+      {
+        label: 'Paste as new key',
+        icon: ICONS.clipboard,
+        disabled: !_clipboard,
+        action: () => {
+          if (!_clipboard) return;
+          withDocUndo(() => {
+            let nk = _clipboard.key || 'pasted';
+            let n = 1;
+            while (Object.prototype.hasOwnProperty.call(d.root, nk)) nk = nk + '_' + ++n;
+            d.root[nk] = deepClone(_clipboard.value);
+          }, 'Paste as new key');
+        }
+      },
+      { sep: true },
+      {
+        label: 'Expand all',
+        icon: ICONS.expandAll,
+        action: () => setAllCollapsed(false)
+      },
+      {
+        label: 'Collapse all',
+        icon: ICONS.collapseAll,
+        action: () => setAllCollapsed(true)
+      }
+    ];
+    showContextMenu(items, e.clientX, e.clientY);
+  });
 }
 

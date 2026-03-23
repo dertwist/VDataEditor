@@ -388,29 +388,36 @@ html[data-theme="light"] #cmEditor .cm-content:focus *::selection{
   align-items:center;
   cursor:ew-resize;
 }
+.slider-input-wrap:focus-within{
+  cursor:text;
+}
 .slider-track{
   position:absolute;
   left:0;
   top:0;
   bottom:0;
-  width:30%;
-  background:rgba(168,190,209,.08);
-  border-radius:3px;
+  width:0;
+  background:rgba(var(--accent-rgb), 0.18);
   pointer-events:none;
+  transition:width 40ms linear;
+  border-radius:3px 0 0 3px;
 }
 .slider-input{
   position:relative;
   z-index:1;
   background:transparent !important;
-  cursor:ew-resize;
+  cursor:inherit;
 }
 .slider-input:focus{
-  cursor:text;
   background:var(--bg-surface) !important;
 }
-.slider-input-wrap:hover .slider-track{background:rgba(168,190,209,.14)}
+.slider-input-wrap:hover .slider-track{background:rgba(var(--accent-rgb), 0.24)}
 .float-slider-01 .slider-track{
-  background:rgba(168,190,209,.12);
+  background:rgba(var(--accent-rgb), 0.22);
+}
+.slider-scrub-tooltip{
+  user-select:none;
+  transition:none;
 }
 /* m_Components (vsmart) */
 .components-widget{
@@ -629,6 +636,10 @@ html[data-theme="light"] #cmEditor .cm-content:focus *::selection{
 .modal-section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text-muted);margin-bottom:6px}
 .modal-hint{font-weight:400;text-transform:none;letter-spacing:0}
 .modal-row{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+.modal-label{font-size:10px;color:var(--text-muted);min-width:36px;flex-shrink:0}
+.akd-key-row{align-items:center}
+.akd-key-field{flex:1;min-width:0;display:flex;flex-direction:column}
+.akd-key-field .prop-input{width:100%}
 .wc-match{font-family:var(--font-mono);font-size:11px;flex:1;color:var(--text-primary);word-break:break-all}
 .wc-type{flex-shrink:0}
 .wc-readonly-list{opacity:.55;pointer-events:none}
