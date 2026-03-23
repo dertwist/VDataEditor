@@ -562,23 +562,29 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+initMenuBar();
+initTabBar();
+
+// Register active-changed BEFORE newDoc() so the first event is caught.
+let _manualEditorMounted = false;
 docManager.addEventListener('active-changed', () => {
   const d = docManager.activeDoc;
   if (d) {
     document.title = 'VDataEditor - ' + d.fileName;
     syncEditorModeSelect();
   }
+  // Mount manual editor exactly once, as soon as we have an active doc.
+  if (!_manualEditorMounted && d) {
+    _manualEditorMounted = true;
+    initManualEditPanel(); // hard call — no optional chaining
+  }
   if (typeof refreshHistoryDock === 'function') refreshHistoryDock();
   if (_editorShellReady) renderAll();
 });
 
-initMenuBar();
-initTabBar();
-
-docManager.newDoc();
+docManager.newDoc(); // fires active-changed -> mounts manual editor
 
 initPropTreeSearch();
-window.initManualEditPanel?.();
 initHistoryDock();
 initEditorModeSelect();
 initRecentFilesMenu();

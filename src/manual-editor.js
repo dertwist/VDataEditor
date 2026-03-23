@@ -203,17 +203,19 @@ function initMeSearchBridge() {
 }
 
 function initManualEditPanel() {
+  if (window.__manualEditorMounted) return true;
+
   setStatus('Initializing manual editor…', 'info');
   const mount = document.getElementById('cmEditor');
-  if (!mount) return;
+  if (!mount) return false;
   if (typeof CM === 'undefined') {
     setStatus('CodeMirror bundle missing — run npm run build:cm', 'error');
-    return;
+    return false;
   }
   if (!docManager.activeDoc) {
     console.error('initManualEditPanel: no active document');
     setStatus('No document to edit', 'error');
-    return;
+    return false;
   }
 
   _cmFormatComp = new CM.Compartment();
@@ -269,10 +271,11 @@ function initManualEditPanel() {
   } catch (e) {
     console.error('initManualEditPanel: CodeMirror failed', e);
     setStatus('Manual editor failed to start: ' + (e && e.message ? e.message : String(e)), 'error');
-    return;
+    return false;
   }
 
   setStatus('Manual editor ready', 'info');
+  window.__manualEditorMounted = true;
 
   document.querySelectorAll('input[name="meFormat"]').forEach((radio) => {
     radio.addEventListener('change', () => {
@@ -295,6 +298,8 @@ function initManualEditPanel() {
   // Ensure the CM instance is populated immediately from the active doc.
   // (renderAll() should do this too, but this avoids init-order edge cases.)
   refreshManualEditor();
+
+  return true;
 }
 
 // Ensure other scripts can reliably call it, even if global bindings differ.
