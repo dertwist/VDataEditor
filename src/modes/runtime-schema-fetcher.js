@@ -2,7 +2,7 @@
  * Runtime schema hints from Counter-Strike 2 data in
  * https://github.com/SteamTracking/GameTracking-CS2
  *
- * Discovers `.vdata` files by recursively crawling selected repo directories via the GitHub Contents API,
+ * Discovers KV3-bearing files (.vdata, .vpcf, etc.) by recursively crawling selected repo directories via the GitHub Contents API,
  * then fetches each file from `download_url` (or raw.githubusercontent.com), parses KV3, and merges into schema buckets.
  */
 (function () {
@@ -23,11 +23,24 @@
     }
   };
 
+  const KV3_EXTS = ['.vdata', '.vsndstck', '.vpcf', '.vsndevts', '.vsmart', '.vpulse', '.vsurf'];
+
   const CRAWL_ROOTS = [
+    // scripts root + all its subdirs
     'game/csgo/pak01_dir/scripts',
-    'game/csgo/pak01_dir/entities',
-    'game/csgo/pak01_dir/data',
-    'game/csgo/pak01_dir/cfg'
+    'game/csgo/pak01_dir/scripts/tools',
+    'game/csgo/pak01_dir/scripts/ai',
+    'game/csgo/pak01_dir/scripts/items',
+
+    // pak root-level loose vdata files
+    'game/csgo/pak01_dir',
+
+    // core engine vdata
+    'game/core/pak01_dir',
+
+    // other known vdata-bearing directories
+    'game/csgo/pak01_dir/particles',
+    'game/csgo/pak01_dir/soundevents'
   ];
 
   const SKIP_DIRS = new Set([
@@ -69,7 +82,16 @@
   }
 
   function pathToSchemaKey(filePath) {
-    const base = filePath.split('/').pop().replace(/\.vdata$/i, '');
+    const name = filePath.split('/').pop() || '';
+    let base = name;
+    const lower = name.toLowerCase();
+    for (let e = 0; e < KV3_EXTS.length; e++) {
+      const ext = KV3_EXTS[e];
+      if (lower.endsWith(ext.toLowerCase())) {
+        base = name.slice(0, -ext.length);
+        break;
+      }
+    }
     return KNOWN_TYPE_MAP[base] || 'path:' + base;
   }
 
@@ -105,12 +127,15 @@
       for (let i = 0; i < entries.length; i++) {
         const entry = entries[i];
         if (!entry || !entry.type) continue;
-        if (entry.type === 'file' && entry.name && entry.name.endsWith('.vdata')) {
-          found.push({
-            path: entry.path,
-            rawUrl: entry.download_url || GT_RAW + '/' + entry.path,
-            schemaKey: pathToSchemaKey(entry.path)
-          });
+        if (entry.type === 'file' && entry.name) {
+          const nameLower = entry.name.toLowerCase();
+          if (KV3_EXTS.some(function (ext) { return nameLower.endsWith(ext.toLowerCase()); })) {
+            found.push({
+              path: entry.path,
+              rawUrl: entry.download_url || GT_RAW + '/' + entry.path,
+              schemaKey: pathToSchemaKey(entry.path)
+            });
+          }
         } else if (entry.type === 'dir' && entry.path) {
           subdirs.push(entry.path);
         }
@@ -121,7 +146,7 @@
       }
     }
 
-    onProgress && onProgress('Discovering vdata files…', 2);
+    onProgress && onProgress('Discovering KV3 files…', 2);
     for (let r = 0; r < CRAWL_ROOTS.length; r++) {
       await crawlDir(CRAWL_ROOTS[r]);
     }
@@ -129,7 +154,7 @@
     found.sort(function (a, b) {
       return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
     });
-    onProgress && onProgress('Found ' + found.length + ' vdata files (' + apiCalls + ' API calls)', 8);
+    onProgress && onProgress('Found ' + found.length + ' KV3 files (' + apiCalls + ' API calls)', 8);
     return found;
   }
 
@@ -340,7 +365,7 @@
     let filesHandled = 0;
 
     if (total === 0) {
-      onProgress && onProgress('Parsed 0/0 files (no vdata discovered)', 80);
+      onProgress && onProgress('Parsed 0/0 files (no KV3 files discovered)', 80);
     } else {
       for (let i = 0; i < vdataFiles.length; i += BATCH) {
         const batch = vdataFiles.slice(i, i + BATCH);
@@ -408,7 +433,7 @@
     onProgress && onProgress('Saving…', 98);
     saveCache(schemas);
     const bucketCount = Object.keys(schemas).length;
-    onProgress && onProgress('Done — ' + bucketCount + ' schemas from ' + total + ' vdata files', 100);
+    onProgress && onProgress('Done — ' + bucketCount + ' schemas from ' + total + ' KV3 files', 100);
     return schemas;
   }
 
