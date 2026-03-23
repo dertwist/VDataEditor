@@ -2,6 +2,17 @@ import { describe, it, expect } from 'vitest';
 import KV3Format from '../format/kv3.js';
 
 describe('KV3 format', () => {
+  it('uses the default KV3 header from 1.vmdl', () => {
+    const input = {
+      generic_data_type: 'CSmartPropRoot',
+      m_Children: [],
+      m_Variables: []
+    };
+
+    const kv3 = KV3Format.jsonToKV3(input);
+    expect(kv3.startsWith('<!-- kv3 encoding:text:version{e21c7f3c-8a33-41c5-9977-a76d3a32aa0d} format:modeldoc41:version{12fc9d44-453a-4ae4-b4d9-7e2ac0bbd4e0} -->\n')).toBe(true);
+  });
+
   it('round trips a simple object', () => {
     const input = {
       generic_data_type: 'CSmartPropRoot',

@@ -75,6 +75,10 @@ function getCmLanguageExtension() {
 function refreshManualEditor() {
   if (!_cmView || !docManager.activeDoc) return;
   const text = _meFormat === 'json' ? JSON.stringify(docManager.activeDoc.root, null, 2) : serializeDocument();
+  if (text == null || text === '') {
+    // If this happens, it usually means document serialization failed or root is missing.
+    setStatus?.('Manual editor text is empty', 'error');
+  }
   const prev = _cmView.scrollDOM.scrollTop;
   clearTimeout(_meLiveSyncTimer);
   _meLiveSyncTimer = null;
@@ -199,6 +203,7 @@ function initMeSearchBridge() {
 }
 
 function initManualEditPanel() {
+  setStatus('Initializing manual editor…', 'info');
   const mount = document.getElementById('cmEditor');
   if (!mount) return;
   if (typeof CM === 'undefined') {
@@ -267,6 +272,8 @@ function initManualEditPanel() {
     return;
   }
 
+  setStatus('Manual editor ready', 'info');
+
   document.querySelectorAll('input[name="meFormat"]').forEach((radio) => {
     radio.addEventListener('change', () => {
       if (radio.checked) {
@@ -284,7 +291,14 @@ function initManualEditPanel() {
   });
 
   initMeSearchBridge();
+
+  // Ensure the CM instance is populated immediately from the active doc.
+  // (renderAll() should do this too, but this avoids init-order edge cases.)
+  refreshManualEditor();
 }
+
+// Ensure other scripts can reliably call it, even if global bindings differ.
+window.initManualEditPanel = initManualEditPanel;
 
 function syncManualEditor() {
   refreshManualEditor();
@@ -305,3 +319,6 @@ function flushSyncDebounce() {
     _meDebounceTimer = null;
   }
 }
+
+// Make flush available to other scripts (e.g. editor.js undo paths).
+window.flushSyncDebounce = flushSyncDebounce;
