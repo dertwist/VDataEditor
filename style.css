@@ -342,46 +342,7 @@ input,select,textarea,button{font-family:inherit;font-size:inherit;color:inherit
 .dock-resize-h:hover,.dock-resize-h.active{background:var(--accent)}
 /* ── Property Tree ───────────────────────────── */
 .prop-tree-panel{display:flex;flex-direction:column;height:100%;overflow:hidden;min-height:0}
-.prop-tree{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden;padding:0}
-#propTabulatorHost{flex:1;min-height:0;width:100%;font-size:12px;background:var(--bg-secondary)}
-#propTabulatorHost .tabulator{background:var(--bg-secondary);border:none;font-size:12px}
-#propTabulatorHost .tabulator-header{background:var(--bg-tertiary);border-bottom:1px solid var(--border-subtle);font-weight:600;color:var(--text-secondary)}
-#propTabulatorHost .tabulator-row{min-height:30px;border-bottom:1px solid var(--border-subtle)}
-#propTabulatorHost .tabulator-row.tabulator-row-even .tabulator-cell{background:transparent}
-#propTabulatorHost .tabulator-row.tabulator-row-odd .tabulator-cell{background:rgba(255,255,255,.018)}
-#propTabulatorHost .tabulator-row:hover .tabulator-cell{background:var(--bg-hover)!important}
-#propTabulatorHost .tabulator-row.search-hidden{display:none!important}
-#propTabulatorHost .tabulator-row.search-match .tabulator-cell{background:rgba(250,179,135,.10)!important}
-#propTabulatorHost .tabulator-row.drag-source{opacity:.45}
-#propTabulatorHost .tabulator-row.drag-over{box-shadow:inset 0 2px 0 0 var(--accent)}
-#propTabulatorHost .tabulator-cell{display:flex;align-items:center;overflow:visible;padding:2px 6px}
-#propTabulatorHost .tabulator .tabulator-cell .prop-key-text{font-size:12px;color:var(--text-secondary)}
-#propTabulatorHost .tabulator-row:hover .prop-row-actions{opacity:1;pointer-events:auto}
-.pt-key-editor{position:relative;width:100%}
-.pt-key-input{width:100%;box-sizing:border-box;background:var(--bg-surface);border:1px solid var(--accent);border-radius:3px;color:var(--text-primary);font-size:12px;padding:2px 6px;font-family:var(--font-mono),monospace}
-.pt-suggestions{
-  position:absolute;top:100%;left:0;z-index:500;
-  min-width:240px;max-height:220px;overflow-y:auto;
-  background:var(--bg-surface);
-  border:1px solid var(--accent);border-radius:0 0 var(--radius-sm) var(--radius-sm);
-  list-style:none;margin:0;padding:2px 0;
-  box-shadow:0 4px 12px rgba(0,0,0,.4);
-}
-.pt-suggestion-item{
-  display:flex;justify-content:space-between;align-items:center;
-  padding:3px 8px;cursor:pointer;font-size:12px;
-}
-.pt-suggestion-item:hover,.pt-suggestion-item:focus{
-  background:var(--bg-hover);color:var(--text-primary);outline:none;
-}
-.pt-sug-key{font-family:var(--font-mono),monospace}
-.pt-sug-type{
-  font-size:10px;opacity:.75;
-  background:var(--bg-tertiary);
-  padding:1px 4px;border-radius:2px;
-  margin-left:8px;
-}
-.prop-value-tabulator{flex:1;min-width:0}
+.prop-tree{flex:1;overflow-y:auto;padding:4px 0;min-height:0}
 .prop-row{display:grid;grid-template-columns:minmax(120px,220px) 1fr;align-items:center;min-height:28px;padding:0 8px;border-bottom:1px solid var(--border-subtle);gap:8px}
 .prop-row.prop-row-even{background:transparent}
 .prop-row.prop-row-odd{background:rgba(255,255,255,.018)}
@@ -740,14 +701,3 @@ html[data-theme="light"] #cmEditor .cm-content:focus *::selection{
 .prop-row[data-type="object"] .prop-type-icon-badge{color:var(--yellow)}
 .prop-row[data-type="array"] .prop-type-icon-badge{color:var(--peach)}
 .prop-row[data-type="null"] .prop-type-icon-badge,.prop-row[data-type="unknown"] .prop-type-icon-badge{color:var(--text-muted)}
-#propTabulatorHost .tabulator-row[data-type="string"] .prop-type-icon-badge{color:var(--color-string)}
-#propTabulatorHost .tabulator-row[data-type="int"] .prop-type-icon-badge{color:var(--color-int)}
-#propTabulatorHost .tabulator-row[data-type="float"] .prop-type-icon-badge{color:var(--color-float)}
-#propTabulatorHost .tabulator-row[data-type="bool"] .prop-type-icon-badge{color:var(--color-bool)}
-#propTabulatorHost .tabulator-row[data-type="color"] .prop-type-icon-badge{color:var(--color-color)}
-#propTabulatorHost .tabulator-row[data-type="vec2"] .prop-type-icon-badge,#propTabulatorHost .tabulator-row[data-type="vec3"] .prop-type-icon-badge,#propTabulatorHost .tabulator-row[data-type="vec4"] .prop-type-icon-badge{color:var(--color-vec3)}
-#propTabulatorHost .tabulator-row[data-type="resource"] .prop-type-icon-badge{color:var(--accent)}
-#propTabulatorHost .tabulator-row[data-type="soundevent"] .prop-type-icon-badge{color:var(--green)}
-#propTabulatorHost .tabulator-row[data-type="object"] .prop-type-icon-badge{color:var(--yellow)}
-#propTabulatorHost .tabulator-row[data-type="array"] .prop-type-icon-badge{color:var(--peach)}
-#propTabulatorHost .tabulator-row[data-type="null"] .prop-type-icon-badge,#propTabulatorHost .tabulator-row[data-type="unknown"] .prop-type-icon-badge{color:var(--text-muted)}

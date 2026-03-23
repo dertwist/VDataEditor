@@ -16,21 +16,9 @@
     return _pref === 'light' ? 'light' : 'dark';
   }
 
-  const TABULATOR_CSS_LIGHT = 'https://unpkg.com/tabulator-tables@6.3.0/dist/css/tabulator.min.css';
-  const TABULATOR_CSS_DARK = 'https://unpkg.com/tabulator-tables@6.3.0/dist/css/tabulator_midnight.min.css';
-
-  function syncTabulatorThemeCss() {
-    const link = root.document && root.document.getElementById('tabulator-theme-css');
-    if (!link) return;
-    const eff = _effectiveTheme();
-    const href = eff === 'light' ? TABULATOR_CSS_LIGHT : TABULATOR_CSS_DARK;
-    if (link.getAttribute('href') !== href) link.setAttribute('href', href);
-  }
-
   function _applyResolved() {
     const eff = _effectiveTheme();
     document.documentElement.setAttribute('data-theme', eff);
-    syncTabulatorThemeCss();
     if (typeof syncManualEditorTheme === 'function') syncManualEditorTheme();
   }
 
