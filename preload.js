@@ -6,6 +6,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveFile: (filePath, content) => ipcRenderer.invoke('save-file', filePath, content),
   showSaveDialog: (opts) => ipcRenderer.invoke('show-save-dialog', opts),
   getVersion: () => ipcRenderer.invoke('get-version'),
+  getRecentFiles: () => ipcRenderer.invoke('get-recent-files'),
+  clearRecentFiles: () => ipcRenderer.invoke('clear-recent-files'),
+  addRecentFile: (filePath) => ipcRenderer.invoke('add-recent-file', filePath),
+  onRecentFilesUpdated: (callback) =>
+    ipcRenderer.on('recent-files-updated', (_event, list) => callback(list)),
   quitApp: () => ipcRenderer.send('app-quit'),
   minimize: () => ipcRenderer.send('window-minimize'),
   zoom: () => ipcRenderer.send('window-zoom'),

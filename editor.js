@@ -27,6 +27,20 @@ function fileExtension(name) {
   return m ? m[1].toLowerCase() : '';
 }
 
+function pathBasename(p) {
+  if (!p || typeof p !== 'string') return '';
+  const parts = p.split(/[/\\]/);
+  return parts[parts.length - 1] || p;
+}
+
+/** Parent container path for a property row (sibling rows share the same parent path). */
+function parentPathFromRowPath(propPath) {
+  if (!propPath) return '';
+  const i = propPath.lastIndexOf('/');
+  if (i === -1) return '';
+  return propPath.slice(0, i);
+}
+
 function syncDocumentFormatFromFilename(name) {
   const ext = fileExtension(name);
   if (ext === 'vmat' || ext === 'vmt') documentFormat = 'keyvalue';
@@ -197,7 +211,23 @@ function refreshHistoryDock() {
 }
 
 function initHistoryDock() {
-  document.getElementById('historyClearBtn')?.addEventListener('click', () => {
+  const historyUndoBtn = document.getElementById('historyUndoBtn');
+  const historyRedoBtn = document.getElementById('historyRedoBtn');
+  const historyClearBtn = document.getElementById('historyClearBtn');
+  if (historyUndoBtn && typeof ICONS !== 'undefined') historyUndoBtn.innerHTML = ICONS.undo;
+  if (historyRedoBtn && typeof ICONS !== 'undefined') historyRedoBtn.innerHTML = ICONS.redo;
+  if (historyClearBtn && typeof ICONS !== 'undefined') historyClearBtn.innerHTML = ICONS.x;
+
+  historyUndoBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    undo();
+  });
+  historyRedoBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    redo();
+  });
+
+  historyClearBtn?.addEventListener('click', () => {
     commandUndoStack.length = 0;
     commandRedoStack.length = 0;
     refreshHistoryDock();
@@ -247,13 +277,14 @@ function initHistoryDock() {
 }
 
 /** Wrap a synchronous document mutation with undo/redo that snapshots `doc` and `documentFormat`. */
-function withDocUndo(applyFn) {
+function withDocUndo(applyFn, label) {
   const prev = deepClone(doc);
   const prevFormat = documentFormat;
   applyFn();
   const next = deepClone(doc);
   const nextFormat = documentFormat;
   pushUndoCommand({
+    label: label ?? 'Edit',
     undo: () => {
       documentFormat = prevFormat;
       assignDocRoot(deepClone(prev));
@@ -278,35 +309,99 @@ function withDocUndo(applyFn) {
 
 let _meFormat = 'json';
 let _meLiveSyncTimer = null;
+let _cmView = null;
+let _cmFormatComp = null;
+/** True while CM content is replaced from `doc` — avoids Live sync treating it as user input. */
+let _cmSuppressLiveSync = false;
 
-function updateMeGutter() {
-  const ta = document.getElementById('manualEditor');
-  const gutter = document.getElementById('meGutter');
-  if (!ta || !gutter) return;
-  const lines = ta.value.split('\n').length;
-  let t = '';
-  for (let i = 1; i <= lines; i++) t += i + '\n';
-  gutter.textContent = t;
-  gutter.scrollTop = ta.scrollTop;
+function buildCmTheme() {
+  return CM.EditorView.theme({
+    '&': {
+      height: '100%',
+      fontSize: '12px',
+      fontFamily: 'var(--font-mono), monospace',
+      background: 'var(--bg-base)',
+      color: 'var(--text-primary)'
+    },
+    '.cm-content': { caretColor: 'var(--accent)' },
+    '.cm-line': { padding: '0 8px' },
+    '.cm-line:nth-child(even)': { background: 'rgba(255,255,255,.008)' },
+    '.cm-activeLine': { background: 'rgba(var(--accent-rgb), 0.06) !important' },
+    '.cm-gutters': {
+      background: 'var(--bg-surface)',
+      borderRight: '1px solid var(--border-subtle)',
+      color: 'var(--text-muted)'
+    },
+    '.cm-activeLineGutter': { background: 'rgba(var(--accent-rgb), 0.1)' },
+    '.cm-keyword': { color: '#cba6f7' },
+    '.cm-string': { color: '#a6e3a1' },
+    '.cm-number': { color: '#fab387' },
+    '.cm-atom': { color: '#89dceb' },
+    '.cm-comment': { color: '#585b70', fontStyle: 'italic' },
+    '.cm-property': { color: '#89b4fa' },
+    '.cm-propertyName': { color: '#89b4fa' },
+    '.cm-variable': { color: '#cdd6f4' },
+    '.cm-searchMatch': { background: 'rgba(250,179,135,.25)', borderRadius: '2px' },
+    '.cm-searchMatch-selected': { background: 'rgba(250,179,135,.55)' }
+  });
+}
+
+function buildKv3Language() {
+  return CM.StreamLanguage.define({
+    name: 'kv3',
+    token(stream) {
+      if (stream.eatSpace()) return null;
+      if (stream.match('//')) {
+        stream.skipToEnd();
+        return 'comment';
+      }
+      if (stream.match('/*')) {
+        let ch;
+        while ((ch = stream.next()) != null) {
+          if (ch === '*' && stream.eat('/')) break;
+        }
+        return 'comment';
+      }
+      if (stream.match(/^"(?:[^"\\]|\\.)*"/)) return 'string';
+      if (stream.match(/^(?:resource_name|soundevent|panorama|subclass_reference):/)) return 'keyword';
+      if (stream.match(/^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/)) return 'number';
+      if (stream.match(/^(?:true|false|null)/)) return 'atom';
+      if (stream.match(/^[{}[\]]/)) return 'keyword';
+      if (stream.match(/^[a-zA-Z_][\w.]*/)) return 'variable';
+      stream.next();
+      return null;
+    }
+  });
+}
+
+function getCmLanguageExtension() {
+  return _meFormat === 'json' ? CM.json() : buildKv3Language();
 }
 
 function refreshManualEditor() {
-  const ta = document.getElementById('manualEditor');
-  if (!ta) return;
-  const prev = ta.scrollTop;
-  if (_meFormat === 'json') ta.value = JSON.stringify(doc, null, 2);
-  else ta.value = serializeDocument();
-  ta.scrollTop = prev;
-  updateMeGutter();
+  if (!_cmView) return;
+  const text = _meFormat === 'json' ? JSON.stringify(doc, null, 2) : serializeDocument();
+  const prev = _cmView.scrollDOM.scrollTop;
+  clearTimeout(_meLiveSyncTimer);
+  _meLiveSyncTimer = null;
+  _cmSuppressLiveSync = true;
+  try {
+    _cmView.dispatch({
+      changes: { from: 0, to: _cmView.state.doc.length, insert: text }
+    });
+  } finally {
+    _cmSuppressLiveSync = false;
+  }
+  _cmView.scrollDOM.scrollTop = prev;
 }
 
 function applyManualEdit() {
-  const ta = document.getElementById('manualEditor');
-  if (!ta) return;
+  if (!_cmView) return;
+  const text = _cmView.state.doc.toString();
   try {
     let parsed;
     if (_meFormat === 'json') {
-      parsed = JSON.parse(ta.value);
+      parsed = JSON.parse(text);
       withDocUndo(() => {
         documentFormat = 'json';
         assignDocRoot(parsed);
@@ -314,7 +409,7 @@ function applyManualEdit() {
         recalcAllIds();
       });
     } else {
-      parsed = documentFormat === 'keyvalue' ? keyValueToJSON(ta.value) : kv3ToJSON(ta.value);
+      parsed = documentFormat === 'keyvalue' ? keyValueToJSON(text) : kv3ToJSON(text);
       withDocUndo(() => {
         assignDocRoot(parsed);
         ensureSmartPropRootArrays();
@@ -335,131 +430,148 @@ function toggleMeSearchBar(forceOpen) {
   if (open) document.getElementById('meSearchInput')?.focus();
 }
 
-function initMeSearch(ta) {
+function initMeSearchBridge() {
   const searchInput = document.getElementById('meSearchInput');
   const replaceInput = document.getElementById('meReplaceInput');
   const matchCount = document.getElementById('meMatchCount');
-  const closeBtn = document.getElementById('meSearchClose');
-  if (!searchInput) return;
 
   let _matches = [];
   let _matchIdx = 0;
 
-  function findMatches() {
-    const needle = searchInput.value;
+  function findInCm() {
+    const needle = searchInput?.value ?? '';
     _matches = [];
-    _matchIdx = 0;
-    if (!needle) {
-      matchCount.textContent = '0/0';
+    if (!needle || !_cmView) {
+      if (matchCount) matchCount.textContent = '0/0';
       return;
     }
-    const text = ta.value;
-    let idx = 0;
+    const text = _cmView.state.doc.toString();
+    let from = 0;
     while (true) {
-      const pos = text.indexOf(needle, idx);
+      const pos = text.indexOf(needle, from);
       if (pos === -1) break;
-      _matches.push({ start: pos, end: pos + needle.length });
-      idx = pos + 1;
+      _matches.push({ from: pos, to: pos + needle.length });
+      from = pos + 1;
     }
-    matchCount.textContent = _matches.length > 0 ? `1/${_matches.length}` : '0/0';
+    if (matchCount) matchCount.textContent = _matches.length ? `1/${_matches.length}` : '0/0';
+    _matchIdx = 0;
   }
 
-  function jumpToMatch(idx) {
-    if (_matches.length === 0) return;
+  function jumpCm(idx) {
+    if (!_matches.length || !_cmView) return;
     _matchIdx = ((idx % _matches.length) + _matches.length) % _matches.length;
     const m = _matches[_matchIdx];
-    ta.focus();
-    ta.setSelectionRange(m.start, m.end);
-    const linesBefore = ta.value.slice(0, m.start).split('\n').length - 1;
-    const lineHeight = parseFloat(getComputedStyle(ta).lineHeight) || 18;
-    ta.scrollTop = Math.max(0, linesBefore * lineHeight - ta.clientHeight / 2);
-    matchCount.textContent = `${_matchIdx + 1}/${_matches.length}`;
+    _cmView.dispatch({
+      selection: CM.EditorSelection.create([CM.EditorSelection.range(m.from, m.to)]),
+      scrollIntoView: true
+    });
+    if (matchCount) matchCount.textContent = `${_matchIdx + 1}/${_matches.length}`;
   }
 
-  searchInput.addEventListener('input', () => {
-    findMatches();
-    if (_matches.length) jumpToMatch(0);
+  searchInput?.addEventListener('input', () => {
+    findInCm();
+    if (_matches.length) jumpCm(0);
   });
-  document.getElementById('meNextMatch')?.addEventListener('click', () => jumpToMatch(_matchIdx + 1));
-  document.getElementById('mePrevMatch')?.addEventListener('click', () => jumpToMatch(_matchIdx - 1));
+  document.getElementById('meNextMatch')?.addEventListener('click', () => jumpCm(_matchIdx + 1));
+  document.getElementById('mePrevMatch')?.addEventListener('click', () => jumpCm(_matchIdx - 1));
 
   document.getElementById('meReplaceOne')?.addEventListener('click', () => {
-    if (_matches.length === 0) return;
+    if (!_matches.length || !_cmView) return;
     const m = _matches[_matchIdx];
-    const repVal = replaceInput.value;
-    ta.setSelectionRange(m.start, m.end);
-    document.execCommand('insertText', false, repVal);
-    findMatches();
-    if (_matches.length) jumpToMatch(Math.min(_matchIdx, _matches.length - 1));
-    updateMeGutter();
+    _cmView.dispatch({ changes: { from: m.from, to: m.to, insert: replaceInput?.value ?? '' } });
+    findInCm();
+    jumpCm(Math.min(_matchIdx, _matches.length - 1));
   });
 
   document.getElementById('meReplaceAll')?.addEventListener('click', () => {
-    const needle = searchInput.value;
+    if (!_cmView) return;
+    const needle = searchInput?.value ?? '';
     if (!needle) return;
-    const repVal = replaceInput.value;
-    ta.value = ta.value.split(needle).join(repVal);
-    findMatches();
-    updateMeGutter();
+    const text = _cmView.state.doc.toString();
+    const replaced = text.split(needle).join(replaceInput?.value ?? '');
+    _cmView.dispatch({ changes: { from: 0, to: _cmView.state.doc.length, insert: replaced } });
+    findInCm();
   });
 
-  closeBtn?.addEventListener('click', () => toggleMeSearchBar(false));
+  document.getElementById('meSearchClose')?.addEventListener('click', () => toggleMeSearchBar(false));
 
-  searchInput.addEventListener('keydown', (e) => {
+  searchInput?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      jumpToMatch(e.shiftKey ? _matchIdx - 1 : _matchIdx + 1);
+      jumpCm(e.shiftKey ? _matchIdx - 1 : _matchIdx + 1);
     }
     if (e.key === 'Escape') toggleMeSearchBar(false);
   });
 }
 
 function initManualEditPanel() {
-  const ta = document.getElementById('manualEditor');
-  const gutter = document.getElementById('meGutter');
-  if (!ta) return;
+  const mount = document.getElementById('cmEditor');
+  if (!mount) return;
+  if (typeof CM === 'undefined') {
+    setStatus('CodeMirror bundle missing — run npm run build:cm', 'error');
+    return;
+  }
+
+  _cmFormatComp = new CM.Compartment();
+  const initialDoc = JSON.stringify(doc, null, 2);
+
+  _cmView = new CM.EditorView({
+    state: CM.EditorState.create({
+      doc: initialDoc,
+      extensions: [
+        CM.lineNumbers(),
+        CM.highlightActiveLine(),
+        CM.highlightActiveLineGutter(),
+        CM.drawSelection(),
+        CM.history(),
+        CM.search({ top: false }),
+        CM.keymap.of([
+          ...CM.defaultKeymap,
+          ...CM.historyKeymap,
+          ...CM.searchKeymap,
+          { key: 'Mod-Enter', run: () => { applyManualEdit(); return true; } }
+        ]),
+        CM.Prec.highest(
+          CM.keymap.of([
+            { key: 'Mod-f', run: () => { toggleMeSearchBar(true); return true; } },
+            { key: 'Mod-h', run: () => { toggleMeSearchBar(); return true; } }
+          ])
+        ),
+        _cmFormatComp.of(getCmLanguageExtension()),
+        buildCmTheme(),
+        CM.EditorView.updateListener.of((update) => {
+          if (
+            !update.docChanged ||
+            _cmSuppressLiveSync ||
+            !document.getElementById('meLiveSync')?.checked
+          ) {
+            return;
+          }
+          clearTimeout(_meLiveSyncTimer);
+          _meLiveSyncTimer = setTimeout(applyManualEdit, 800);
+        })
+      ]
+    }),
+    parent: mount
+  });
 
   document.querySelectorAll('input[name="meFormat"]').forEach((radio) => {
     radio.addEventListener('change', () => {
-      if (radio.checked) _meFormat = radio.value;
-      refreshManualEditor();
+      if (radio.checked) {
+        _meFormat = radio.value;
+        _cmView.dispatch({ effects: _cmFormatComp.reconfigure(getCmLanguageExtension()) });
+        refreshManualEditor();
+      }
     });
   });
 
   document.getElementById('meApplyBtn')?.addEventListener('click', applyManualEdit);
   document.getElementById('meCopyBtn')?.addEventListener('click', () => {
-    navigator.clipboard.writeText(ta.value);
+    navigator.clipboard.writeText(_cmView.state.doc.toString());
     setStatus('Copied to clipboard', 'info');
   });
 
-  ta.addEventListener('scroll', () => {
-    if (gutter) gutter.scrollTop = ta.scrollTop;
-  });
-  ta.addEventListener('input', () => {
-    updateMeGutter();
-    if (document.getElementById('meLiveSync')?.checked) {
-      clearTimeout(_meLiveSyncTimer);
-      _meLiveSyncTimer = setTimeout(applyManualEdit, 800);
-    }
-  });
-
-  ta.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'h') {
-      e.preventDefault();
-      toggleMeSearchBar();
-    }
-    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-      e.preventDefault();
-      toggleMeSearchBar(true);
-    }
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-      e.preventDefault();
-      applyManualEdit();
-    }
-  });
-
-  initMeSearch(ta);
-  updateMeGutter();
+  initMeSearchBridge();
 }
 
 function openWidgetConfigDialog() {
@@ -696,10 +808,25 @@ const TYPE_ICONS = {
   resource: 'typeResource',
   soundevent: 'typeSound',
   null: 'typeNull',
-  unknown: 'typeUnknown'
+  unknown: 'typeUnknown',
+  components: 'typeVec3',
+  readonly_string: 'typeString',
+  float_slider_01: 'typeFloat'
 };
 
-function resolveRowWidgetType(key, value) {
+function getActiveMode() {
+  const sel = document.getElementById('editorModeSelect');
+  const v = sel ? sel.value : 'auto';
+  if (!v || v === 'auto') return window.VDataEditorModes.getModeForFile(currentFileName);
+  return window.VDataEditorModes.getModeById(v);
+}
+
+function resolveRowWidgetType(key, value, parentObj) {
+  const mode = getActiveMode();
+  if (mode && typeof mode.resolveWidget === 'function') {
+    const w = mode.resolveWidget(key, value, parentObj);
+    if (w) return w;
+  }
   const inferred = inferType(key, value);
   return VDataSettings.resolveWidgetType(key, inferred);
 }
@@ -890,6 +1017,30 @@ function castPropertyType(parentRef, key, value, fromType, toType, arrayIdx) {
   });
 }
 
+function isPropRowInHiddenBranch(row) {
+  let el = row.parentElement;
+  while (el && el.id !== 'propTreeRoot') {
+    if (el.classList && el.classList.contains('prop-row-children')) {
+      const cs = window.getComputedStyle(el);
+      if (cs.display === 'none') return true;
+    }
+    el = el.parentElement;
+  }
+  return false;
+}
+
+/** Visible-order zebra striping (flat `.prop-row` list; skips hidden/collapsed branches). */
+function stripePropTree() {
+  let i = 0;
+  document.querySelectorAll('#propTreeRoot .prop-row').forEach((row) => {
+    if (row.classList.contains('search-hidden')) return;
+    if (isPropRowInHiddenBranch(row)) return;
+    row.classList.toggle('prop-row-even', i % 2 === 0);
+    row.classList.toggle('prop-row-odd', i % 2 === 1);
+    i++;
+  });
+}
+
 function buildPropertyTree() {
   const container = document.getElementById('propTreeRoot');
   if (!container) return;
@@ -899,6 +1050,7 @@ function buildPropertyTree() {
   renderObjectRows(container, doc, 0, '');
   const q = document.getElementById('propTreeSearch')?.value?.trim().toLowerCase() ?? '';
   if (q) filterPropTree(q);
+  stripePropTree();
   requestAnimationFrame(() => {
     container.scrollTop = scrollTop;
   });
@@ -908,7 +1060,7 @@ function renderObjectRows(container, obj, depth, parentPath) {
   if (!obj || typeof obj !== 'object') return;
   for (const [key, value] of Object.entries(obj)) {
     if (value === undefined) continue;
-    const type = resolveRowWidgetType(key, value);
+    const type = resolveRowWidgetType(key, value, obj);
     const rowPath = parentPath ? `${parentPath}/${key}` : key;
     const row = buildPropRow(key, value, type, depth, obj, undefined, rowPath);
     container.appendChild(row);
@@ -961,7 +1113,7 @@ function renderObjectRows(container, obj, depth, parentPath) {
 function renderArrayRows(container, arr, depth, parentPath) {
   if (!Array.isArray(arr)) return;
   arr.forEach((item, idx) => {
-    const itemType = resolveRowWidgetType(`[${idx}]`, item);
+    const itemType = resolveRowWidgetType(`[${idx}]`, item, arr);
     const rowPath = `${parentPath}/[${idx}]`;
     const row = buildPropRow(`[${idx}]`, item, itemType, depth, arr, idx, rowPath);
     container.appendChild(row);
@@ -1014,6 +1166,11 @@ function renderArrayRows(container, arr, depth, parentPath) {
 function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath) {
   const row = document.createElement('div');
   row.className = 'prop-row' + (type === 'object' || type === 'array' ? ' is-object' : '');
+  const mode = getActiveMode();
+  if (mode && typeof mode.rowClass === 'function') {
+    const rc = mode.rowClass(key, value);
+    if (rc) row.className += ' ' + rc;
+  }
   const d = Math.min(depth, 9);
   row.dataset.depth = String(d);
   row.dataset.type = type;
@@ -1027,11 +1184,19 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath) {
   const pad = Math.min(depth, 12) * 16;
   keyEl.style.paddingLeft = pad + 'px';
 
+  const dragHandle = document.createElement('span');
+  dragHandle.className = 'prop-row-drag-handle';
+  dragHandle.draggable = true;
+  dragHandle.title = 'Drag to reorder';
+  dragHandle.setAttribute('aria-label', 'Drag to reorder');
+  dragHandle.textContent = '⋮⋮';
+
   const keyIcon = document.createElement('span');
   keyIcon.className = 'prop-type-icon-badge';
   keyIcon.title = type;
   const iconKey = TYPE_ICONS[type];
   if (iconKey && ICONS[iconKey]) keyIcon.innerHTML = ICONS[iconKey];
+  keyEl.appendChild(dragHandle);
   keyEl.appendChild(keyIcon);
 
   if (type === 'object' || type === 'array') {
@@ -1057,6 +1222,7 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath) {
         if (wasCollapsed) propTreeCollapsedPaths.delete(propPath);
         else propTreeCollapsedPaths.add(propPath);
       }
+      stripePropTree();
     });
     keyEl.appendChild(toggle);
   } else {
@@ -1106,6 +1272,19 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath) {
     case 'int':
     case 'float':
       buildNumberWidget(valEl, value, type, onScalarChange);
+      break;
+    case 'float_slider_01':
+      buildFloatSlider01Widget(valEl, value, onScalarChange);
+      break;
+    case 'readonly_string':
+      buildReadonlyStringWidget(valEl, value);
+      break;
+    case 'components':
+      valEl.appendChild(
+        buildComponentsWidget(value, (newArr) => {
+          commitValue(parentRef, key, newArr, arrayIdx, true);
+        })
+      );
       break;
     case 'string':
       buildStringWidget(valEl, value, onScalarChange);
@@ -1207,7 +1386,309 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath) {
 
   row.appendChild(keyEl);
   row.appendChild(valEl);
+
+  row.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    showPropContextMenu(e.clientX, e.clientY, key, value, type, parentRef, arrayIdx, propPath, row);
+  });
+  initRowDragDrop(row, dragHandle, key, parentRef, arrayIdx, propPath);
+
   return row;
+}
+
+function collectContainerPaths(obj, parentPath, depth) {
+  const out = [];
+  if (!obj || typeof obj !== 'object') return out;
+  if (Array.isArray(obj)) {
+    obj.forEach((el, i) => {
+      const p = parentPath ? `${parentPath}/[${i}]` : `[${i}]`;
+      if (el !== null && typeof el === 'object') {
+        out.push({ path: p, depth });
+        out.push(...collectContainerPaths(el, p, depth + 1));
+      }
+    });
+  } else {
+    for (const k of Object.keys(obj)) {
+      const v = obj[k];
+      const p = parentPath ? `${parentPath}/${k}` : k;
+      if (v !== null && typeof v === 'object') {
+        out.push({ path: p, depth });
+        out.push(...collectContainerPaths(v, p, depth + 1));
+      }
+    }
+  }
+  return out;
+}
+
+function setAllCollapsed(collapsed) {
+  propTreeExpandedPaths.clear();
+  propTreeCollapsedPaths.clear();
+  const all = collectContainerPaths(doc, '', 0);
+  if (collapsed) {
+    for (const k of Object.keys(doc)) {
+      if (doc[k] !== null && typeof doc[k] === 'object') propTreeCollapsedPaths.add(k);
+    }
+  } else {
+    all.forEach(({ path, depth }) => {
+      if (depth >= 1) propTreeExpandedPaths.add(path);
+    });
+  }
+  buildPropertyTree();
+}
+
+function expandAllChildrenForRow(row) {
+  const ch = row.nextElementSibling;
+  if (!ch || !ch.classList.contains('prop-row-children')) return;
+  const path = row.dataset.propPath;
+  const depth = parseInt(row.dataset.depth, 10);
+  if (ch.dataset.lazy === '1') {
+    ch.removeAttribute('data-lazy');
+    const type = row.dataset.type;
+    const val = getValueAtPath(doc, path);
+    if (type === 'object' && val && typeof val === 'object') renderObjectRows(ch, val, depth + 1, path);
+    else if (type === 'array' && Array.isArray(val)) renderArrayRows(ch, val, depth + 1, path);
+  }
+  propTreeExpandedPaths.add(path);
+  const val = getValueAtPath(doc, path);
+  const sub = collectContainerPaths(val && typeof val === 'object' ? val : {}, path, depth);
+  sub.forEach(({ path: p }) => propTreeExpandedPaths.add(p));
+  ch.style.display = '';
+  const toggle = row.querySelector('.prop-key-toggle');
+  if (toggle) toggle.textContent = '▾';
+  buildPropertyTree();
+}
+
+function getValueAtPath(root, pathStr) {
+  if (!pathStr) return root;
+  const parts = pathStr.split('/');
+  let cur = root;
+  for (const part of parts) {
+    if (cur == null) return undefined;
+    const m = /^\[(\d+)\]$/.exec(part);
+    if (m) cur = cur[parseInt(m[1], 10)];
+    else cur = cur[part];
+  }
+  return cur;
+}
+
+function showContextMenu(items, x, y) {
+  document.querySelectorAll('.ctx-menu-root').forEach((el) => el.remove());
+  const root = document.createElement('div');
+  root.className = 'ctx-menu-root';
+  root.style.position = 'fixed';
+  root.style.left = x + 'px';
+  root.style.top = y + 'px';
+  root.style.zIndex = '6000';
+
+  items.forEach((it) => {
+    if (it.sep) {
+      const s = document.createElement('div');
+      s.className = 'ctx-sep';
+      root.appendChild(s);
+      return;
+    }
+    const row = document.createElement('div');
+    row.className = 'ctx-item' + (it.disabled ? ' ctx-item-disabled' : '') + (it.cls ? ' ' + it.cls : '');
+    row.innerHTML =
+      '<span class="ctx-content">' +
+      (it.icon ? '<span class="ctx-icon">' + it.icon + '</span>' : '<span class="ctx-icon-placeholder"></span>') +
+      '<span class="ctx-label"></span></span>';
+    row.querySelector('.ctx-label').textContent = it.label;
+    if (!it.disabled) {
+      row.addEventListener('mousedown', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        it.action();
+        root.remove();
+      });
+    }
+    root.appendChild(row);
+  });
+
+  document.body.appendChild(root);
+  const close = (ev) => {
+    if (!root.contains(ev.target)) {
+      root.remove();
+      document.removeEventListener('mousedown', close, true);
+    }
+  };
+  setTimeout(() => document.addEventListener('mousedown', close, true), 0);
+}
+
+function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPath, row) {
+  const isContainer = type === 'object' || type === 'array';
+  const isArrayIndex = typeof arrayIdx === 'number';
+  const items = [
+    {
+      label: 'Copy value',
+      icon: ICONS.copy,
+      action: () => navigator.clipboard.writeText(JSON.stringify(value))
+    },
+    {
+      label: 'Paste value',
+      icon: ICONS.clipboard,
+      action: async () => {
+        try {
+          const text = await navigator.clipboard.readText();
+          const v = JSON.parse(text);
+          commitValue(parentRef, key, v, arrayIdx, true);
+        } catch (_) {}
+      }
+    },
+    { sep: true },
+    {
+      label: 'Duplicate',
+      icon: ICONS.duplicate,
+      action: () => {
+        if (isArrayIndex) {
+          withDocUndo(() => {
+            invalidatePropTreePathsForArrayContainer(arrayContainerPathFromRowPath(propPath));
+            parentRef.splice(arrayIdx + 1, 0, deepClone(value));
+          }, 'Duplicate');
+        } else {
+          withDocUndo(() => {
+            let newKey = key + '_copy';
+            let n = 1;
+            while (Object.prototype.hasOwnProperty.call(parentRef, newKey)) newKey = key + '_copy' + ++n;
+            parentRef[newKey] = deepClone(value);
+          }, 'Duplicate');
+        }
+      }
+    },
+    {
+      label: 'Delete',
+      icon: ICONS.trash,
+      cls: 'danger',
+      action: () => {
+        withDocUndo(() => {
+          if (isArrayIndex) {
+            invalidatePropTreePathsForArrayContainer(arrayContainerPathFromRowPath(propPath));
+            parentRef.splice(arrayIdx, 1);
+          } else {
+            invalidatePropTreePathsUnderObjectKey(propPath);
+            delete parentRef[key];
+          }
+        }, 'Delete');
+      }
+    },
+    { sep: true }
+  ];
+  if (isContainer) {
+    items.push({
+      label: 'Toggle collapse',
+      action: () => row.querySelector('.prop-key-toggle')?.click()
+    });
+    items.push({
+      label: 'Expand branch',
+      action: () => expandAllChildrenForRow(row)
+    });
+  }
+  items.push({
+    label: 'Add child',
+    icon: ICONS.plus,
+    disabled: !isContainer,
+    action: () => {
+      if (!isContainer) return;
+      withDocUndo(() => {
+        if (type === 'array') {
+          value.push('');
+        } else {
+          let nk = 'new_key';
+          let n = 1;
+          while (Object.prototype.hasOwnProperty.call(value, nk)) nk = 'new_key_' + ++n;
+          value[nk] = '';
+        }
+      }, 'Add child');
+    }
+  });
+  items.push({ sep: true });
+  items.push({
+    label: 'Copy property path',
+    action: () => navigator.clipboard.writeText(propPath)
+  });
+
+  showContextMenu(items, x, y);
+}
+
+/** Value / key controls inside a property row — row drag-reorder must not steal drags or drops here. */
+function isPropRowDragExemptTarget(el) {
+  if (!el || !(el instanceof Element)) return false;
+  return (
+    el.closest(
+      'input, textarea, button, select, ' +
+        '.prop-key-toggle, ' +
+        '.slider-input-wrap, ' +
+        '.prop-color-swatch, ' +
+        '.components-widget, ' +
+        '.prop-row-actions'
+    ) != null
+  );
+}
+
+function initRowDragDrop(row, dragHandle, key, parentRef, arrayIdx, propPath) {
+  dragHandle.addEventListener('dragstart', (e) => {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData(
+      'application/x-vdata-row',
+      JSON.stringify({ key, arrayIdx: typeof arrayIdx === 'number' ? arrayIdx : null, propPath })
+    );
+    row.classList.add('drag-source');
+  });
+  dragHandle.addEventListener('dragend', () => {
+    row.classList.remove('drag-source', 'drag-over');
+  });
+  row.addEventListener('dragover', (e) => {
+    if (isPropRowDragExemptTarget(e.target)) {
+      row.classList.remove('drag-over');
+      return;
+    }
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    row.classList.add('drag-over');
+  });
+  row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+  row.addEventListener('drop', (e) => {
+    if (isPropRowDragExemptTarget(e.target)) return;
+    e.preventDefault();
+    row.classList.remove('drag-over');
+    let src;
+    try {
+      src = JSON.parse(e.dataTransfer.getData('application/x-vdata-row'));
+    } catch (_) {
+      return;
+    }
+    if (!src || src.propPath === propPath) return;
+    if (parentPathFromRowPath(src.propPath) !== parentPathFromRowPath(propPath)) return;
+    reorderProp(parentRef, src, { key, arrayIdx, propPath });
+  });
+}
+
+function reorderProp(parentRef, src, dst) {
+  if (Array.isArray(parentRef)) {
+    const si = src.arrayIdx;
+    const di = dst.arrayIdx;
+    if (typeof si !== 'number' || typeof di !== 'number') return;
+    if (si === di) return;
+    withDocUndo(() => {
+      invalidatePropTreePathsForArrayContainer(arrayContainerPathFromRowPath(dst.propPath || ''));
+      const [item] = parentRef.splice(si, 1);
+      const insert = si < di ? di - 1 : di;
+      parentRef.splice(insert, 0, item);
+    }, 'Reorder');
+    return;
+  }
+  if (typeof src.key !== 'string' || typeof dst.key !== 'string') return;
+  if (src.key === dst.key) return;
+  withDocUndo(() => {
+    const entries = Object.entries(parentRef);
+    const srcIdx = entries.findIndex(([k]) => k === src.key);
+    const dstIdx = entries.findIndex(([k]) => k === dst.key);
+    if (srcIdx < 0 || dstIdx < 0) return;
+    const [entry] = entries.splice(srcIdx, 1);
+    entries.splice(dstIdx, 0, entry);
+    for (const k of Object.keys(parentRef)) delete parentRef[k];
+    for (const [k, v] of entries) parentRef[k] = v;
+  }, 'Reorder');
 }
 
 function startInlineRename(keyEl, keyTextSpan, oldKey, parentRef) {
@@ -1271,17 +1752,178 @@ function buildBoolWidget(container, value, onChange) {
   container.appendChild(cb);
 }
 
-function buildNumberWidget(container, value, type, onChange) {
-  const inp = document.createElement('input');
-  inp.type = 'number';
-  inp.className = 'prop-input';
-  inp.value = String(value);
-  inp.step = type === 'int' ? '1' : 'any';
-  inp.addEventListener('change', () => {
-    const v = type === 'int' ? parseInt(inp.value, 10) : parseFloat(inp.value);
-    if (!Number.isNaN(v)) onChange(v);
+/** Scrub slider for int/float (Shift+click input for plain edit). opts.clamp01 clamps to [0,1]. */
+function buildSliderInput(value, type, onChange, opts) {
+  opts = opts || {};
+  const clamp01 = !!opts.clamp01;
+  const wrap = document.createElement('div');
+  wrap.className = 'slider-input-wrap' + (clamp01 ? ' float-slider-01' : '');
+
+  const track = document.createElement('div');
+  track.className = 'slider-track';
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'prop-input slider-input';
+  input.value =
+    type === 'float' || clamp01
+      ? String(Number(value).toFixed(4)).replace(/\.?0+$/, '')
+      : String(value);
+
+  function updateTrack(v) {
+    let pct = 0;
+    if (clamp01) {
+      const n = Math.max(0, Math.min(1, Number(v)));
+      pct = n * 100;
+    } else {
+      const nv = Number(v);
+      if (!Number.isFinite(nv)) pct = 0;
+      else pct = Math.min(100, (Math.abs(nv) / (Math.abs(nv) + 100)) * 100);
+    }
+    track.style.width = pct + '%';
+  }
+  updateTrack(parseFloat(input.value) || 0);
+
+  wrap.appendChild(track);
+  wrap.appendChild(input);
+
+  const STEP = type === 'int' ? 1 : 0.01;
+
+  wrap.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    if (e.target === input && !e.shiftKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startVal = parseFloat(input.value);
+    const base = Number.isFinite(startVal) ? startVal : 0;
+
+    function onMove(e2) {
+      const dx = e2.clientX - startX;
+      const delta = dx * STEP;
+      let newVal = base + delta;
+      if (type === 'int') newVal = Math.round(newVal);
+      else newVal = parseFloat(newVal.toFixed(6));
+      if (clamp01) newVal = Math.max(0, Math.min(1, newVal));
+      input.value = type === 'int' ? String(newVal) : newVal.toFixed(4);
+      updateTrack(newVal);
+      onChange(newVal);
+    }
+    function onUp() {
+      document.body.style.cursor = '';
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    }
+    document.body.style.cursor = 'ew-resize';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   });
+
+  input.addEventListener('change', () => {
+    const v = type === 'int' ? parseInt(input.value, 10) : parseFloat(input.value);
+    if (!Number.isNaN(v)) {
+      let nv = v;
+      if (clamp01) nv = Math.max(0, Math.min(1, nv));
+      updateTrack(nv);
+      onChange(nv);
+    }
+  });
+
+  return wrap;
+}
+
+function buildNumberWidget(container, value, type, onChange) {
+  container.appendChild(buildSliderInput(value, type, onChange));
+}
+
+function buildReadonlyStringWidget(container, value) {
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.className = 'prop-input';
+  inp.readOnly = true;
+  inp.value = value == null ? '' : String(value);
+  inp.title = 'Read-only';
   container.appendChild(inp);
+}
+
+function buildFloatSlider01Widget(container, value, onChange) {
+  const v = typeof value === 'number' ? value : parseFloat(value) || 0;
+  container.appendChild(
+    buildSliderInput(
+      v,
+      'float',
+      (nv) => onChange(nv),
+      { clamp01: true }
+    )
+  );
+}
+
+function buildComponentsWidget(arr, onChange) {
+  const wrap = document.createElement('div');
+  wrap.className = 'components-widget';
+  const labels = ['X', 'Y', 'Z'];
+  const axes = ['x', 'y', 'z'];
+  const list = Array.isArray(arr) && arr.length === 3 ? arr : [0, 0, 0];
+
+  list.forEach((item, i) => {
+    const isExpr =
+      item !== null && typeof item === 'object' && !Array.isArray(item) && Object.prototype.hasOwnProperty.call(item, 'm_Expression');
+
+    const cell = document.createElement('div');
+    cell.className = 'components-cell';
+
+    const lbl = document.createElement('span');
+    lbl.className = 'components-label components-label-' + axes[i];
+    lbl.textContent = labels[i];
+
+    const modeBtn = document.createElement('button');
+    modeBtn.type = 'button';
+    modeBtn.className = 'btn btn-sm btn-icon components-mode-btn';
+    modeBtn.title = isExpr ? 'Expression — click for literal' : 'Literal — click for expression';
+    modeBtn.innerHTML = isExpr ? ICONS.bracesCurly : ICONS.typeFloat;
+    modeBtn.setAttribute('data-mode', isExpr ? 'expr' : 'literal');
+
+    let inputEl;
+    if (isExpr) {
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.className = 'prop-input components-expr-input';
+      inp.value = item.m_Expression ?? '';
+      inp.placeholder = 'expression…';
+      inp.addEventListener('change', () => {
+        const newArr = [...list];
+        newArr[i] = { m_Expression: inp.value };
+        onChange(newArr);
+      });
+      inputEl = inp;
+    } else {
+      const num = typeof item === 'number' ? item : parseFloat(item) || 0;
+      inputEl = buildSliderInput(num, 'float', (v) => {
+        const newArr = [...list];
+        newArr[i] = v;
+        onChange(newArr);
+      });
+    }
+
+    modeBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const newArr = [...list];
+      if (modeBtn.getAttribute('data-mode') === 'literal') {
+        newArr[i] = { m_Expression: '' };
+      } else {
+        newArr[i] = 0;
+      }
+      onChange(newArr);
+    });
+
+    cell.appendChild(lbl);
+    cell.appendChild(modeBtn);
+    cell.appendChild(inputEl);
+    wrap.appendChild(cell);
+  });
+
+  return wrap;
 }
 
 function buildStringWidget(container, value, onChange) {
@@ -1390,19 +2032,14 @@ function buildVec3Widget(container, value, onChange) {
     const lbl = document.createElement('span');
     lbl.className = 'prop-type-badge';
     lbl.textContent = axis;
-    const inp = document.createElement('input');
-    inp.type = 'number';
-    inp.className = 'prop-input';
-    inp.style.width = '62px';
-    inp.style.flex = 'none';
-    inp.step = 'any';
-    inp.value = String(v[i]);
-    inp.addEventListener('change', () => {
-      v[i] = parseFloat(inp.value) || 0;
+    const wrap = buildSliderInput(v[i], 'float', (nv) => {
+      v[i] = nv;
       onChange([...v]);
     });
+    wrap.style.flex = '1';
+    wrap.style.minWidth = '48px';
     container.appendChild(lbl);
-    container.appendChild(inp);
+    container.appendChild(wrap);
   });
 }
 
@@ -1503,6 +2140,7 @@ function filterPropTree(query) {
     row.classList.toggle('search-match', match);
     row.classList.toggle('search-hidden', !match);
   });
+  stripePropTree();
 }
 
 function initPropTreeSearch() {
@@ -1653,6 +2291,134 @@ function setStatus(msg, state = 'info') {
 function setDocumentTitle(name) {
   currentFileName = name;
   document.title = 'VDataEditor - ' + name;
+  syncEditorModeSelect();
+}
+
+function syncEditorModeSelect() {
+  const sel = document.getElementById('editorModeSelect');
+  if (!sel || !window.VDataEditorModes) return;
+  const detected = window.VDataEditorModes.getModeForFile(currentFileName);
+  if (sel.value === 'auto') {
+    sel.title = 'Property editor mode — Auto: ' + (detected?.label || 'Generic');
+  } else {
+    sel.title = 'Property editor mode';
+  }
+}
+
+function initEditorModeSelect() {
+  const sel = document.getElementById('editorModeSelect');
+  if (!sel || sel.dataset.bound || !window.VDataEditorModes) return;
+  sel.dataset.bound = '1';
+  const generic = window.VDataEditorModes.getModeById('generic');
+  if (generic) {
+    const opt = document.createElement('option');
+    opt.value = 'generic';
+    opt.textContent = generic.label || 'Generic';
+    sel.appendChild(opt);
+  }
+  window.VDataEditorModes.listModes().forEach((m) => {
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    opt.textContent = m.label;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener('change', () => {
+    syncEditorModeSelect();
+    renderAll();
+  });
+  syncEditorModeSelect();
+}
+
+async function loadRecentFiles() {
+  if (!window.electronAPI?.getRecentFiles) return;
+  try {
+    const list = await window.electronAPI.getRecentFiles();
+    renderRecentMenu(list);
+  } catch (_) {
+    renderRecentMenu([]);
+  }
+}
+
+function renderRecentMenu(list) {
+  const container = document.getElementById('menuRecentFiles');
+  if (!container) return;
+  container.innerHTML = '';
+  if (!list || !list.length) {
+    const empty = document.createElement('div');
+    empty.className = 'menu-dropdown-item';
+    empty.style.opacity = '0.45';
+    empty.textContent = 'No recent files';
+    container.appendChild(empty);
+    return;
+  }
+  list.forEach((p) => {
+    const item = document.createElement('div');
+    item.className = 'menu-dropdown-item';
+    item.textContent = pathBasename(p);
+    item.title = p;
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openFileByPath(p);
+      document.querySelectorAll('.menu-dropdown').forEach((d) => d.classList.remove('open'));
+    });
+    container.appendChild(item);
+  });
+  const sep = document.createElement('div');
+  sep.className = 'menu-sep';
+  const clear = document.createElement('div');
+  clear.className = 'menu-dropdown-item';
+  clear.textContent = 'Clear Recent';
+  clear.addEventListener('click', (e) => {
+    e.stopPropagation();
+    window.electronAPI.clearRecentFiles().then(() => renderRecentMenu([]));
+    document.querySelectorAll('.menu-dropdown').forEach((d) => d.classList.remove('open'));
+  });
+  container.appendChild(sep);
+  container.appendChild(clear);
+}
+
+async function openFileByPath(filePath) {
+  if (!filePath || !window.electronAPI?.readFile) return;
+  try {
+    const content = await window.electronAPI.readFile(filePath);
+    const fileName = pathBasename(filePath);
+    const { root, format } = parseDocumentContent(content, fileName);
+    withDocUndo(() => {
+      clearPropTreeViewState();
+      documentFormat = format;
+      assignDocRoot(root);
+      ensureSmartPropRootArrays();
+      recalcAllIds();
+      currentFilePath = filePath;
+      setDocumentTitle(fileName);
+    }, 'Open file');
+    if (window.electronAPI.addRecentFile) await window.electronAPI.addRecentFile(filePath);
+    setStatus('Opened: ' + fileName, 'info');
+  } catch (err) {
+    setStatus('Open error: ' + err.message, 'error');
+  }
+}
+
+function initRecentFilesMenu() {
+  const wrap = document.querySelector('.menu-submenu-wrap');
+  const sub = document.getElementById('menuRecentFiles');
+  if (!wrap || !sub) return;
+
+  wrap.addEventListener('mouseenter', () => {
+    if (window.electronAPI?.getRecentFiles) loadRecentFiles();
+  });
+
+  if (window.electronAPI?.onRecentFilesUpdated) {
+    window.electronAPI.onRecentFilesUpdated((list) => renderRecentMenu(list));
+  }
+  loadRecentFiles();
+}
+
+function initPropDockToolbar() {
+  const c = document.getElementById('tb-collapse-all');
+  const x = document.getElementById('tb-expand-all');
+  c?.addEventListener('click', () => setAllCollapsed(true));
+  x?.addEventListener('click', () => setAllCollapsed(false));
 }
 
 // ── Docking ─────────────────────────────────────────────────────────────
@@ -1919,11 +2685,14 @@ document.addEventListener('keydown', (e) => {
 
 // ── Init ────────────────────────────────────────────────────────────────
 
-setDocumentTitle('Untitled');
 initMenuBar();
 initPropTreeSearch();
 initManualEditPanel();
 initHistoryDock();
+initEditorModeSelect();
+initRecentFilesMenu();
+initPropDockToolbar();
+setDocumentTitle('Untitled');
 renderAll();
 
 if (window.electronAPI?.getVersion) {
@@ -1937,7 +2706,7 @@ if (window.electronAPI) {
   window.electronAPI.onOpenFile((filePath) => {
     window.electronAPI.readFile(filePath).then((content) => {
       try {
-        const fileName = filePath.split(/[\\/]/).pop();
+        const fileName = pathBasename(filePath);
         const { root, format } = parseDocumentContent(content, fileName);
         withDocUndo(() => {
           clearPropTreeViewState();
@@ -1947,7 +2716,7 @@ if (window.electronAPI) {
           recalcAllIds();
           currentFilePath = filePath;
           setDocumentTitle(fileName);
-        });
+        }, 'Open file');
         setStatus('Opened: ' + fileName, 'info');
       } catch (err) {
         setStatus('Error opening file: ' + err.message, 'error');

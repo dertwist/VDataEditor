@@ -21,6 +21,13 @@
     <div class="menu-dropdown-item" data-action="newDocument"><span class="menu-item-label"><span class="menu-icon" id="mi-new"></span>New</span><span class="shortcut">Ctrl+N</span></div>
     <div class="menu-sep"></div>
     <div class="menu-dropdown-item" data-action="importKV3"><span class="menu-item-label"><span class="menu-icon" id="mi-importkv3"></span>Open...</span></div>
+    <div class="menu-submenu-wrap">
+      <div class="menu-dropdown-item menu-submenu-trigger" id="menuRecentTrigger" data-submenu="recent">
+        <span class="menu-item-label">Open Recent</span>
+        <span class="menu-submenu-chevron">▶</span>
+      </div>
+      <div class="menu-dropdown menu-submenu" id="menuRecentFiles"></div>
+    </div>
     <div class="menu-sep"></div>
     <div class="menu-dropdown-item" data-action="saveFile"><span class="menu-item-label"><span class="menu-icon" id="mi-save"></span>Save</span><span class="shortcut">Ctrl+S</span></div>
     <div class="menu-dropdown-item" data-action="saveFileAs"><span class="menu-item-label"><span class="menu-icon" id="mi-saveas"></span>Save As...</span><span class="shortcut">Ctrl+Shift+S</span></div>
@@ -50,6 +57,11 @@
       <div class="dock-handle" data-dock-id="properties">
         <span class="dock-handle-title">Property Editor</span>
         <div class="dock-handle-actions dock-handle-actions-grow">
+          <select id="editorModeSelect" class="mode-select" title="Property editor mode">
+            <option value="auto">Auto</option>
+          </select>
+          <button type="button" id="tb-collapse-all" class="btn btn-sm btn-icon" title="Collapse all"></button>
+          <button type="button" id="tb-expand-all" class="btn btn-sm btn-icon" title="Expand all"></button>
           <input type="search" id="propTreeSearch" placeholder="Search…" class="prop-tree-search-inline" autocomplete="off" />
           <button id="tb-undock-properties" onclick="undockPanel('properties')" title="Undock"></button>
         </div>
@@ -90,15 +102,18 @@
         <button type="button" class="btn btn-sm" id="meReplaceAll">All</button>
         <button type="button" class="btn btn-sm" id="meSearchClose">✕</button>
       </div>
-      <div class="me-editor-wrap">
-        <div class="me-gutter" id="meGutter"></div>
-        <textarea class="code-area me-textarea" id="manualEditor" spellcheck="false"></textarea>
+      <div class="me-editor-wrap" id="meEditorWrap">
+        <div id="cmEditor"></div>
       </div>
       <div class="dock-resize-v" id="meHistoryResizer"></div>
       <div id="historyDock" class="history-dock">
         <div class="history-dock-header">
           <span>History</span>
-          <button type="button" class="btn btn-sm btn-icon" id="historyClearBtn" title="Clear history">✕</button>
+          <div class="history-dock-actions">
+            <button type="button" class="btn btn-sm btn-icon" id="historyUndoBtn" title="Undo (Ctrl+Z)"></button>
+            <button type="button" class="btn btn-sm btn-icon" id="historyRedoBtn" title="Redo (Ctrl+Shift+Z)"></button>
+            <button type="button" class="btn btn-sm btn-icon" id="historyClearBtn" title="Clear history"></button>
+          </div>
         </div>
         <div id="historyList" class="history-list"></div>
       </div>
@@ -121,7 +136,9 @@
 <script src="src/formats/registry.js"></script>
 <script src="src/settings/system-config.js"></script>
 <script src="src/settings/widget-config.js"></script>
+<script src="src/modes/index.js"></script>
 <script src="icons.js"></script>
+<script src="vendor/cm.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
   function setIcon(id, icon) {
@@ -130,6 +147,8 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   setIcon('tb-undock-properties', ICONS.undock);
   setIcon('tb-undock-editors', ICONS.undock);
+  setIcon('tb-collapse-all', ICONS.collapseAll);
+  setIcon('tb-expand-all', ICONS.expandAll);
   setIcon('mi-new',       ICONS.filePlus);
   setIcon('mi-importkv3', ICONS.fileImport);
   setIcon('mi-save',      ICONS.save);

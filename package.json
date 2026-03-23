@@ -9,7 +9,9 @@
   "scripts": {
     "start": "electron .",
     "test": "vitest",
-    "build:win": "electron-builder --win --publish never"
+    "build:win": "electron-builder --win --publish never",
+    "build:cm": "esbuild src/cm-bundle.js --bundle --outfile=vendor/cm.js --format=iife --global-name=CM --platform=neutral",
+    "postinstall": "npm run build:cm"
   },
   "build": {
     "appId": "com.dertwist.vdataeditor",
@@ -100,8 +102,15 @@
     }
   },
   "devDependencies": {
+    "@codemirror/commands": "^6.6.0",
+    "@codemirror/lang-json": "^6.0.1",
+    "@codemirror/language": "^6.10.0",
+    "@codemirror/search": "^6.5.0",
+    "@codemirror/state": "^6.4.0",
+    "@codemirror/view": "^6.34.0",
     "electron": "^41.0.0",
     "electron-builder": "^26.8.1",
+    "esbuild": "^0.25.0",
     "vitest": "^4.1.0"
   }
 }
