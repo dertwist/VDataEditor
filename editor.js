@@ -170,6 +170,7 @@ function markDirty() {
 function withDocUndo(applyFn, label) {
   const d = docManager.activeDoc;
   if (!d) return;
+  if (typeof markPropTreeStructureDirty === 'function') markPropTreeStructureDirty();
   const prev = deepClone(d.root);
   const prevFormat = d.format;
   applyFn();
@@ -575,8 +576,8 @@ docManager.addEventListener('active-changed', () => {
   }
   // Mount manual editor exactly once, as soon as we have an active doc.
   if (!_manualEditorMounted && d) {
-    _manualEditorMounted = true;
-    initManualEditPanel(); // hard call — no optional chaining
+    const ok = typeof initManualEditPanel === 'function' ? initManualEditPanel() : false;
+    if (ok) _manualEditorMounted = true;
   }
   if (typeof refreshHistoryDock === 'function') refreshHistoryDock();
   if (_editorShellReady) renderAll();

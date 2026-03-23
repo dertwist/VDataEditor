@@ -1,10 +1,11 @@
-const { kv3ToJSON } = KV3Format;
+const { kv3ToJSON, jsonToKV3 } = KV3Format;
 const { keyValueToJSON } = KeyValueFormat;
 
 let _meFormat = 'json';
 let _meLiveSyncTimer = null;
 let _cmView = null;
 let _cmFormatComp = null;
+let _manualEditorInitialized = false;
 /** True while CM content is replaced from `doc` — avoids Live sync treating it as user input. */
 let _cmSuppressLiveSync = false;
 
@@ -75,11 +76,37 @@ function getCmLanguageExtension() {
 
 function refreshManualEditor() {
   if (!_cmView || !docManager.activeDoc) return;
-  const text = _meFormat === 'json' ? JSON.stringify(docManager.activeDoc.root, null, 2) : serializeDocument();
-  if (text == null || text === '') {
-    // If this happens, it usually means document serialization failed or root is missing.
-    setStatus?.('Manual editor text is empty', 'error');
+  const root = docManager.activeDoc?.root ?? {};
+  let text = '';
+  try {
+    if (_meFormat === 'json') {
+      text = JSON.stringify(root, null, 2);
+    } else if (typeof serializeDocument === 'function') {
+      text = serializeDocument() ?? '{}';
+    } else if (docManager.activeDoc.serialize) {
+      text = docManager.activeDoc.serialize();
+    } else {
+      text = JSON.stringify(root, null, 2);
+    }
+  } catch (e) {
+    console.error('refreshManualEditor: serialize failed', e);
+    setStatus?.('Manual editor: could not serialize document', 'error');
+    text = '{}';
   }
+  if (typeof text !== 'string') text = String(text ?? '');
+  if (text === '') {
+    if (_meFormat === 'json') {
+      text = '{}';
+    } else {
+      try {
+        text = jsonToKV3(docManager.activeDoc.root ?? {});
+      } catch (e) {
+        console.error('refreshManualEditor: KV3 fallback failed', e);
+        text = '<!-- kv3 -->\n{}';
+      }
+    }
+  }
+
   const prev = _cmView.scrollDOM.scrollTop;
   clearTimeout(_meLiveSyncTimer);
   _meLiveSyncTimer = null;
@@ -88,14 +115,21 @@ function refreshManualEditor() {
     _cmView.dispatch({
       changes: { from: 0, to: _cmView.state.doc.length, insert: text }
     });
+    _cmView.scrollDOM.scrollTop = prev;
   } finally {
     _cmSuppressLiveSync = false;
   }
-  _cmView.scrollDOM.scrollTop = prev;
+  requestAnimationFrame(() => {
+    if (_cmView) {
+      try {
+        _cmView.requestMeasure();
+      } catch (_) {}
+    }
+  });
 }
 
 function applyManualEdit() {
-  if (!_cmView) return;
+  if (!_cmView || !docManager.activeDoc) return;
   const text = _cmView.state.doc.toString();
   try {
     let parsed;
@@ -115,7 +149,10 @@ function applyManualEdit() {
         docManager.activeDoc.recalcElementIds();
       });
     }
-    setStatus(_meFormat === 'json' ? 'JSON applied' : docManager.activeDoc.format === 'keyvalue' ? 'KeyValues applied' : 'KV3 applied', 'edited');
+    setStatus(
+      _meFormat === 'json' ? 'JSON applied' : docManager.activeDoc.format === 'keyvalue' ? 'KeyValues applied' : 'KV3 applied',
+      'edited'
+    );
   } catch (e) {
     setStatus('Parse error: ' + e.message, 'error');
   }
@@ -157,6 +194,7 @@ function initMeSearchBridge() {
   }
 
   function jumpCm(idx) {
+    findInCm();
     if (!_matches.length || !_cmView) return;
     _matchIdx = ((idx % _matches.length) + _matches.length) % _matches.length;
     const m = _matches[_matchIdx];
@@ -204,7 +242,7 @@ function initMeSearchBridge() {
 }
 
 function initManualEditPanel() {
-  if (window.__manualEditorMounted) return true;
+  if (_manualEditorInitialized) return true;
 
   setStatus('Initializing manual editor…', 'info');
   const mount = document.getElementById('cmEditor');
@@ -222,11 +260,12 @@ function initManualEditPanel() {
   _cmFormatComp = new CM.Compartment();
   let initialDoc;
   try {
-    initialDoc = JSON.stringify(docManager.activeDoc.root, null, 2);
+    const r = docManager.activeDoc.root;
+    initialDoc = r === undefined ? '{}' : JSON.stringify(r, null, 2);
   } catch (e) {
     console.error('initManualEditPanel: could not serialize root', e);
     setStatus('Could not load document for manual editor', 'error');
-    return;
+    return false;
   }
 
   try {
@@ -276,7 +315,7 @@ function initManualEditPanel() {
   }
 
   setStatus('Manual editor ready', 'info');
-  window.__manualEditorMounted = true;
+  _manualEditorInitialized = true;
 
   document.querySelectorAll('input[name="meFormat"]').forEach((radio) => {
     radio.addEventListener('change', () => {
@@ -287,6 +326,14 @@ function initManualEditPanel() {
       }
     });
   });
+
+  const checkedRadio = document.querySelector('input[name="meFormat"]:checked');
+  if (checkedRadio && checkedRadio.value !== _meFormat) {
+    _meFormat = checkedRadio.value;
+    _cmView.dispatch({
+      effects: _cmFormatComp.reconfigure(getCmLanguageExtension())
+    });
+  }
 
   document.getElementById('meApplyBtn')?.addEventListener('click', applyManualEdit);
   document.getElementById('meCopyBtn')?.addEventListener('click', () => {
@@ -303,8 +350,11 @@ function initManualEditPanel() {
   return true;
 }
 
-// Ensure other scripts can reliably call it, even if global bindings differ.
-window.initManualEditPanel = initManualEditPanel;
+window.resetManualEditor = () => {
+  _manualEditorInitialized = false;
+  _cmView = null;
+  _cmFormatComp = null;
+};
 
 function syncManualEditor() {
   refreshManualEditor();

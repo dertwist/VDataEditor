@@ -7,6 +7,15 @@ function propCol() {
   return d ? d.collapsedPaths : new Set();
 }
 
+/** Full DOM rebuild on next `buildPropertyTree` (structural edits, manual apply, tab doc switch). */
+let _propTreeStructuralDirty = true;
+let _propTreeBuiltForDoc = null;
+
+function markPropTreeStructureDirty() {
+  _propTreeStructuralDirty = true;
+}
+window.markPropTreeStructureDirty = markPropTreeStructureDirty;
+
 // ── Property Tree ───────────────────────────────────────────────────────
 // Expansion state lives on the active VDataDocument (propEx / propCol helpers above).
 
@@ -17,6 +26,16 @@ function escapePropPathRe(s) {
 /** Path to the array value for a row that represents an array element (strip trailing `/[i]`). */
 function arrayContainerPathFromRowPath(rowPath) {
   return rowPath.replace(/\/\[\d+\]$/, '');
+}
+
+/**
+ * Parent path of a row path.
+ * e.g. "root/child/key" → "root/child"; "topLevelKey" → ""
+ */
+function parentPathFromRowPath(p) {
+  if (!p) return '';
+  const idx = p.lastIndexOf('/');
+  return idx < 0 ? '' : p.slice(0, idx);
 }
 
 /** After splice, indices under this array change — drop expansion state for those rows (and descendants). */
@@ -347,17 +366,59 @@ function stripePropTree() {
 function buildPropertyTree() {
   const container = document.getElementById('propTreeRoot');
   if (!container) return;
+  const d = docManager.activeDoc;
+  const root = d?.root;
+  if (!root || typeof root !== 'object') {
+    container.innerHTML = '';
+    _propTreeBuiltForDoc = null;
+    _propTreeStructuralDirty = true;
+    return;
+  }
+
+  if (_propTreeBuiltForDoc !== d) {
+    _propTreeBuiltForDoc = d;
+    _propTreeStructuralDirty = true;
+  }
+
   const scrollTop = container.scrollTop;
-  container.innerHTML = '';
-  const root = docManager.activeDoc && docManager.activeDoc.root;
-  if (!root || typeof root !== 'object') return;
-  renderObjectRows(container, root, 0, '');
   const q = document.getElementById('propTreeSearch')?.value?.trim().toLowerCase() ?? '';
+
+  if (!_propTreeStructuralDirty && container.querySelector('.prop-row')) {
+    updatePropRowValues(container);
+    if (q) filterPropTree(q);
+    stripePropTree();
+    return;
+  }
+
+  _propTreeStructuralDirty = false;
+  container.innerHTML = '';
+  renderObjectRows(container, root, 0, '');
   if (q) filterPropTree(q);
   stripePropTree();
   requestAnimationFrame(() => {
     container.scrollTop = scrollTop;
   });
+}
+
+function updatePropRowValues(container) {
+  for (const row of container.querySelectorAll(':scope > .prop-row')) {
+    const path = row.dataset.propPath;
+    const value = getValueAtPath(docManager.activeDoc.root, path);
+    const inp = row.querySelector('.prop-input:not([readonly])');
+    if (inp && inp !== document.activeElement) {
+      const newStr = value == null ? '' : String(value);
+      if (inp.value !== newStr) inp.value = newStr;
+    }
+    const cb = row.querySelector('.prop-input-bool');
+    if (cb && cb !== document.activeElement) {
+      if (cb.checked !== !!value) cb.checked = !!value;
+    }
+    const ch = row.nextElementSibling;
+    if (ch?.classList.contains('prop-row-children') && ch.style.display !== 'none') {
+      const v = getValueAtPath(docManager.activeDoc.root, path);
+      if (v && typeof v === 'object') updatePropRowValues(ch);
+    }
+  }
 }
 
 function renderObjectRows(container, obj, depth, parentPath) {
@@ -1106,13 +1167,74 @@ function startInlineRename(keyEl, keyTextSpan, oldKey, parentRef) {
       setStatus(`Key "${newKey}" already exists`, 'error');
       return;
     }
-    withDocUndo(() => {
-      const entries = Object.entries(parentRef);
-      for (const [k] of entries) delete parentRef[k];
-      for (const [k, v] of entries) {
-        parentRef[k === oldKey ? newKey : k] = v;
+
+    const d = docManager.activeDoc;
+    if (!d) return;
+
+    const row = keyEl.closest('.prop-row');
+    const oldPath = row?.dataset?.propPath ?? oldKey;
+    const prefix = parentPathFromRowPath(oldPath);
+    const newPath = prefix ? `${prefix}/${newKey}` : newKey;
+    const oldPrefix = oldPath + '/';
+    const newPrefix = newPath + '/';
+
+    const prevRoot = deepClone(d.root);
+    const prevFormat = d.format;
+    const prevEx = new Set(propEx());
+    const prevCol = new Set(propCol());
+
+    const entries = Object.entries(parentRef);
+    for (const [k] of entries) delete parentRef[k];
+    for (const [k, v] of entries) {
+      parentRef[k === oldKey ? newKey : k] = v;
+    }
+
+    for (const set of [propEx(), propCol()]) {
+      for (const p of [...set]) {
+        if (p === oldPath) {
+          set.delete(p);
+          set.add(newPath);
+        } else if (p.startsWith(oldPrefix)) {
+          set.delete(p);
+          set.add(newPrefix + p.slice(oldPrefix.length));
+        }
+      }
+    }
+
+    const nextRoot = deepClone(d.root);
+    const nextFormat = d.format;
+    const nextEx = new Set(propEx());
+    const nextCol = new Set(propCol());
+
+    markPropTreeStructureDirty();
+    pushUndoCommand({
+      label: `Rename: ${oldKey}`,
+      undo: () => {
+        d.format = prevFormat;
+        d.root = deepClone(prevRoot);
+        d.expandedPaths = new Set(prevEx);
+        d.collapsedPaths = new Set(prevCol);
+        d.recalcElementIds();
+        d.dirty = true;
+        docManager.dispatchEvent(new Event('tabs-changed'));
+        renderAll();
+      },
+      redo: () => {
+        d.format = nextFormat;
+        d.root = deepClone(nextRoot);
+        d.expandedPaths = new Set(nextEx);
+        d.collapsedPaths = new Set(nextCol);
+        d.recalcElementIds();
+        d.dirty = true;
+        docManager.dispatchEvent(new Event('tabs-changed'));
+        renderAll();
       }
     });
+
+    d.dirty = true;
+    docManager.dispatchEvent(new Event('tabs-changed'));
+    setStatus('Key renamed', 'edited');
+    renderAll();
   }
 
   inp.addEventListener('blur', commit);
@@ -1417,10 +1539,22 @@ function buildColorWidget(container, value, onChange) {
   picker.className = 'prop-color-input';
   picker.value = toHex(arr);
   picker.setAttribute('aria-hidden', 'true');
+
+  const numInputs = [];
+
   picker.addEventListener('input', () => {
-    const rgb = fromHex(picker.value);
     swatch.style.background = picker.value;
-    const next = arr.length === 4 ? [...rgb, arr[3]] : rgb;
+    const rgb = fromHex(picker.value);
+    numInputs.forEach((num, i) => {
+      if (i < 3) {
+        arr[i] = rgb[i];
+        num.value = String(rgb[i]);
+      }
+    });
+  });
+
+  picker.addEventListener('change', () => {
+    const next = [...arr];
     onChange(next);
   });
 
@@ -1443,6 +1577,7 @@ function buildColorWidget(container, value, onChange) {
     num.max = 255;
     num.step = 1;
     num.value = String(ch);
+    numInputs.push(num);
     num.addEventListener('change', () => {
       const nv = Math.max(0, Math.min(255, parseInt(num.value, 10) || 0));
       arr[i] = nv;
@@ -1518,22 +1653,51 @@ function buildVec4Widget(container, value, onChange) {
 }
 
 function commitValue(parentRef, key, newValue, arrayIdx, isStructural = false) {
-  const useIdx = arrayIdx !== undefined && arrayIdx !== null && Array.isArray(parentRef);
-  withDocUndo(
-    () => {
-      if (useIdx) parentRef[arrayIdx] = newValue;
-      else parentRef[key] = newValue;
-    },
-    `Edit: ${key}`
-  );
+  const d = docManager.activeDoc;
+  if (!d) return;
 
-  // withDocUndo already rebuilds the property tree + manual editor.
-  // `isStructural` is kept for compatibility with existing call sites.
-  void isStructural;
+  const useIdx = arrayIdx !== undefined && arrayIdx !== null && Array.isArray(parentRef);
+
+  const prevRoot = deepClone(d.root);
+  const prevFormat = d.format;
+
+  if (useIdx) parentRef[arrayIdx] = newValue;
+  else parentRef[key] = newValue;
+
+  const nextRoot = deepClone(d.root);
+  const nextFormat = d.format;
+
+  if (isStructural) markPropTreeStructureDirty();
+
+  pushUndoCommand({
+    label: `Edit: ${key}`,
+    undo: () => {
+      d.format = prevFormat;
+      d.root = deepClone(prevRoot);
+      d.recalcElementIds();
+      d.dirty = true;
+      docManager.dispatchEvent(new Event('tabs-changed'));
+      renderAll();
+    },
+    redo: () => {
+      d.format = nextFormat;
+      d.root = deepClone(nextRoot);
+      d.recalcElementIds();
+      d.dirty = true;
+      docManager.dispatchEvent(new Event('tabs-changed'));
+      renderAll();
+    }
+  });
+
+  d.dirty = true;
+  docManager.dispatchEvent(new Event('tabs-changed'));
+  setStatus('Property edited', 'edited');
+  renderAll();
 }
 
 function filterPropTree(query) {
   const rows = document.querySelectorAll('#propTreeRoot .prop-row');
+
   rows.forEach((row) => {
     if (!query) {
       row.classList.remove('search-hidden', 'search-match');
@@ -1547,6 +1711,40 @@ function filterPropTree(query) {
     row.classList.toggle('search-match', match);
     row.classList.toggle('search-hidden', !match);
   });
+
+  if (query) {
+    document.querySelectorAll('#propTreeRoot .prop-row.search-match').forEach((row) => {
+      let el = row.parentElement;
+      while (el && el.id !== 'propTreeRoot') {
+        if (el.classList.contains('prop-row-children') && el.style.display === 'none') {
+          const parentRow = el.previousElementSibling;
+          if (el.dataset.lazy === '1') {
+            el.removeAttribute('data-lazy');
+            if (parentRow) {
+              const pPath = parentRow.dataset.propPath;
+              const pDepth = parseInt(parentRow.dataset.depth ?? '0', 10);
+              const pType = parentRow.dataset.type;
+              const pVal = getValueAtPath(docManager.activeDoc?.root, pPath);
+              if (pType === 'object' && pVal && typeof pVal === 'object')
+                renderObjectRows(el, pVal, pDepth + 1, pPath);
+              else if (pType === 'array' && Array.isArray(pVal)) renderArrayRows(el, pVal, pDepth + 1, pPath);
+            }
+          }
+          el.style.display = '';
+          if (parentRow?.dataset?.propPath != null) {
+            const pp = parentRow.dataset.propPath;
+            const dep = parseInt(parentRow.dataset.depth ?? '0', 10);
+            if (dep === 0) propCol().delete(pp);
+            else propEx().add(pp);
+          }
+          const toggle = parentRow?.querySelector('.prop-key-toggle');
+          if (toggle) toggle.textContent = '▾';
+        }
+        el = el.parentElement;
+      }
+    });
+  }
+
   stripePropTree();
 }
 
