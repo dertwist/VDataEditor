@@ -157,6 +157,39 @@ input,select,textarea,button{font-family:inherit;font-size:inherit;color:inherit
 .schema-progress-bar{height:100%;width:0;background:var(--accent);border-radius:2px;transition:width .12s ease-out}
 .schema-progress-label{flex:0 0 auto;max-width:45vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
+/* Schema update modal (Help → Refresh Schemas…) */
+#vde-schema-dlg{position:fixed;inset:0;z-index:900;pointer-events:none}
+#vde-schema-dlg .sdlg-backdrop,
+#vde-schema-dlg .sdlg-panel{pointer-events:auto}
+#vde-schema-dlg .sdlg-backdrop{
+  position:absolute;inset:0;background:rgba(0,0,0,.6);
+}
+#vde-schema-dlg .sdlg-panel{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  width:500px;max-height:72vh;background:var(--bg-surface);
+  border:1px solid var(--border);border-radius:var(--radius);
+  display:flex;flex-direction:column;gap:10px;padding:16px;
+}
+.sdlg-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.sdlg-title{font-weight:600;font-size:14px}
+.sdlg-phase{font-size:11px;color:var(--accent);flex-shrink:0}
+.sdlg-track{flex:1;height:6px;background:var(--bg-tertiary);border-radius:3px;overflow:hidden}
+.sdlg-fill{height:100%;width:0;background:var(--accent);transition:width .2s ease-out}
+.sdlg-progress{display:flex;gap:8px;align-items:center}
+.sdlg-pct{font-size:11px;min-width:36px;text-align:right;font-family:var(--font-mono)}
+.sdlg-msg{font-size:12px;color:var(--text-muted);min-height:16px}
+.sdlg-log{
+  flex:1;min-height:0;overflow-y:auto;max-height:240px;font-size:11px;
+  font-family:var(--font-mono);background:var(--bg-primary);
+  border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:6px 8px;
+}
+.sdlg-line{padding:1px 0}
+.sdlg-line.warn{color:var(--peach)}
+.sdlg-line.error{color:var(--red)}
+.sdlg-foot{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:4px}
+.sdlg-info{font-size:10px;color:var(--text-muted);flex:1;min-width:0}
+.sdlg-btn:disabled{opacity:.4;cursor:not-allowed}
+
 /* ── Status bar ──────────────────────────────────── */
 .status-bar{
   display:flex;

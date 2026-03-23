@@ -74,7 +74,9 @@ function initMenuBar() {
       else if (action === 'zoom' && window.electronAPI?.zoom) window.electronAPI.zoom();
       else if (action === 'fullscreen' && window.electronAPI?.toggleFullScreen) window.electronAPI.toggleFullScreen();
       else if (action === 'refreshSchemas') {
-        if (typeof VDataSuggestions?.refreshSchemasAdvanced === 'function') {
+        if (typeof window.showSchemaUpdateDialog === 'function') {
+          window.showSchemaUpdateDialog({ forceRefresh: true });
+        } else if (typeof VDataSuggestions?.refreshSchemasAdvanced === 'function') {
           const rep =
             typeof window.reportSchemaDownloadProgress === 'function'
               ? window.reportSchemaDownloadProgress
@@ -87,6 +89,21 @@ function initMenuBar() {
           });
         } else {
           setStatus('Schema refresh unavailable', 'error');
+        }
+      } else if (action === 'schemaStatus') {
+        const s = window.VDataSchemaRuntime?.getSchemaCacheStatus?.();
+        if (!s || !s.hasData) {
+          alert('No schema cache. Use Refresh Schemas first.');
+        } else {
+          const ageH = Math.round(s.ageMs / 3600000);
+          alert(
+            'Schema cache\nBuckets: ' +
+              s.schemaKeyCount +
+              '\nAge: ~' +
+              ageH +
+              ' h\nStatus: ' +
+              (s.isStale ? 'Stale (past TTL)' : 'Fresh')
+          );
         }
       } else if (action === 'schemaCacheAdvanced') {
         if (typeof window.showSchemaCacheAdvancedDialog === 'function') window.showSchemaCacheAdvancedDialog();

@@ -647,7 +647,9 @@ function showSchemaCacheAdvancedDialog() {
       </div>
       <div class="modal-body">
         <p style="margin:0 0 12px;font-size:12px;color:var(--text-muted);line-height:1.45">
-          Local copy of GameTracking CS2 vdata + source2sdk headers. Parsed with the same KV3 parser as files.
+          Schemas are built from a recursive crawl of selected folders in
+          <a href="https://github.com/SteamTracking/GameTracking-CS2" target="_blank" rel="noopener noreferrer">GameTracking-CS2</a>
+          (GitHub Contents API), batched raw fetches, plus source2sdk headers. Parsed with the same KV3 parser as files.
           When the cache is older than the TTL, the app re-downloads on startup and shows progress below.
         </p>
         <table style="width:100%;font-size:12px;border-collapse:collapse">
