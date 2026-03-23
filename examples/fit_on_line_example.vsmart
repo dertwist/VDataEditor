@@ -1,0 +1,137 @@
+<!-- kv3 encoding:text:version{e21c7f3c-8a33-41c5-9977-a76d3a32aa0d} format:generic:version{7412167c-06e9-4698-aff2-e63eb59037e7} -->
+{
+//Hammer5Tools Smartprop Editor by Twist 
+//Discord: twist0691 
+//Steam: https://steamcommunity.com/id/der_twist 
+//Twitter: https://twitter.com/der_twist
+	generic_data_type = "CSmartPropRoot"
+	m_Variables = 
+	[
+				{
+			_class = "CSmartPropVariable_Int"
+			m_VariableName = "sizer_x"
+			m_bExposeAsParameter = false
+			m_DefaultValue = ""
+			m_ParameterName = "sizer_x"
+		},
+	]
+	m_Children = 
+	[
+				{
+			_class = "CSmartPropElement_FitOnLine"
+			m_bEnabled = true
+			m_nPickMode = "LARGEST_FIRST"
+			m_nScaleMode = "SCALE_END_TO_FIT"
+			m_vEnd = 
+			{
+				m_Components = 
+				[
+										{
+						m_Expression = "sizer_x"
+					},
+					"",
+					"",
+				]
+			}
+			m_Modifiers = 
+			[
+								{
+					_class = "CSmartPropOperation_CreateSizer"
+					m_bEnabled = true
+					m_OutputVariableMaxZ = ""
+					m_OutputVariableMinZ = ""
+					m_flInitialMaxZ = 16.0
+					m_OutputVariableMaxY = ""
+					m_OutputVariableMinY = ""
+					m_flInitialMaxY = 16.0
+					m_OutputVariableMaxX = "sizer_x"
+					m_OutputVariableMinX = ""
+					m_flInitialMaxX = 16.0
+				},
+			]
+			m_SelectionCriteria = []
+			m_sLabel = "FitOnLine with sizer"
+			m_Children = 
+			[
+								{
+					_class = "CSmartPropElement_Model"
+					m_bEnabled = true
+					m_vModelScale = 
+					{
+						m_Components = 
+						[
+														{
+								m_Expression = "LinearScale()"
+							},
+														{
+								m_Expression = "1"
+							},
+														{
+								m_Expression = "1"
+							},
+						]
+					}
+					m_sModelName = "models/props/de_nuke/hr_nuke/web_joist_001/web_joist_support_002_horizontal_128.vmdl"
+					m_Modifiers = 
+					[
+												{
+							_class = "CSmartPropOperation_Rotate"
+							m_bEnabled = true
+							m_vRotation = 
+							{
+								m_Components = [0, 180, 0]
+							}
+						},
+					]
+					m_SelectionCriteria = 
+					[
+												{
+							_class = "CSmartPropSelectionCriteria_LinearLength"
+							m_bEnabled = true
+							m_bAllowScale = true
+							m_flLength = 128.0
+						},
+					]
+					m_sLabel = "128 element"
+				},
+								{
+					_class = "CSmartPropElement_Model"
+					m_bEnabled = true
+					m_vModelScale = 
+					{
+						m_Components = 
+						[
+														{
+								m_Expression = "LinearScale()"
+							},
+							1,
+							1,
+						]
+					}
+					m_sModelName = "models/props/de_nuke/hr_nuke/web_joist_001/web_joist_support_002_horizontal_64.vmdl"
+					m_Modifiers = 
+					[
+												{
+							_class = "CSmartPropOperation_Rotate"
+							m_bEnabled = true
+							m_vRotation = 
+							{
+								m_Components = [0, 180, 0]
+							}
+						},
+					]
+					m_SelectionCriteria = 
+					[
+												{
+							_class = "CSmartPropSelectionCriteria_LinearLength"
+							m_bEnabled = true
+							m_bAllowScale = true
+							m_flLength = 64.0
+						},
+					]
+					m_sLabel = "64 element"
+				},
+			]
+		},
+	]
+}
