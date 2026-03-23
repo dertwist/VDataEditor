@@ -341,517 +341,18 @@ function castPropertyType(parentRef, key, value, fromType, toType, arrayIdx) {
   });
 }
 
-function isPropRowInHiddenBranch(row) {
-  let el = row.parentElement;
-  while (el && el.id !== 'propTreeRoot') {
-    if (el.classList && el.classList.contains('prop-row-children')) {
-      const cs = window.getComputedStyle(el);
-      if (cs.display === 'none') return true;
-    }
-    el = el.parentElement;
+
+function getValueAtPath(root, pathStr) {
+  if (!pathStr) return root;
+  const parts = pathStr.split('/');
+  let cur = root;
+  for (const part of parts) {
+    if (cur == null) return undefined;
+    const m = /^\[(\d+)\]$/.exec(part);
+    if (m) cur = cur[parseInt(m[1], 10)];
+    else cur = cur[part];
   }
-  return false;
-}
-
-/** Visible-order zebra striping (flat `.prop-row` list; skips hidden/collapsed branches). */
-function stripePropTree() {
-  let i = 0;
-  document.querySelectorAll('#propTreeRoot .prop-row').forEach((row) => {
-    if (row.classList.contains('search-hidden')) return;
-    if (isPropRowInHiddenBranch(row)) return;
-    row.classList.toggle('prop-row-even', i % 2 === 0);
-    row.classList.toggle('prop-row-odd', i % 2 === 1);
-    i++;
-  });
-}
-
-function buildPropertyTree() {
-  const container = document.getElementById('propTreeRoot');
-  if (!container) return;
-  const d = docManager.activeDoc;
-  const root = d?.root;
-  if (!root || typeof root !== 'object') {
-    container.innerHTML = '';
-    _propTreeBuiltForDoc = null;
-    _propTreeStructuralDirty = true;
-    return;
-  }
-
-  if (_propTreeBuiltForDoc !== d) {
-    _propTreeBuiltForDoc = d;
-    _propTreeStructuralDirty = true;
-  }
-
-  const scrollTop = container.scrollTop;
-  const q = document.getElementById('propTreeSearch')?.value?.trim().toLowerCase() ?? '';
-
-  if (!_propTreeStructuralDirty && container.querySelector('.prop-row')) {
-    updatePropRowValues(container);
-    if (q) filterPropTree(q);
-    stripePropTree();
-    return;
-  }
-
-  _propTreeStructuralDirty = false;
-  container.innerHTML = '';
-  renderObjectRows(container, root, 0, '');
-  if (q) filterPropTree(q);
-  stripePropTree();
-  requestAnimationFrame(() => {
-    container.scrollTop = scrollTop;
-  });
-}
-
-function updatePropRowValues(container) {
-  for (const row of container.querySelectorAll(':scope > .prop-row')) {
-    const path = row.dataset.propPath;
-    const value = getValueAtPath(docManager.activeDoc.root, path);
-    const inp = row.querySelector('.prop-input:not([readonly])');
-    if (inp && inp !== document.activeElement) {
-      const newStr = value == null ? '' : String(value);
-      if (inp.value !== newStr) inp.value = newStr;
-    }
-    const cb = row.querySelector('.prop-input-bool');
-    if (cb && cb !== document.activeElement) {
-      if (cb.checked !== !!value) cb.checked = !!value;
-    }
-    const ch = row.nextElementSibling;
-    if (ch?.classList.contains('prop-row-children') && ch.style.display !== 'none') {
-      const v = getValueAtPath(docManager.activeDoc.root, path);
-      if (v && typeof v === 'object') updatePropRowValues(ch);
-    }
-  }
-}
-
-function renderObjectRows(container, obj, depth, parentPath) {
-  if (!obj || typeof obj !== 'object') return;
-  for (const [key, value] of Object.entries(obj)) {
-    if (value === undefined) continue;
-    const type = resolveRowWidgetType(key, value, obj);
-    const rowPath = parentPath ? `${parentPath}/${key}` : key;
-    const row = buildPropRow(key, value, type, depth, obj, undefined, rowPath);
-    container.appendChild(row);
-    if (type === 'object' && value !== null) {
-      const children = document.createElement('div');
-      children.className = 'prop-row-children';
-      if (depth >= 1) {
-        if (propEx().has(rowPath)) {
-          renderObjectRows(children, value, depth + 1, rowPath);
-          children.style.display = '';
-        } else {
-          children.dataset.lazy = '1';
-          children.style.display = 'none';
-        }
-      } else {
-        renderObjectRows(children, value, depth + 1, rowPath);
-        if (propCol().has(rowPath)) {
-          children.style.display = 'none';
-        }
-      }
-      container.appendChild(children);
-      const toggle = row.querySelector('.prop-key-toggle');
-      if (toggle && depth >= 1) toggle.textContent = propEx().has(rowPath) ? '▾' : '▸';
-      else if (toggle && depth === 0 && propCol().has(rowPath)) toggle.textContent = '▸';
-    } else if (type === 'array') {
-      const children = document.createElement('div');
-      children.className = 'prop-row-children';
-      if (depth >= 1) {
-        if (propEx().has(rowPath)) {
-          renderArrayRows(children, value, depth + 1, rowPath);
-          children.style.display = '';
-        } else {
-          children.dataset.lazy = '1';
-          children.style.display = 'none';
-        }
-      } else {
-        renderArrayRows(children, value, depth + 1, rowPath);
-        if (propCol().has(rowPath)) {
-          children.style.display = 'none';
-        }
-      }
-      container.appendChild(children);
-      const toggle = row.querySelector('.prop-key-toggle');
-      if (toggle && depth >= 1) toggle.textContent = propEx().has(rowPath) ? '▾' : '▸';
-      else if (toggle && depth === 0 && propCol().has(rowPath)) toggle.textContent = '▸';
-    }
-  }
-}
-
-function renderArrayRows(container, arr, depth, parentPath) {
-  if (!Array.isArray(arr)) return;
-  arr.forEach((item, idx) => {
-    const itemType = resolveRowWidgetType(`[${idx}]`, item, arr);
-    const rowPath = `${parentPath}/[${idx}]`;
-    const row = buildPropRow(`[${idx}]`, item, itemType, depth, arr, idx, rowPath);
-    container.appendChild(row);
-    if (itemType === 'object' && item !== null) {
-      const children = document.createElement('div');
-      children.className = 'prop-row-children';
-      if (depth >= 1) {
-        if (propEx().has(rowPath)) {
-          renderObjectRows(children, item, depth + 1, rowPath);
-          children.style.display = '';
-        } else {
-          children.dataset.lazy = '1';
-          children.style.display = 'none';
-        }
-      } else {
-        renderObjectRows(children, item, depth + 1, rowPath);
-        if (propCol().has(rowPath)) {
-          children.style.display = 'none';
-        }
-      }
-      container.appendChild(children);
-      const toggle = row.querySelector('.prop-key-toggle');
-      if (toggle && depth >= 1) toggle.textContent = propEx().has(rowPath) ? '▾' : '▸';
-      else if (toggle && depth === 0 && propCol().has(rowPath)) toggle.textContent = '▸';
-    } else if (itemType === 'array') {
-      const children = document.createElement('div');
-      children.className = 'prop-row-children';
-      if (depth >= 1) {
-        if (propEx().has(rowPath)) {
-          renderArrayRows(children, item, depth + 1, rowPath);
-          children.style.display = '';
-        } else {
-          children.dataset.lazy = '1';
-          children.style.display = 'none';
-        }
-      } else {
-        renderArrayRows(children, item, depth + 1, rowPath);
-        if (propCol().has(rowPath)) {
-          children.style.display = 'none';
-        }
-      }
-      container.appendChild(children);
-      const toggle = row.querySelector('.prop-key-toggle');
-      if (toggle && depth >= 1) toggle.textContent = propEx().has(rowPath) ? '▾' : '▸';
-      else if (toggle && depth === 0 && propCol().has(rowPath)) toggle.textContent = '▸';
-    }
-  });
-}
-
-function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath) {
-  const row = document.createElement('div');
-  row.className = 'prop-row' + (type === 'object' || type === 'array' ? ' is-object' : '');
-  const mode = getActiveMode();
-  if (mode && typeof mode.rowClass === 'function') {
-    const rc = mode.rowClass(key, value);
-    if (rc) row.className += ' ' + rc;
-  }
-  const d = Math.min(depth, 9);
-  row.dataset.depth = String(d);
-  row.dataset.type = type;
-  row.dataset.propPath = propPath;
-  if (depth > 9) row.style.setProperty('--prop-depth', String(depth));
-
-  const isArrayIndex = typeof arrayIdx === 'number';
-
-  const keyEl = document.createElement('div');
-  keyEl.className = 'prop-key';
-  const pad = Math.min(depth, 12) * 16;
-  keyEl.style.paddingLeft = pad + 'px';
-
-  const dragHandle = document.createElement('span');
-  dragHandle.className = 'prop-row-drag-handle';
-  dragHandle.draggable = true;
-  dragHandle.title = 'Drag to reorder';
-  dragHandle.setAttribute('aria-label', 'Drag to reorder');
-  dragHandle.textContent = '⋮⋮';
-
-  const keyIcon = document.createElement('span');
-  keyIcon.className = 'prop-type-icon-badge';
-  keyIcon.title = type;
-  const iconKey = TYPE_ICONS[type];
-  if (iconKey && ICONS[iconKey]) keyIcon.innerHTML = ICONS[iconKey];
-  keyEl.appendChild(dragHandle);
-  keyEl.appendChild(keyIcon);
-
-  if (type === 'object' || type === 'array') {
-    const childrenWillBeLazy = depth >= 1;
-    const toggle = document.createElement('span');
-    toggle.className = 'prop-key-toggle';
-    toggle.textContent = childrenWillBeLazy ? '▸' : '▾';
-    toggle.addEventListener('click', () => {
-      const ch = row.nextElementSibling;
-      if (!ch || !ch.classList.contains('prop-row-children')) return;
-      if (ch.dataset.lazy === '1') {
-        ch.removeAttribute('data-lazy');
-        if (type === 'object') renderObjectRows(ch, value, depth + 1, propPath);
-        else renderArrayRows(ch, value, depth + 1, propPath);
-      }
-      const wasCollapsed = ch.style.display === 'none';
-      ch.style.display = wasCollapsed ? '' : 'none';
-      toggle.textContent = wasCollapsed ? '▾' : '▸';
-      if (depth >= 1) {
-        if (wasCollapsed) propEx().add(propPath);
-        else propEx().delete(propPath);
-      } else {
-        if (wasCollapsed) propCol().delete(propPath);
-        else propCol().add(propPath);
-      }
-      stripePropTree();
-    });
-    keyEl.appendChild(toggle);
-  } else {
-    const spacer = document.createElement('span');
-    spacer.className = 'prop-key-toggle';
-    spacer.style.visibility = 'hidden';
-    spacer.textContent = '▾';
-    keyEl.appendChild(spacer);
-  }
-
-  const keyText = document.createElement('span');
-  keyText.className = 'prop-key-text';
-  keyText.textContent = key;
-  if (!isArrayIndex) {
-    keyText.title = 'Double-click to rename';
-    keyText.addEventListener('dblclick', (e) => {
-      e.stopPropagation();
-      startInlineRename(keyEl, keyText, key, parentRef);
-    });
-  }
-  keyEl.appendChild(keyText);
-
-  const valEl = document.createElement('div');
-  valEl.className = 'prop-value';
-
-  if (STATIC_TYPE_SUMMARY.has(type)) {
-    const sum = document.createElement('span');
-    sum.className = 'prop-value-summary';
-    if (type === 'object' && value !== null) sum.textContent = `{ ${Object.keys(value).length} keys }`;
-    else if (type === 'array') sum.textContent = `[ ${value.length} items ]`;
-    else if (type === 'null') sum.textContent = 'null';
-    else sum.textContent = type;
-    valEl.appendChild(sum);
-  }
-  valEl.appendChild(
-    buildForceTypeBadge(type, (newType) => {
-      castPropertyType(parentRef, key, value, type, newType, arrayIdx);
-    })
-  );
-
-  // Slider scrubs update the document live but only push ONE undo entry for the whole drag.
-  let sliderScrubActive = false;
-  let sliderScrubDidChange = false;
-  let sliderScrubTx = null;
-
-  function setScalarNoUndo(v) {
-    const useIdx = arrayIdx !== undefined && arrayIdx !== null && Array.isArray(parentRef);
-    if (useIdx) parentRef[arrayIdx] = v;
-    else parentRef[key] = v;
-  }
-
-  function beginSliderScrub() {
-    if (sliderScrubActive) return;
-    const d = docManager.activeDoc;
-    if (!d) return;
-    sliderScrubActive = true;
-    sliderScrubDidChange = false;
-    sliderScrubTx = { prevRoot: deepClone(d.root), prevFormat: d.format, label: `Edit: ${key}` };
-  }
-
-  function endSliderScrub() {
-    if (!sliderScrubActive) return;
-    sliderScrubActive = false;
-
-    const tx = sliderScrubTx;
-    sliderScrubTx = null;
-
-    if (!tx || !sliderScrubDidChange) {
-      sliderScrubDidChange = false;
-      return;
-    }
-
-    const d = docManager.activeDoc;
-    if (!d) return;
-
-    const nextRoot = deepClone(d.root);
-    const nextFormat = d.format;
-    sliderScrubDidChange = false;
-
-    pushUndoCommand({
-      label: tx.label,
-      undo: () => {
-        d.format = tx.prevFormat;
-        d.root = deepClone(tx.prevRoot);
-        d.recalcElementIds();
-        d.dirty = true;
-        docManager.dispatchEvent(new Event('tabs-changed'));
-        renderAll();
-      },
-      redo: () => {
-        d.format = nextFormat;
-        d.root = deepClone(nextRoot);
-        d.recalcElementIds();
-        d.dirty = true;
-        docManager.dispatchEvent(new Event('tabs-changed'));
-        renderAll();
-      }
-    });
-
-    d.dirty = true;
-    docManager.dispatchEvent(new Event('tabs-changed'));
-    renderAll();
-    setStatus('Property edited', 'edited');
-  }
-
-  const sliderOpts = {
-    onScrubStart: beginSliderScrub,
-    onScrubEnd: endSliderScrub
-  };
-
-  const onScalarChange = (v) => {
-    if (sliderScrubActive) {
-      sliderScrubDidChange = true;
-      setScalarNoUndo(v);
-      return;
-    }
-    commitValue(parentRef, key, v, arrayIdx, false);
-  };
-
-  const onComponentsChange = (newArr) => {
-    if (sliderScrubActive) {
-      sliderScrubDidChange = true;
-      setScalarNoUndo(newArr);
-      return;
-    }
-    commitValue(parentRef, key, newArr, arrayIdx, true);
-  };
-
-  switch (type) {
-    case 'bool':
-      buildBoolWidget(valEl, value, onScalarChange);
-      break;
-    case 'int':
-    case 'float':
-      buildNumberWidget(valEl, value, type, onScalarChange, sliderOpts);
-      break;
-    case 'float_slider_01':
-      buildFloatSlider01Widget(valEl, value, onScalarChange, sliderOpts);
-      break;
-    case 'readonly_string':
-      buildReadonlyStringWidget(valEl, value);
-      break;
-    case 'components':
-      valEl.appendChild(
-        buildComponentsWidget(value, onComponentsChange, sliderOpts)
-      );
-      break;
-    case 'string': {
-      let listVals = [];
-      if (typeof VDataSuggestions !== 'undefined' && VDataSuggestions.getSuggestedValues) {
-        const pp = parentPathFromRowPath(propPath);
-        const parentKey = pp ? pp.slice(pp.lastIndexOf('/') + 1) : '';
-        listVals = VDataSuggestions.getSuggestedValues(key, Object.assign(schemaCtxForPropertyTree(), { parentKey }));
-      }
-      buildStringWidget(valEl, value, onScalarChange, { suggestedValues: listVals });
-      break;
-    }
-    case 'resource':
-      buildResourceWidget(valEl, value, 'resource_name', onScalarChange);
-      break;
-    case 'soundevent':
-      buildResourceWidget(valEl, value, 'soundevent', onScalarChange);
-      break;
-    case 'color':
-      buildColorWidget(valEl, value, onScalarChange);
-      break;
-    case 'vec2':
-      buildVec2Widget(valEl, value, onScalarChange);
-      break;
-    case 'vec3':
-      buildVec3Widget(valEl, value, onScalarChange, sliderOpts);
-      break;
-    case 'vec4':
-      buildVec4Widget(valEl, value, onScalarChange);
-      break;
-    case 'object':
-    case 'array':
-    case 'null':
-      break;
-    default:
-      buildStringWidget(valEl, String(value ?? ''), onScalarChange);
-  }
-
-  const actions = document.createElement('div');
-  actions.className = 'prop-row-actions';
-
-  const dupBtn = document.createElement('button');
-  dupBtn.type = 'button';
-  dupBtn.className = 'prop-action-btn';
-  dupBtn.title = 'Duplicate';
-  dupBtn.textContent = '⧉';
-  dupBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    if (isArrayIndex) {
-      withDocUndo(() => {
-        invalidatePropTreePathsForArrayContainer(arrayContainerPathFromRowPath(propPath));
-        parentRef.splice(arrayIdx + 1, 0, deepClone(value));
-      });
-    } else {
-      withDocUndo(() => {
-        let newKey = key + '_copy';
-        let n = 1;
-        while (Object.prototype.hasOwnProperty.call(parentRef, newKey)) newKey = key + '_copy' + ++n;
-        parentRef[newKey] = deepClone(value);
-      });
-    }
-  });
-  actions.appendChild(dupBtn);
-
-  if (type === 'object' || type === 'array') {
-    const addBtn = document.createElement('button');
-    addBtn.type = 'button';
-    addBtn.className = 'prop-action-btn';
-    addBtn.title = type === 'array' ? 'Add item' : 'Add property';
-    addBtn.textContent = '+';
-    addBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      withDocUndo(() => {
-        if (type === 'array') {
-          value.push('');
-        } else {
-          let newKey = 'new_key';
-          let n = 1;
-          while (Object.prototype.hasOwnProperty.call(value, newKey)) newKey = 'new_key_' + ++n;
-          value[newKey] = '';
-        }
-      });
-    });
-    actions.appendChild(addBtn);
-  }
-
-  const delBtn = document.createElement('button');
-  delBtn.type = 'button';
-  delBtn.className = 'prop-action-btn danger';
-  delBtn.title = 'Delete';
-  delBtn.textContent = '✕';
-  delBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    withDocUndo(() => {
-      if (isArrayIndex) {
-        invalidatePropTreePathsForArrayContainer(arrayContainerPathFromRowPath(propPath));
-        parentRef.splice(arrayIdx, 1);
-      } else {
-        invalidatePropTreePathsUnderObjectKey(propPath);
-        delete parentRef[key];
-      }
-    });
-  });
-  actions.appendChild(delBtn);
-
-  valEl.appendChild(actions);
-
-  row.appendChild(keyEl);
-  row.appendChild(valEl);
-
-  row.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    showPropContextMenu(e.clientX, e.clientY, key, value, type, parentRef, arrayIdx, propPath, row);
-  });
-  initRowDragDrop(row, dragHandle, key, parentRef, arrayIdx, propPath);
-
-  return row;
+  return cur;
 }
 
 function collectContainerPaths(obj, parentPath, depth) {
@@ -878,6 +379,387 @@ function collectContainerPaths(obj, parentPath, depth) {
   return out;
 }
 
+let _propTreeTable = null;
+let _propTreeSearchQuery = '';
+
+function escapeHtmlProp(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function flattenObjectRows(obj, depth, parentPath) {
+  const rows = [];
+  if (!obj || typeof obj !== 'object') return rows;
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === undefined) continue;
+    const type = resolveRowWidgetType(key, value, obj);
+    const propPath = parentPath ? `${parentPath}/${key}` : key;
+    const row = {
+      id: propPath,
+      propPath,
+      key,
+      depth,
+      type,
+      isContainer: type === 'object' || type === 'array'
+    };
+    if (row.isContainer && value !== null) {
+      row._children =
+        type === 'object'
+          ? flattenObjectRows(value, depth + 1, propPath)
+          : flattenArrayRows(value, depth + 1, propPath);
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
+function flattenArrayRows(arr, depth, parentPath) {
+  const rows = [];
+  if (!Array.isArray(arr)) return rows;
+  arr.forEach((item, idx) => {
+    const key = `[${idx}]`;
+    const itemType = resolveRowWidgetType(key, item, arr);
+    const propPath = `${parentPath}/${key}`;
+    const row = {
+      id: propPath,
+      propPath,
+      key,
+      depth,
+      type: itemType,
+      isContainer: itemType === 'object' || itemType === 'array'
+    };
+    if (row.isContainer && item !== null) {
+      row._children =
+        itemType === 'object'
+          ? flattenObjectRows(item, depth + 1, propPath)
+          : flattenArrayRows(item, depth + 1, propPath);
+    }
+    rows.push(row);
+  });
+  return rows;
+}
+
+function getBindingForPath(propPath) {
+  const d = docManager.activeDoc;
+  const root = d?.root;
+  if (!root) return null;
+  const value = getValueAtPath(root, propPath);
+  const parentPath = parentPathFromRowPath(propPath);
+  const parentRef = parentPath ? getValueAtPath(root, parentPath) : root;
+  const tail = parentPath ? propPath.slice(parentPath.length + 1) : propPath;
+  const m = /^\[(\d+)\]$/.exec(tail);
+  const key = m ? `[${m[1]}]` : tail;
+  const arrayIdx = m ? parseInt(m[1], 10) : undefined;
+  const type = resolveRowWidgetType(key, value, parentRef);
+  return { key, value, type, parentRef, arrayIdx, propPath };
+}
+
+function syncTreeExpandFromDoc(table) {
+  function walk(rowList) {
+    if (!rowList || !rowList.length) return;
+    for (let i = 0; i < rowList.length; i++) {
+      const row = rowList[i];
+      const d = row.getData();
+      if (!d.isContainer) continue;
+      const path = d.propPath;
+      const depth = d.depth;
+      const exp = depth >= 1 ? propEx().has(path) : !propCol().has(path);
+      if (exp) {
+        row.treeExpand();
+        walk(row.getTreeChildren());
+      } else {
+        row.treeCollapse();
+      }
+    }
+  }
+  walk(table.getRows());
+}
+
+function propKeyFormatter(cell) {
+  const d = cell.getRow().getData();
+  const ik = TYPE_ICONS[d.type];
+  const iconHtml = ik && ICONS[ik] ? ICONS[ik] : '';
+  return (
+    '<span class="prop-row-drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span>' +
+    '<span class="prop-type-icon-badge">' +
+    iconHtml +
+    '</span><span class="prop-key-text">' +
+    escapeHtmlProp(d.key) +
+    '</span>'
+  );
+}
+
+function onPropKeyCellRendered(cell) {
+  const handle = cell.getElement().querySelector('.prop-row-drag-handle');
+  if (handle) initRowDragDropTabulator(cell.getRow(), handle);
+}
+
+function commitKeyRename(oldKey, newKey, propPath, parentRef) {
+  if (!newKey || newKey === oldKey) return true;
+  if (Object.prototype.hasOwnProperty.call(parentRef, newKey)) {
+    setStatus(`Key "${newKey}" already exists`, 'error');
+    return false;
+  }
+
+  const d = docManager.activeDoc;
+  if (!d) return false;
+
+  const oldPath = propPath;
+  const prefix = parentPathFromRowPath(oldPath);
+  const newPath = prefix ? `${prefix}/${newKey}` : newKey;
+  const oldPrefix = `${oldPath}/`;
+  const newPrefix = `${newPath}/`;
+
+  const prevRoot = deepClone(d.root);
+  const prevFormat = d.format;
+  const prevEx = new Set(propEx());
+  const prevCol = new Set(propCol());
+
+  const entries = Object.entries(parentRef);
+  for (const [k] of entries) delete parentRef[k];
+  for (const [k, v] of entries) {
+    parentRef[k === oldKey ? newKey : k] = v;
+  }
+
+  for (const set of [propEx(), propCol()]) {
+    for (const p of [...set]) {
+      if (p === oldPath) {
+        set.delete(p);
+        set.add(newPath);
+      } else if (p.startsWith(oldPrefix)) {
+        set.delete(p);
+        set.add(newPrefix + p.slice(oldPrefix.length));
+      }
+    }
+  }
+
+  const nextRoot = deepClone(d.root);
+  const nextFormat = d.format;
+  const nextEx = new Set(propEx());
+  const nextCol = new Set(propCol());
+
+  markPropTreeStructureDirty();
+  pushUndoCommand({
+    label: `Rename: ${oldKey}`,
+    undo: () => {
+      d.format = prevFormat;
+      d.root = deepClone(prevRoot);
+      d.expandedPaths = new Set(prevEx);
+      d.collapsedPaths = new Set(prevCol);
+      d.recalcElementIds();
+      d.dirty = true;
+      docManager.dispatchEvent(new Event('tabs-changed'));
+      renderAll();
+    },
+    redo: () => {
+      d.format = nextFormat;
+      d.root = deepClone(nextRoot);
+      d.expandedPaths = new Set(nextEx);
+      d.collapsedPaths = new Set(nextCol);
+      d.recalcElementIds();
+      d.dirty = true;
+      docManager.dispatchEvent(new Event('tabs-changed'));
+      renderAll();
+    }
+  });
+
+  d.dirty = true;
+  docManager.dispatchEvent(new Event('tabs-changed'));
+  setStatus('Key renamed', 'edited');
+  renderAll();
+  return true;
+}
+
+function onPropKeyCellEdited(cell) {
+  const newKey = cell.getValue();
+  const oldKey = cell.getOldValue();
+  const row = cell.getRow();
+  const d = row.getData();
+  if (/^\[\d+\]$/.test(d.key)) return;
+  const bind = getBindingForPath(d.propPath);
+  if (!bind || typeof bind.arrayIdx === 'number') return;
+  const ok = commitKeyRename(oldKey, newKey.trim(), d.propPath, bind.parentRef);
+  if (!ok) {
+    try {
+      row.update({ key: oldKey });
+    } catch (_) {}
+  }
+}
+
+function getPropTabulatorHost() {
+  return document.getElementById('propTabulatorHost');
+}
+
+function destroyPropTreeTable() {
+  if (_propTreeTable) {
+    try {
+      _propTreeTable.destroy();
+    } catch (_) {}
+    _propTreeTable = null;
+  }
+}
+
+function ensurePropTreeTable() {
+  const host = getPropTabulatorHost();
+  if (!host || typeof Tabulator === 'undefined') return null;
+  if (_propTreeTable) return _propTreeTable;
+
+  _propTreeTable = new Tabulator(host, {
+    index: 'id',
+    dataTree: true,
+    dataTreeStartExpanded: false,
+    dataTreeChildIndentWidth: 16,
+    dataTreeChildField: '_children',
+    height: '100%',
+    layout: 'fitColumns',
+    virtualDom: true,
+    selectable: 1,
+    editTriggerEvent: 'dblclick',
+    columns: [
+      {
+        title: 'Key',
+        field: 'key',
+        widthGrow: 1,
+        formatter: propKeyFormatter,
+        cellRendered: onPropKeyCellRendered,
+        editor:
+          window.VDataKeyEditor && typeof window.VDataKeyEditor.keyEditor === 'function'
+            ? window.VDataKeyEditor.keyEditor
+            : 'input',
+        editable: function (cell) {
+          const k = cell.getRow().getData().key;
+          return !/^\[\d+\]$/.test(k);
+        },
+        cellEdited: onPropKeyCellEdited
+      },
+      {
+        title: 'Value',
+        field: '_v',
+        widthGrow: 2,
+        formatter: function () {
+          return '';
+        },
+        cellRendered: function (cell) {
+          const el = cell.getElement();
+          el.innerHTML = '';
+          mountValueCell(el, cell.getRow().getData());
+        },
+        editable: false,
+        headerSort: false
+      }
+    ],
+    rowContextMenu: buildTabulatorRowContextMenu,
+    rowFormatter: function (row) {
+      const el = row.getElement();
+      const d0 = row.getData();
+      el.setAttribute('data-type', d0.type || '');
+      let i = 0;
+      try {
+        i = typeof row.getPosition === 'function' ? row.getPosition(true) : 0;
+      } catch (_) {
+        i = 0;
+      }
+      el.classList.toggle('prop-row-even', i % 2 === 0);
+      el.classList.toggle('prop-row-odd', i % 2 === 1);
+      const q = _propTreeSearchQuery;
+      if (!q) {
+        el.classList.remove('search-hidden', 'search-match');
+        return;
+      }
+      const d = row.getData();
+      const bind = getBindingForPath(d.propPath);
+      const keyText = (d.key || '').toLowerCase();
+      let valText = '';
+      try {
+        valText = JSON.stringify(bind?.value ?? '').toLowerCase();
+      } catch (_) {
+        valText = '';
+      }
+      const match = keyText.includes(q) || valText.includes(q);
+      el.classList.toggle('search-match', match);
+      el.classList.toggle('search-hidden', !match);
+    }
+  });
+
+  _propTreeTable.on('dataTreeRowExpanded', function (row) {
+    const d = row.getData();
+    if (d.depth >= 1) propEx().add(d.propPath);
+    else propCol().delete(d.propPath);
+  });
+  _propTreeTable.on('dataTreeRowCollapsed', function (row) {
+    const d = row.getData();
+    if (d.depth >= 1) propEx().delete(d.propPath);
+    else propCol().add(d.propPath);
+  });
+
+  return _propTreeTable;
+}
+
+function buildPropertyTree() {
+  const wrap = document.getElementById('propTreeRoot');
+  if (!wrap) return;
+  const d = docManager.activeDoc;
+  const root = d?.root;
+
+  if (!root || typeof root !== 'object') {
+    destroyPropTreeTable();
+    if (getPropTabulatorHost()) getPropTabulatorHost().innerHTML = '';
+    _propTreeBuiltForDoc = null;
+    _propTreeStructuralDirty = true;
+    return;
+  }
+
+  if (typeof Tabulator === 'undefined') {
+    console.warn('[prop-tree] Tabulator not loaded');
+    return;
+  }
+
+  if (_propTreeBuiltForDoc !== d) {
+    _propTreeBuiltForDoc = d;
+    _propTreeStructuralDirty = true;
+  }
+
+  const table = ensurePropTreeTable();
+  if (!table) return;
+
+  const scrollTop = wrap.scrollTop;
+  const q = document.getElementById('propTreeSearch')?.value?.trim().toLowerCase() ?? '';
+  _propTreeSearchQuery = q;
+
+  if (!_propTreeStructuralDirty) {
+    table.redraw(true);
+    return;
+  }
+
+  _propTreeStructuralDirty = false;
+  const rows = flattenObjectRows(root, 0, '');
+  table
+    .setData(rows)
+    .then(function () {
+      syncTreeExpandFromDoc(table);
+      table.redraw(true);
+      requestAnimationFrame(function () {
+        wrap.scrollTop = scrollTop;
+      });
+    })
+    .catch(function () {
+      syncTreeExpandFromDoc(table);
+    });
+}
+
+function updatePropRowValues(_container) {
+  if (_propTreeTable && !_propTreeStructuralDirty) {
+    _propTreeTable.redraw(true);
+  }
+}
+
+function stripePropTree() {
+  if (_propTreeTable) _propTreeTable.redraw(true);
+}
+
 function setAllCollapsed(collapsed) {
   const d = docManager.activeDoc;
   if (!d?.root || typeof d.root !== 'object') return;
@@ -897,56 +779,35 @@ function setAllCollapsed(collapsed) {
   buildPropertyTree();
 }
 
-function expandAllChildrenForRow(row) {
-  const ch = row.nextElementSibling;
-  if (!ch || !ch.classList.contains('prop-row-children')) return;
+function expandAllChildrenForTabulatorRow(tRow) {
   markPropTreeStructureDirty();
-  const path = row.dataset.propPath;
-  const depth = parseInt(row.dataset.depth, 10);
-  if (ch.dataset.lazy === '1') {
-    ch.removeAttribute('data-lazy');
-    const type = row.dataset.type;
-    const val = getValueAtPath(docManager.activeDoc.root, path);
-    if (type === 'object' && val && typeof val === 'object') renderObjectRows(ch, val, depth + 1, path);
-    else if (type === 'array' && Array.isArray(val)) renderArrayRows(ch, val, depth + 1, path);
+  function expandRec(r) {
+    const d = r.getData();
+    if (!d.isContainer) return;
+    if (d.depth >= 1) propEx().add(d.propPath);
+    else propCol().delete(d.propPath);
+    r.treeExpand();
+    const ch = r.getTreeChildren();
+    if (ch && ch.length) ch.forEach(expandRec);
   }
-  propEx().add(path);
-  const val = getValueAtPath(docManager.activeDoc.root, path);
-  const sub = collectContainerPaths(val && typeof val === 'object' ? val : {}, path, depth);
-  sub.forEach(({ path: p }) => propEx().add(p));
-  ch.style.display = '';
-  const toggle = row.querySelector('.prop-key-toggle');
-  if (toggle) toggle.textContent = '▾';
+  expandRec(tRow);
   buildPropertyTree();
-}
-
-function getValueAtPath(root, pathStr) {
-  if (!pathStr) return root;
-  const parts = pathStr.split('/');
-  let cur = root;
-  for (const part of parts) {
-    if (cur == null) return undefined;
-    const m = /^\[(\d+)\]$/.exec(part);
-    if (m) cur = cur[parseInt(m[1], 10)];
-    else cur = cur[part];
-  }
-  return cur;
 }
 
 function showContextMenu(items, x, y) {
   document.querySelectorAll('.ctx-menu-root').forEach((el) => el.remove());
-  const root = document.createElement('div');
-  root.className = 'ctx-menu-root';
-  root.style.position = 'fixed';
-  root.style.left = x + 'px';
-  root.style.top = y + 'px';
-  root.style.zIndex = '6000';
+  const menuRoot = document.createElement('div');
+  menuRoot.className = 'ctx-menu-root';
+  menuRoot.style.position = 'fixed';
+  menuRoot.style.left = x + 'px';
+  menuRoot.style.top = y + 'px';
+  menuRoot.style.zIndex = '6000';
 
   items.forEach((it) => {
     if (it.sep) {
       const s = document.createElement('div');
       s.className = 'ctx-sep';
-      root.appendChild(s);
+      menuRoot.appendChild(s);
       return;
     }
     const row = document.createElement('div');
@@ -961,16 +822,16 @@ function showContextMenu(items, x, y) {
         ev.preventDefault();
         ev.stopPropagation();
         it.action();
-        root.remove();
+        menuRoot.remove();
       });
     }
-    root.appendChild(row);
+    menuRoot.appendChild(row);
   });
 
-  document.body.appendChild(root);
+  document.body.appendChild(menuRoot);
   const close = (ev) => {
-    if (!root.contains(ev.target)) {
-      root.remove();
+    if (!menuRoot.contains(ev.target)) {
+      menuRoot.remove();
       document.removeEventListener('mousedown', close, true);
     }
   };
@@ -1117,31 +978,36 @@ function showAddKeyDialog(parentRef, parentObjectPath) {
   requestAnimationFrame(() => keyInput.focus());
 }
 
-function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPath, row) {
+function buildTabulatorRowContextMenu(e, row) {
+  const bind = getBindingForPath(row.getData().propPath);
+  if (!bind) return [];
+  const { key, value, type, parentRef, arrayIdx, propPath } = bind;
   const isContainer = type === 'object' || type === 'array';
   const isArrayIndex = typeof arrayIdx === 'number';
-  const items = [
+  const tRow = row;
+
+  return [
     {
       label: 'Copy value',
-      icon: ICONS.copy,
-      action: () => navigator.clipboard.writeText(JSON.stringify(value))
+      action: function () {
+        navigator.clipboard.writeText(JSON.stringify(value));
+      }
     },
     {
       label: 'Paste value',
-      icon: ICONS.clipboard,
-      action: async () => {
-        try {
-          const text = await navigator.clipboard.readText();
-          const v = JSON.parse(text);
-          commitValue(parentRef, key, v, arrayIdx, true);
-        } catch (_) {}
+      action: function () {
+        navigator.clipboard.readText().then((text) => {
+          try {
+            const v = JSON.parse(text);
+            commitValue(parentRef, key, v, arrayIdx, true);
+          } catch (_) {}
+        });
       }
     },
-    { sep: true },
+    { separator: true },
     {
       label: 'Duplicate',
-      icon: ICONS.duplicate,
-      action: () => {
+      action: function () {
         if (isArrayIndex) {
           withDocUndo(() => {
             invalidatePropTreePathsForArrayContainer(arrayContainerPathFromRowPath(propPath));
@@ -1159,9 +1025,7 @@ function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPa
     },
     {
       label: 'Delete',
-      icon: ICONS.trash,
-      cls: 'danger',
-      action: () => {
+      action: function () {
         withDocUndo(() => {
           if (isArrayIndex) {
             invalidatePropTreePathsForArrayContainer(arrayContainerPathFromRowPath(propPath));
@@ -1173,29 +1037,26 @@ function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPa
         }, 'Delete');
       }
     },
-    { sep: true },
+    { separator: true },
     {
       label: 'Copy',
-      icon: ICONS.copy,
-      action: () => {
+      action: function () {
         _clipboard = { key, value: deepClone(value), type };
         navigator.clipboard.writeText(JSON.stringify(value, null, 2)).catch(() => {});
       }
     },
     {
       label: 'Paste (replace value)',
-      icon: ICONS.clipboard,
       disabled: !_clipboard,
-      action: () => {
+      action: function () {
         if (!_clipboard) return;
         commitValue(parentRef, key, deepClone(_clipboard.value), arrayIdx, true);
       }
     },
     {
       label: 'Paste as sibling',
-      icon: ICONS.clipboard,
       disabled: !_clipboard,
-      action: () => {
+      action: function () {
         if (!_clipboard) return;
         withDocUndo(() => {
           if (isArrayIndex) {
@@ -1210,12 +1071,11 @@ function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPa
         }, 'Paste sibling');
       }
     },
-    { sep: true },
+    { separator: true },
     {
       label: 'Remove duplicates in array',
-      icon: ICONS.x,
       disabled: type !== 'array' || !Array.isArray(value),
-      action: () => {
+      action: function () {
         if (type !== 'array' || !Array.isArray(value)) return;
         withDocUndo(() => {
           const seen = new Set();
@@ -1231,18 +1091,18 @@ function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPa
         }, 'Remove duplicates');
       }
     },
-    { sep: true },
+    { separator: true },
     {
       label: 'Add key here…',
-      icon: ICONS.plus,
       disabled: isArrayIndex,
-      action: () => showAddKeyDialog(parentRef, parentPathFromRowPath(propPath))
+      action: function () {
+        showAddKeyDialog(parentRef, parentPathFromRowPath(propPath));
+      }
     },
     {
       label: 'Add object here…',
-      icon: ICONS.typeObject,
       disabled: isArrayIndex,
-      action: () => {
+      action: function () {
         withDocUndo(() => {
           let nk = 'new_object';
           let n = 1;
@@ -1253,9 +1113,8 @@ function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPa
     },
     {
       label: 'Add list here…',
-      icon: ICONS.typeArray,
       disabled: isArrayIndex,
-      action: () => {
+      action: function () {
         withDocUndo(() => {
           let nk = 'new_list';
           let n = 1;
@@ -1264,46 +1123,50 @@ function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPa
         }, 'Add list');
       }
     },
-    { sep: true }
-  ];
-  if (isContainer) {
-    items.push({
-      label: 'Toggle collapse',
-      action: () => row.querySelector('.prop-key-toggle')?.click()
-    });
-    items.push({
-      label: 'Expand branch',
-      action: () => expandAllChildrenForRow(row)
-    });
-  }
-  items.push({
-    label: 'Add child',
-    icon: ICONS.plus,
-    disabled: !isContainer,
-    action: () => {
-      if (!isContainer) return;
-      withDocUndo(() => {
-        if (type === 'array') {
-          value.push('');
-        } else {
-          let nk = 'new_key';
-          let n = 1;
-          while (Object.prototype.hasOwnProperty.call(value, nk)) nk = 'new_key_' + ++n;
-          value[nk] = '';
-        }
-      }, 'Add child');
+    { separator: true },
+    ...(isContainer
+      ? [
+          {
+            label: 'Toggle collapse',
+            action: function () {
+              tRow.treeToggle();
+            }
+          },
+          {
+            label: 'Expand branch',
+            action: function () {
+              expandAllChildrenForTabulatorRow(tRow);
+            }
+          }
+        ]
+      : []),
+    {
+      label: 'Add child',
+      disabled: !isContainer,
+      action: function () {
+        if (!isContainer) return;
+        withDocUndo(() => {
+          if (type === 'array') {
+            value.push('');
+          } else {
+            let nk = 'new_key';
+            let n = 1;
+            while (Object.prototype.hasOwnProperty.call(value, nk)) nk = 'new_key_' + ++n;
+            value[nk] = '';
+          }
+        }, 'Add child');
+      }
+    },
+    { separator: true },
+    {
+      label: 'Copy property path',
+      action: function () {
+        navigator.clipboard.writeText(propPath);
+      }
     }
-  });
-  items.push({ sep: true });
-  items.push({
-    label: 'Copy property path',
-    action: () => navigator.clipboard.writeText(propPath)
-  });
-
-  showContextMenu(items, x, y);
+  ];
 }
 
-/** Value / key controls inside a property row — row drag-reorder must not steal drags or drops here. */
 function isPropRowDragExemptTarget(el) {
   if (!el || !(el instanceof Element)) return false;
   return (
@@ -1313,12 +1176,14 @@ function isPropRowDragExemptTarget(el) {
         '.slider-input-wrap, ' +
         '.prop-color-swatch, ' +
         '.components-widget, ' +
-        '.prop-row-actions'
+        '.prop-row-actions, ' +
+        '.pt-key-editor, ' +
+        '.tabulator-editor, ' +
+        '.tabulator-cell.tabulator-editing'
     ) != null
   );
 }
 
-/** True if `dstPath` is the moved node or a descendant (cannot reparent into self). */
 function propPathIsUnderOrEqual(ancestorPath, candidatePath) {
   if (!ancestorPath || !candidatePath) return candidatePath === ancestorPath;
   return candidatePath === ancestorPath || candidatePath.startsWith(ancestorPath + '/');
@@ -1330,10 +1195,6 @@ function movedKeyNameForObject(src) {
   return 'moved';
 }
 
-/**
- * Move a property from its current parent into an object or array row's value.
- * @returns {boolean} true if handled
- */
 function movePropIntoContainer(src, dstContainerPath, dstType) {
   const root = docManager.activeDoc?.root;
   if (!root || !src?.propPath || !dstContainerPath) return false;
@@ -1394,49 +1255,57 @@ function parseRowDragPayload(dt) {
   }
 }
 
-function initRowDragDrop(row, dragHandle, key, parentRef, arrayIdx, propPath) {
+function initRowDragDropTabulator(tabRow, dragHandle) {
+  const d = tabRow.getData();
+  const rowEl = tabRow.getElement();
+
   dragHandle.addEventListener('dragstart', (e) => {
+    const km = /^\[(\d+)\]$/.exec(d.key);
     const payload = JSON.stringify({
-      key,
-      arrayIdx: typeof arrayIdx === 'number' ? arrayIdx : null,
-      propPath
+      key: d.key,
+      arrayIdx: km ? parseInt(km[1], 10) : null,
+      propPath: d.propPath
     });
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('application/x-vdata-row', payload);
     e.dataTransfer.setData('text/plain', payload);
-    row.classList.add('drag-source');
+    rowEl.classList.add('drag-source');
   });
   dragHandle.addEventListener('dragend', () => {
-    row.classList.remove('drag-source', 'drag-over');
+    rowEl.classList.remove('drag-source', 'drag-over');
   });
-  row.addEventListener('dragover', (e) => {
+
+  rowEl.addEventListener('dragover', (e) => {
     if (isPropRowDragExemptTarget(e.target)) {
-      row.classList.remove('drag-over');
+      rowEl.classList.remove('drag-over');
       return;
     }
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    row.classList.add('drag-over');
+    rowEl.classList.add('drag-over');
   });
-  row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
-  row.addEventListener('drop', (e) => {
+  rowEl.addEventListener('dragleave', () => rowEl.classList.remove('drag-over'));
+  rowEl.addEventListener('drop', (e) => {
     if (isPropRowDragExemptTarget(e.target)) return;
     e.preventDefault();
-    row.classList.remove('drag-over');
+    rowEl.classList.remove('drag-over');
     const src = parseRowDragPayload(e.dataTransfer);
     if (!src || !src.propPath) return;
-    if (src.propPath === propPath) return;
+    if (src.propPath === d.propPath) return;
 
-    const dstType = row.dataset.type;
-    if (
-      (dstType === 'object' || dstType === 'array') &&
-      movePropIntoContainer(src, propPath, dstType)
-    ) {
+    const dstType = d.type;
+    if ((dstType === 'object' || dstType === 'array') && movePropIntoContainer(src, d.propPath, dstType)) {
       return;
     }
 
-    if (parentPathFromRowPath(src.propPath) !== parentPathFromRowPath(propPath)) return;
-    reorderProp(parentRef, src, { key, arrayIdx, propPath });
+    const bind = getBindingForPath(d.propPath);
+    if (!bind) return;
+    if (parentPathFromRowPath(src.propPath) !== parentPathFromRowPath(d.propPath)) return;
+    reorderProp(bind.parentRef, src, {
+      key: bind.key,
+      arrayIdx: bind.arrayIdx,
+      propPath: bind.propPath
+    });
   });
 }
 
@@ -1468,119 +1337,12 @@ function reorderProp(parentRef, src, dst) {
   }, 'Reorder');
 }
 
-function startInlineRename(keyEl, keyTextSpan, oldKey, parentRef) {
-  if (keyEl.querySelector('.prop-key-rename')) return;
-
-  const inp = document.createElement('input');
-  inp.type = 'text';
-  inp.className = 'prop-key-rename';
-  inp.value = oldKey;
-
-  keyTextSpan.replaceWith(inp);
-  inp.focus();
-  inp.select();
-
-  let aborted = false;
-
-  function commit() {
-    if (aborted) return;
-    const newKey = inp.value.trim();
-    inp.replaceWith(keyTextSpan);
-    if (!newKey || newKey === oldKey) {
-      keyTextSpan.textContent = oldKey;
-      return;
-    }
-    if (Object.prototype.hasOwnProperty.call(parentRef, newKey)) {
-      keyTextSpan.textContent = oldKey;
-      setStatus(`Key "${newKey}" already exists`, 'error');
-      return;
-    }
-
-    const d = docManager.activeDoc;
-    if (!d) return;
-
-    const row = keyEl.closest('.prop-row');
-    const oldPath = row?.dataset?.propPath ?? oldKey;
-    const prefix = parentPathFromRowPath(oldPath);
-    const newPath = prefix ? `${prefix}/${newKey}` : newKey;
-    const oldPrefix = oldPath + '/';
-    const newPrefix = newPath + '/';
-
-    const prevRoot = deepClone(d.root);
-    const prevFormat = d.format;
-    const prevEx = new Set(propEx());
-    const prevCol = new Set(propCol());
-
-    const entries = Object.entries(parentRef);
-    for (const [k] of entries) delete parentRef[k];
-    for (const [k, v] of entries) {
-      parentRef[k === oldKey ? newKey : k] = v;
-    }
-
-    for (const set of [propEx(), propCol()]) {
-      for (const p of [...set]) {
-        if (p === oldPath) {
-          set.delete(p);
-          set.add(newPath);
-        } else if (p.startsWith(oldPrefix)) {
-          set.delete(p);
-          set.add(newPrefix + p.slice(oldPrefix.length));
-        }
-      }
-    }
-
-    const nextRoot = deepClone(d.root);
-    const nextFormat = d.format;
-    const nextEx = new Set(propEx());
-    const nextCol = new Set(propCol());
-
-    markPropTreeStructureDirty();
-    pushUndoCommand({
-      label: `Rename: ${oldKey}`,
-      undo: () => {
-        d.format = prevFormat;
-        d.root = deepClone(prevRoot);
-        d.expandedPaths = new Set(prevEx);
-        d.collapsedPaths = new Set(prevCol);
-        d.recalcElementIds();
-        d.dirty = true;
-        docManager.dispatchEvent(new Event('tabs-changed'));
-        renderAll();
-      },
-      redo: () => {
-        d.format = nextFormat;
-        d.root = deepClone(nextRoot);
-        d.expandedPaths = new Set(nextEx);
-        d.collapsedPaths = new Set(nextCol);
-        d.recalcElementIds();
-        d.dirty = true;
-        docManager.dispatchEvent(new Event('tabs-changed'));
-        renderAll();
-      }
-    });
-
-    d.dirty = true;
-    docManager.dispatchEvent(new Event('tabs-changed'));
-    setStatus('Key renamed', 'edited');
-    renderAll();
+function filterPropTree(query) {
+  _propTreeSearchQuery = (query || '').trim().toLowerCase();
+  if (_propTreeTable) {
+    _propTreeTable.redraw(true);
   }
-
-  inp.addEventListener('blur', commit);
-  inp.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      inp.blur();
-    }
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      aborted = true;
-      inp.removeEventListener('blur', commit);
-      inp.replaceWith(keyTextSpan);
-      keyTextSpan.textContent = oldKey;
-    }
-  });
 }
-
 function buildBoolWidget(container, value, onChange) {
   const cb = document.createElement('input');
   cb.type = 'checkbox';
@@ -1912,6 +1674,246 @@ function buildVec4Widget(container, value, onChange) {
   });
 }
 
+function mountValueCell(cellEl, rowData) {
+  const d = rowData;
+  const bind = getBindingForPath(d.propPath);
+  if (!bind) return;
+  const { key, value, type, parentRef, arrayIdx, propPath } = bind;
+  const isArrayIndex = typeof arrayIdx === 'number';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'prop-value prop-value-tabulator';
+
+  if (STATIC_TYPE_SUMMARY.has(type)) {
+    const sum = document.createElement('span');
+    sum.className = 'prop-value-summary';
+    if (type === 'object' && value !== null) sum.textContent = `{ ${Object.keys(value).length} keys }`;
+    else if (type === 'array') sum.textContent = `[ ${value.length} items ]`;
+    else if (type === 'null') sum.textContent = 'null';
+    else sum.textContent = type;
+    wrap.appendChild(sum);
+  }
+  wrap.appendChild(
+    buildForceTypeBadge(type, (newType) => {
+      castPropertyType(parentRef, key, value, type, newType, arrayIdx);
+    })
+  );
+
+  let sliderScrubActive = false;
+  let sliderScrubDidChange = false;
+  let sliderScrubTx = null;
+
+  function setScalarNoUndo(v) {
+    const useIdx = arrayIdx !== undefined && arrayIdx !== null && Array.isArray(parentRef);
+    if (useIdx) parentRef[arrayIdx] = v;
+    else parentRef[key] = v;
+  }
+
+  function beginSliderScrub() {
+    if (sliderScrubActive) return;
+    const doc0 = docManager.activeDoc;
+    if (!doc0) return;
+    sliderScrubActive = true;
+    sliderScrubDidChange = false;
+    sliderScrubTx = { prevRoot: deepClone(doc0.root), prevFormat: doc0.format, label: `Edit: ${key}` };
+  }
+
+  function endSliderScrub() {
+    if (!sliderScrubActive) return;
+    sliderScrubActive = false;
+
+    const tx = sliderScrubTx;
+    sliderScrubTx = null;
+
+    if (!tx || !sliderScrubDidChange) {
+      sliderScrubDidChange = false;
+      return;
+    }
+
+    const d0 = docManager.activeDoc;
+    if (!d0) return;
+
+    const nextRoot = deepClone(d0.root);
+    const nextFormat = d0.format;
+    sliderScrubDidChange = false;
+
+    pushUndoCommand({
+      label: tx.label,
+      undo: () => {
+        d0.format = tx.prevFormat;
+        d0.root = deepClone(tx.prevRoot);
+        d0.recalcElementIds();
+        d0.dirty = true;
+        docManager.dispatchEvent(new Event('tabs-changed'));
+        renderAll();
+      },
+      redo: () => {
+        d0.format = nextFormat;
+        d0.root = deepClone(nextRoot);
+        d0.recalcElementIds();
+        d0.dirty = true;
+        docManager.dispatchEvent(new Event('tabs-changed'));
+        renderAll();
+      }
+    });
+
+    d0.dirty = true;
+    docManager.dispatchEvent(new Event('tabs-changed'));
+    renderAll();
+    setStatus('Property edited', 'edited');
+  }
+
+  const sliderOpts = {
+    onScrubStart: beginSliderScrub,
+    onScrubEnd: endSliderScrub
+  };
+
+  const onScalarChange = (v) => {
+    if (sliderScrubActive) {
+      sliderScrubDidChange = true;
+      setScalarNoUndo(v);
+      return;
+    }
+    commitValue(parentRef, key, v, arrayIdx, false);
+  };
+
+  const onComponentsChange = (newArr) => {
+    if (sliderScrubActive) {
+      sliderScrubDidChange = true;
+      setScalarNoUndo(newArr);
+      return;
+    }
+    commitValue(parentRef, key, newArr, arrayIdx, true);
+  };
+
+  const valInner = document.createElement('div');
+  valInner.className = 'prop-value-widgets';
+
+  switch (type) {
+    case 'bool':
+      buildBoolWidget(valInner, value, onScalarChange);
+      break;
+    case 'int':
+    case 'float':
+      buildNumberWidget(valInner, value, type, onScalarChange, sliderOpts);
+      break;
+    case 'float_slider_01':
+      buildFloatSlider01Widget(valInner, value, onScalarChange, sliderOpts);
+      break;
+    case 'readonly_string':
+      buildReadonlyStringWidget(valInner, value);
+      break;
+    case 'components':
+      valInner.appendChild(buildComponentsWidget(value, onComponentsChange, sliderOpts));
+      break;
+    case 'string': {
+      let listVals = [];
+      if (typeof VDataSuggestions !== 'undefined' && VDataSuggestions.getSuggestedValues) {
+        const pp = parentPathFromRowPath(propPath);
+        const parentKey = pp ? pp.slice(pp.lastIndexOf('/') + 1) : '';
+        listVals = VDataSuggestions.getSuggestedValues(key, Object.assign(schemaCtxForPropertyTree(), { parentKey }));
+      }
+      buildStringWidget(valInner, value, onScalarChange, { suggestedValues: listVals });
+      break;
+    }
+    case 'resource':
+      buildResourceWidget(valInner, value, 'resource_name', onScalarChange);
+      break;
+    case 'soundevent':
+      buildResourceWidget(valInner, value, 'soundevent', onScalarChange);
+      break;
+    case 'color':
+      buildColorWidget(valInner, value, onScalarChange);
+      break;
+    case 'vec2':
+      buildVec2Widget(valInner, value, onScalarChange);
+      break;
+    case 'vec3':
+      buildVec3Widget(valInner, value, onScalarChange, sliderOpts);
+      break;
+    case 'vec4':
+      buildVec4Widget(valInner, value, onScalarChange);
+      break;
+    case 'object':
+    case 'array':
+    case 'null':
+      break;
+    default:
+      buildStringWidget(valInner, String(value ?? ''), onScalarChange);
+  }
+  wrap.appendChild(valInner);
+
+  const actions = document.createElement('div');
+  actions.className = 'prop-row-actions';
+
+  const dupBtn = document.createElement('button');
+  dupBtn.type = 'button';
+  dupBtn.className = 'prop-action-btn';
+  dupBtn.title = 'Duplicate';
+  dupBtn.textContent = '⧉';
+  dupBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (isArrayIndex) {
+      withDocUndo(() => {
+        invalidatePropTreePathsForArrayContainer(arrayContainerPathFromRowPath(propPath));
+        parentRef.splice(arrayIdx + 1, 0, deepClone(value));
+      });
+    } else {
+      withDocUndo(() => {
+        let newKey = key + '_copy';
+        let n = 1;
+        while (Object.prototype.hasOwnProperty.call(parentRef, newKey)) newKey = key + '_copy' + ++n;
+        parentRef[newKey] = deepClone(value);
+      });
+    }
+  });
+  actions.appendChild(dupBtn);
+
+  if (type === 'object' || type === 'array') {
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'prop-action-btn';
+    addBtn.title = type === 'array' ? 'Add item' : 'Add property';
+    addBtn.textContent = '+';
+    addBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      withDocUndo(() => {
+        if (type === 'array') {
+          value.push('');
+        } else {
+          let newKey = 'new_key';
+          let n = 1;
+          while (Object.prototype.hasOwnProperty.call(value, newKey)) newKey = 'new_key_' + ++n;
+          value[newKey] = '';
+        }
+      });
+    });
+    actions.appendChild(addBtn);
+  }
+
+  const delBtn = document.createElement('button');
+  delBtn.type = 'button';
+  delBtn.className = 'prop-action-btn danger';
+  delBtn.title = 'Delete';
+  delBtn.textContent = '✕';
+  delBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    withDocUndo(() => {
+      if (isArrayIndex) {
+        invalidatePropTreePathsForArrayContainer(arrayContainerPathFromRowPath(propPath));
+        parentRef.splice(arrayIdx, 1);
+      } else {
+        invalidatePropTreePathsUnderObjectKey(propPath);
+        delete parentRef[key];
+      }
+    });
+  });
+  actions.appendChild(delBtn);
+
+  wrap.appendChild(actions);
+  cellEl.appendChild(wrap);
+}
+
 function commitValue(parentRef, key, newValue, arrayIdx, isStructural = false) {
   const d = docManager.activeDoc;
   if (!d) return;
@@ -1955,59 +1957,6 @@ function commitValue(parentRef, key, newValue, arrayIdx, isStructural = false) {
   renderAll();
 }
 
-function filterPropTree(query) {
-  const rows = document.querySelectorAll('#propTreeRoot .prop-row');
-
-  rows.forEach((row) => {
-    if (!query) {
-      row.classList.remove('search-hidden', 'search-match');
-      return;
-    }
-    const keyText = row.querySelector('.prop-key')?.textContent?.toLowerCase() ?? '';
-    const inp = row.querySelector('.prop-input');
-    const valText = (inp && 'value' in inp ? inp.value : '')?.toLowerCase?.() ?? '';
-    const rest = row.querySelector('.prop-value')?.textContent?.toLowerCase() ?? '';
-    const match = keyText.includes(query) || valText.includes(query) || rest.includes(query);
-    row.classList.toggle('search-match', match);
-    row.classList.toggle('search-hidden', !match);
-  });
-
-  if (query) {
-    document.querySelectorAll('#propTreeRoot .prop-row.search-match').forEach((row) => {
-      let el = row.parentElement;
-      while (el && el.id !== 'propTreeRoot') {
-        if (el.classList.contains('prop-row-children') && el.style.display === 'none') {
-          const parentRow = el.previousElementSibling;
-          if (el.dataset.lazy === '1') {
-            el.removeAttribute('data-lazy');
-            if (parentRow) {
-              const pPath = parentRow.dataset.propPath;
-              const pDepth = parseInt(parentRow.dataset.depth ?? '0', 10);
-              const pType = parentRow.dataset.type;
-              const pVal = getValueAtPath(docManager.activeDoc?.root, pPath);
-              if (pType === 'object' && pVal && typeof pVal === 'object')
-                renderObjectRows(el, pVal, pDepth + 1, pPath);
-              else if (pType === 'array' && Array.isArray(pVal)) renderArrayRows(el, pVal, pDepth + 1, pPath);
-            }
-          }
-          el.style.display = '';
-          if (parentRow?.dataset?.propPath != null) {
-            const pp = parentRow.dataset.propPath;
-            const dep = parseInt(parentRow.dataset.depth ?? '0', 10);
-            if (dep === 0) propCol().delete(pp);
-            else propEx().add(pp);
-          }
-          const toggle = parentRow?.querySelector('.prop-key-toggle');
-          if (toggle) toggle.textContent = '▾';
-        }
-        el = el.parentElement;
-      }
-    });
-  }
-
-  stripePropTree();
-}
-
 function initPropTreeSearch() {
   const inp = document.getElementById('propTreeSearch');
   if (!inp || inp.dataset.bound) return;
@@ -2021,7 +1970,7 @@ function initPropTreePanelContextMenu() {
   if (!panel || panel.dataset.emptyCtxBound) return;
   panel.dataset.emptyCtxBound = '1';
   panel.addEventListener('contextmenu', (e) => {
-    if (e.target.closest('.prop-row')) return;
+    if (e.target.closest('.tabulator-row')) return;
     e.preventDefault();
     const d = docManager.activeDoc;
     if (!d || !d.root || typeof d.root !== 'object') return;

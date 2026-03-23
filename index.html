@@ -7,6 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://unpkg.com/tabulator-tables@6.3.0/dist/css/tabulator_midnight.min.css" id="tabulator-theme-css">
 </head>
 <body>
 <div id="app">
@@ -84,7 +85,7 @@
         </div>
       </div>
       <div class="panel-body prop-tree-panel" id="propsContainer">
-        <div id="propTreeRoot" class="prop-tree"></div>
+        <div id="propTreeRoot" class="prop-tree"><div id="propTabulatorHost"></div></div>
       </div>
     </div>
     <div class="dock-resize-h" data-resize="props-editors"></div>
@@ -173,6 +174,8 @@
 <script src="src/widgets/number.js" defer></script>
 <script src="src/widgets/string.js" defer></script>
 <script src="src/widgets/components.js" defer></script>
+  <script src="https://unpkg.com/tabulator-tables@6.3.0/dist/js/tabulator.min.js" defer></script>
+  <script src="src/widgets/key-editor.js" defer></script>
   <script src="src/modes/runtime-schema-fetcher.js" defer></script>
   <script src="src/modes/suggestions.js" defer></script>
   <script src="src/modes/schema-progress-dialog.js" defer></script>
