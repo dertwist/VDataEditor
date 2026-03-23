@@ -563,6 +563,7 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+if (typeof initAppTheme === 'function') initAppTheme();
 initMenuBar();
 initTabBar();
 

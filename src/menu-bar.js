@@ -20,6 +20,7 @@ function initMenuBar() {
         dd.style.left = rect.left + 'px';
         dd.style.top = rect.bottom + 'px';
         activeDropdown = dd;
+        if (menu === 'settings' && typeof refreshThemeMenuMarks === 'function') refreshThemeMenuMarks();
       }
     });
   });
@@ -64,6 +65,9 @@ function initMenuBar() {
           r.readAsText(f);
         };
         inp.click();
+      } else if (action === 'setAppTheme') {
+        const pref = el.getAttribute('data-theme-pref');
+        if (pref && typeof setAppThemePreference === 'function') setAppThemePreference(pref);
       } else if (action === 'openWidgetConfig') {
         openWidgetConfigDialog();
       } else if (action === 'minimize' && window.electronAPI?.minimize) window.electronAPI.minimize();

@@ -39,6 +39,18 @@
     <div class="menu-dropdown-item" data-action="redo"><span class="menu-item-label"><span class="menu-icon" id="mi-redo"></span>Redo</span><span class="shortcut">Ctrl+Shift+Z</span></div>
   </div>
   <div class="menu-dropdown" id="menuSettings">
+    <div class="menu-submenu-wrap">
+      <div class="menu-dropdown-item menu-submenu-trigger" data-submenu="theme">
+        <span class="menu-item-label">Theme</span>
+        <span class="menu-submenu-chevron">▶</span>
+      </div>
+      <div class="menu-dropdown menu-submenu" id="menuThemeSub">
+        <div class="menu-dropdown-item" data-action="setAppTheme" data-theme-pref="light"><span class="menu-item-label">White</span><span class="menu-theme-mark"></span></div>
+        <div class="menu-dropdown-item" data-action="setAppTheme" data-theme-pref="dark"><span class="menu-item-label">Dark</span><span class="menu-theme-mark"></span></div>
+        <div class="menu-dropdown-item" data-action="setAppTheme" data-theme-pref="auto"><span class="menu-item-label">Auto</span><span class="menu-theme-mark"></span></div>
+      </div>
+    </div>
+    <div class="menu-sep"></div>
     <div class="menu-dropdown-item" data-action="openWidgetConfig"><span class="menu-item-label">Widget Config…</span></div>
     <div class="menu-sep"></div>
     <div class="menu-dropdown-item" data-action="exportUserConfig"><span class="menu-item-label">Export User Config</span></div>
@@ -137,6 +149,7 @@
 <script src="src/formats/registry.js" defer></script>
 <script src="src/settings/system-config.js" defer></script>
 <script src="src/settings/widget-config.js" defer></script>
+<script src="src/app-theme.js" defer></script>
 <script src="src/modes/index.js" defer></script>
 <script src="icons.js" defer></script>
 <script src="vendor/cm.js" defer></script>

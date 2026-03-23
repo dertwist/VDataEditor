@@ -9,6 +9,7 @@
   // ── State ──────────────────────────────────────────────────────────────────
   let _cmView = null; // CM EditorView, created once on first access
   let _cmFormatComp = null; // CM Compartment for language switching
+  let _themeComp = null; // CM Compartment for light/dark base theme
   let _meFormat = 'json'; // 'json' | 'kv3' (radio); doc.format may be 'keyvalue'
   let _suppressSync = false; // true while CM is being written from model
   let _liveSyncTimer = null;
@@ -40,36 +41,49 @@
 
   // ── CodeMirror theme (Catppuccin-matching) ─────────────────────────────────
 
+  function _codemirrorIsDark() {
+    return document.documentElement.getAttribute('data-theme') !== 'light';
+  }
+
   function _buildTheme() {
-    return CM.EditorView.theme({
-      '&': {
-        height: '100%',
-        fontSize: '12px',
-        fontFamily: 'var(--font-mono), monospace',
-        background: 'var(--bg-base)',
-        color: 'var(--text-primary)'
+    return CM.EditorView.theme(
+      {
+        '&': {
+          height: '100%',
+          fontSize: '12px',
+          fontFamily: 'var(--font-mono), monospace',
+          background: 'var(--bg-base)',
+          color: 'var(--text-primary)'
+        },
+        '.cm-editor': { height: '100%' },
+        '.cm-scroller': { overflow: 'auto', height: '100%' },
+        '.cm-content': { caretColor: 'var(--accent)' },
+        '.cm-line': { padding: '0 8px' },
+        '.cm-activeLine': { background: 'rgba(var(--accent-rgb), 0.06) !important' },
+        '.cm-gutters': {
+          background: 'var(--bg-surface)',
+          borderRight: '1px solid var(--border-subtle)',
+          color: 'var(--text-muted)'
+        },
+        '.cm-activeLineGutter': { background: 'rgba(var(--accent-rgb), 0.1)' },
+        '.cm-keyword': { color: '#cba6f7' },
+        '.cm-string': { color: '#a6e3a1' },
+        '.cm-number': { color: '#fab387' },
+        '.cm-atom': { color: '#89dceb' },
+        '.cm-comment': { color: '#585b70', fontStyle: 'italic' },
+        '.cm-property, .cm-propertyName': { color: '#89b4fa' },
+        '.cm-variable': { color: '#cdd6f4' },
+        '.cm-searchMatch': { background: 'rgba(250,179,135,.25)', borderRadius: '2px' },
+        '.cm-searchMatch-selected': { background: 'rgba(250,179,135,.55)' },
+        '.cm-selectionBackground': {
+          background: 'rgba(var(--accent-rgb), 0.22) !important'
+        },
+        '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground': {
+          background: 'rgba(var(--accent-rgb), 0.38) !important'
+        }
       },
-      '.cm-editor': { height: '100%' },
-      '.cm-scroller': { overflow: 'auto', height: '100%' },
-      '.cm-content': { caretColor: 'var(--accent)' },
-      '.cm-line': { padding: '0 8px' },
-      '.cm-activeLine': { background: 'rgba(var(--accent-rgb), 0.06) !important' },
-      '.cm-gutters': {
-        background: 'var(--bg-surface)',
-        borderRight: '1px solid var(--border-subtle)',
-        color: 'var(--text-muted)'
-      },
-      '.cm-activeLineGutter': { background: 'rgba(var(--accent-rgb), 0.1)' },
-      '.cm-keyword': { color: '#cba6f7' },
-      '.cm-string': { color: '#a6e3a1' },
-      '.cm-number': { color: '#fab387' },
-      '.cm-atom': { color: '#89dceb' },
-      '.cm-comment': { color: '#585b70', fontStyle: 'italic' },
-      '.cm-property, .cm-propertyName': { color: '#89b4fa' },
-      '.cm-variable': { color: '#cdd6f4' },
-      '.cm-searchMatch': { background: 'rgba(250,179,135,.25)', borderRadius: '2px' },
-      '.cm-searchMatch-selected': { background: 'rgba(250,179,135,.55)' }
-    });
+      { dark: _codemirrorIsDark() }
+    );
   }
 
   // ── KV3 language mode ──────────────────────────────────────────────────────
@@ -125,6 +139,7 @@
     if (checked) _meFormat = checked.value;
 
     _cmFormatComp = new CM.Compartment();
+    _themeComp = new CM.Compartment();
 
     try {
       _cmView = new CM.EditorView({
@@ -156,7 +171,7 @@
               ])
             ),
             _cmFormatComp.of(_langExt()),
-            _buildTheme(),
+            _themeComp.of(_buildTheme()),
             CM.EditorView.updateListener.of((upd) => {
               if (!upd.docChanged || _suppressSync) return;
               if (!document.getElementById('meLiveSync')?.checked) return;
@@ -363,6 +378,13 @@
   }
 
   window.resetManualEditor = () => {};
+
+  window.syncManualEditorTheme = function syncManualEditorTheme() {
+    if (!_cmView || !_themeComp) return;
+    try {
+      _cmView.dispatch({ effects: _themeComp.reconfigure(_buildTheme()) });
+    } catch (_) {}
+  };
 
   window.flushSyncDebounce = flushSyncDebounce;
   window.syncManualEditor = syncManualEditor;
