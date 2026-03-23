@@ -567,23 +567,17 @@ initMenuBar();
 initTabBar();
 
 // Register active-changed BEFORE newDoc() so the first event is caught.
-let _manualEditorMounted = false;
 docManager.addEventListener('active-changed', () => {
   const d = docManager.activeDoc;
   if (d) {
     document.title = 'VDataEditor - ' + d.fileName;
     syncEditorModeSelect();
   }
-  // Mount manual editor exactly once, as soon as we have an active doc.
-  if (!_manualEditorMounted && d) {
-    const ok = typeof initManualEditPanel === 'function' ? initManualEditPanel() : false;
-    if (ok) _manualEditorMounted = true;
-  }
   if (typeof refreshHistoryDock === 'function') refreshHistoryDock();
   if (_editorShellReady) renderAll();
 });
 
-docManager.newDoc(); // fires active-changed -> mounts manual editor
+docManager.newDoc(); // fires active-changed → renderAll() syncs manual editor when shell is ready
 
 initPropTreeSearch();
 initHistoryDock();
