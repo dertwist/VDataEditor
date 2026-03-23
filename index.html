@@ -52,6 +52,7 @@
   <div class="menu-dropdown" id="menuHelp">
     <div class="menu-dropdown-item" data-action="about"><span class="menu-item-label"><span class="menu-icon" id="mi-about"></span>About VDataEditor</span></div>
   </div>
+  <div id="tabBar" class="tab-bar"></div>
   <div class="dock-container" id="dockContainer">
     <div class="dock-panel panel" id="propsPanel" style="flex:1;min-width:280px;border-right:1px solid var(--border-subtle);background:var(--bg-secondary)">
       <div class="dock-handle" data-dock-id="properties">
@@ -139,6 +140,20 @@
 <script src="src/modes/index.js"></script>
 <script src="icons.js"></script>
 <script src="vendor/cm.js"></script>
+<script src="src/parse-utils.js"></script>
+<script src="src/document.js"></script>
+<script src="src/document-manager.js"></script>
+<script src="src/file-ops.js"></script>
+<script src="src/status-bar.js"></script>
+<script src="src/history.js"></script>
+<script src="src/widgets/bool.js"></script>
+<script src="src/widgets/number.js"></script>
+<script src="src/widgets/string.js"></script>
+<script src="src/widgets/components.js"></script>
+<script src="src/prop-tree.js"></script>
+<script src="src/manual-editor.js"></script>
+<script src="src/menu-bar.js"></script>
+<script src="src/tab-bar.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
   function setIcon(id, icon) {
@@ -160,6 +175,9 @@ document.addEventListener('DOMContentLoaded', function() {
   setIcon('mi-zoom',       ICONS.windowMaximize);
   setIcon('mi-fullscreen', ICONS.fullscreen);
   setIcon('mi-about', ICONS.info);
+  setIcon('historyUndoBtn', ICONS.undo);
+  setIcon('historyRedoBtn', ICONS.redo);
+  setIcon('historyClearBtn', ICONS.x);
 });
 </script>
 <script src="editor.js"></script>
