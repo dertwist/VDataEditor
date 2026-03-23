@@ -1,0 +1,317 @@
+<!-- kv3 encoding:text:version{e21c7f3c-8a33-41c5-9977-a76d3a32aa0d} format:generic:version{7412167c-06e9-4698-aff2-e63eb59037e7} -->
+{
+	editor_info = 
+	{
+		name = "Hammer 5 Tools"
+		version = "4.9.5"
+	}
+	"ambient_example.outdoors" = 
+	{
+		base = "amb.soundscapeParent.base"
+		enable_child_events = true
+		soundevent_01 = 
+		[
+			"ambient_example.outdoors.birds",
+			"ambient_example.outdoors.airplanes",
+			"ambient_example.outdoors.wind"
+		]
+	}
+	"ambient_example.outdoors.wind" = 
+	{
+		base = "amb.looping.stereo.base"
+		pitch = 0.8
+		volume = 0.7
+		vsnd_files_track_01 = "sounds/ambient/dust2/wind_sand_01.vsnd"
+	}
+	"ambient_example.outdoors.airplanes" = 
+	{
+		base = "amb.intermittent.randomAroundPlayer.base"
+		randomize_position_max_radius = 3000.0
+		randomize_position_min_radius = 2000.0
+		retrigger_interval_max = 30.0
+		retrigger_interval_min = 11.0
+		volume = 0.7
+		vsnd_files_track_01 = 
+		[
+			"sounds/ambient/dust2/airplane_01.vsnd",
+			"sounds/ambient/dust2/airplane_02.vsnd",
+			"sounds/ambient/dust2/airplane_03.vsnd"
+		]
+	}
+	"ambient_example.outdoors.birds" = 
+	{
+		base = "amb.intermittent.atXYZ.base"
+		position = 
+		[
+			1264.0,
+			-491.0,
+			64.0
+		]
+		retrigger_interval_max = 6.0
+		retrigger_interval_min = 1.0
+		volume = 0.5
+		vsnd_files_track_01 = 
+		[
+			"sounds/bird_01.vsnd",
+			"sounds/bird_02.vsnd",
+			"sounds/bird_03.vsnd",
+			"sounds/bird_04.vsnd",
+			"sounds/bird_05.vsnd",
+			"sounds/bird_06.vsnd"
+		]
+	}
+	"ambient_example.indoors" = 
+	{
+		base = "amb.soundscapeParent.base"
+		dsp_preset = "reverb_9_mediumChamber"
+		enable_child_events = true
+		soundevent_01 = 
+		[
+			"ambient_example.indoors.background",
+			"ambient_example.indoors.rockfalls",
+			"ambient_example.indoors.vent"
+		]
+	}
+	"ambient_example.indoors.background" = 
+	{
+		base = "amb.looping.stereo.base"
+		volume = 0.1
+		vsnd_files_track_01 = "sounds/interior_01.vsnd"
+	}
+	"ambient_example.indoors.rockfalls" = 
+	{
+		base = "amb.intermittent.randomAroundPlayer.base"
+		randomize_position_hemisphere = false
+		randomize_position_max_radius = 1000.0
+		randomize_position_min_radius = 500.0
+		retrigger_interval_max = 15.0
+		retrigger_interval_min = 5.0
+		retrigger_radius = 1000.0
+		volume = 0.7
+		vsnd_files_track_01 = 
+		[
+			"sounds/ambient/dust2/rockfall_01.vsnd",
+			"sounds/ambient/dust2/rockfall_02.vsnd",
+			"sounds/ambient/dust2/rockfall_03.vsnd",
+			"sounds/ambient/dust2/rockfall_04.vsnd",
+			"sounds/ambient/dust2/rockfall_05.vsnd",
+			"sounds/ambient/dust2/rockfall_06.vsnd",
+			"sounds/ambient/dust2/rockfall_07.vsnd",
+			"sounds/ambient/dust2/rockfall_08.vsnd"
+		]
+	}
+	"ambient_example.indoors.vent" = 
+	{
+		base = "amb.looping.atXYZ.base"
+		distance_volume_mapping_curve = 
+		[
+			[0.0, 1.0, 0.0, 0.0, 2.0, 3.0],
+			[500.0, 1.0, 0.0, 0.0, 2.0, 3.0]
+		]
+		position = 
+		[
+			1136.0,
+			1392.0,
+			64.0
+		]
+		volume = 0.2
+		vsnd_files_track_01 = "sounds/vent_01.vsnd"
+	}
+	"amb.base" = 
+	{
+		distance_effect_mix = 0.0
+		distance_unfiltered_stereo_mapping_curve = 
+		[
+			[0.0, 0.0, 0.0, 0.0, 2.0, 3.0],
+			[300.0, 0.0, 0.0, 0.0, 2.0, 3.0]
+		]
+		distance_volume_mapping_curve = 
+		[
+			[0.0, 1.0, -0.00394, -0.00394, 2.0, 3.0],
+			[300.0, 0.0, -0.002991, -0.002991, 2.0, 3.0]
+		]
+		fadetime_volume_mapping_curve = 
+		[
+			[0.0, 1.0, -1.223776, -1.223776, 2.0, 3.0],
+			[0.208571, 0.0, 0.0, 0.0, 2.0, 3.0]
+		]
+		mixgroup = "Amb_Common"
+		occlusion_intensity = 0.0
+		restrict_source_reverb = true
+		time_volume_mapping_curve = 
+		[
+			[0.0, 0.0, 0.0, 0.0, 2.0, 3.0],
+			[0.297143, 1.0, 0.0, 0.0, 2.0, 3.0]
+		]
+		type = "csgo_mega"
+		use_distance_unfiltered_stereo_mapping_curve = true
+		use_time_volume_mapping_curve = true
+	}
+	"amb.base_01" = 
+	{
+		distance_effect_mix = 0.0
+		distance_unfiltered_stereo_mapping_curve = 
+		[
+			[0.0, 0.0, 0.0, 0.0, 2.0, 3.0],
+			[300.0, 0.0, 0.0, 0.0, 2.0, 3.0]
+		]
+		distance_volume_mapping_curve = 
+		[
+			[0.0, 1.0, -0.00394, -0.00394, 2.0, 3.0],
+			[300.0, 0.0, -0.002991, -0.002991, 2.0, 3.0]
+		]
+		fadetime_volume_mapping_curve = 
+		[
+			[0.0, 1.0, -1.223776, -1.223776, 2.0, 3.0],
+			[0.208571, 0.0, 0.0, 0.0, 2.0, 3.0]
+		]
+		mixgroup = "Amb_Common"
+		occlusion_intensity = 0.0
+		restrict_source_reverb = true
+		time_volume_mapping_curve = 
+		[
+			[0.0, 0.0, 0.0, 0.0, 2.0, 3.0],
+			[0.297143, 1.0, 0.0, 0.0, 2.0, 3.0]
+		]
+		type = "csgo_mega"
+		use_distance_unfiltered_stereo_mapping_curve = true
+		use_time_volume_mapping_curve = true
+	}
+	"amb.intermittent.randomAroundPlayer.base" = 
+	{
+		base = "amb.base"
+		delay = 5.0
+		distance_volume_mapping_curve = 
+		[
+			[0.0, 1.0, 0.0, 0.0, 0.0, 0.0],
+			[300.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+		]
+		enable_retrigger = true
+		fadetime_volume_mapping_curve = 
+		[
+			[0.0, 1.0, -1.223776, -1.223776, 2.0, 3.0],
+			[0.691429, 0.0, 0.0, 0.0, 2.0, 3.0]
+		]
+		pitch_random_min = -0.6
+		position_relative_to_player = true
+		randomize_position_hemisphere = true
+		randomize_position_max_radius = 4000.0
+		randomize_position_min_radius = 4000.0
+		retrigger_interval_max = 35.0
+		retrigger_interval_min = 13.0
+		retrigger_radius = 10000.0
+		reverb_wet = 1.0
+		time_volume_mapping_curve = 
+		[
+			[0.0, 0.0, 0.0, 0.0, 2.0, 3.0],
+			[1.0, 1.0, 0.0, 0.0, 2.0, 3.0]
+		]
+		volume = 1.0
+		volume_random_min = -0.5
+	}
+	"amb.intermittent.atXYZ.base" = 
+	{
+		base = "amb.base"
+		distance_unfiltered_stereo_mapping_curve = 
+		[
+			[0.0, 0.0, 0.0, 0.0, 2.0, 3.0],
+			[300.0, 0.0, 0.0, 0.0, 2.0, 3.0]
+		]
+		distance_volume_mapping_curve = 
+		[
+			[97.14286, 1.0, -0.001763, -0.001763, 2.0, 3.0],
+			[2000.0, 0.0, -0.000526, -0.000526, 1.0, 1.0]
+		]
+		enable_retrigger = true
+		pitch_random_max = 0.03
+		pitch_random_min = -0.03
+		position = 
+		[
+			0,
+			0,
+			0
+		]
+		position_relative_to_player = false
+		retrigger_interval_max = 10.0
+		retrigger_interval_min = 1.0
+		reverb_wet = 1.0
+		use_world_position = false
+		volume = 1.0
+		volume_random_max = 0.1
+		volume_random_min = -0.3
+	}
+	"amb.looping.stereo.base" = 
+	{
+		base = "amb.base"
+		distance_unfiltered_stereo_mapping_curve = 
+		[
+			[0.0, 1.0, 0.0, 0.0, 2.0, 3.0],
+			[300.0, 1.0, 0.0, 0.0, 2.0, 3.0]
+		]
+		distance_volume_mapping_curve = 
+		[
+			[0.0, 1.0, 0.0, 0.0, 0.0, 0.0],
+			[300.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+		]
+		fadetime_volume_mapping_curve = 
+		[
+			[0.0, 1.0, -1.223776, -1.223776, 2.0, 3.0],
+			[1.0, 0.0, 0.0, 0.0, 2.0, 3.0]
+		]
+		pitch = 1.0
+		time_volume_mapping_curve = 
+		[
+			[0.0, 0.0, 0.0, 0.0, 2.0, 3.0],
+			[1.0, 1.0, 0.0, 0.0, 2.0, 3.0]
+		]
+		volume = 1.0
+	}
+	"amb.looping.atXYZ.base" = 
+	{
+		base = "amb.base"
+		distance_volume_mapping_curve = 
+		[
+			[0.0, 1.0, -0.001763, -0.001763, 2.0, 3.0],
+			[1500.0, 0.0, -0.000667, -0.000667, 1.0, 1.0]
+		]
+		position = 
+		[
+			1135.96875,
+			1391.918457,
+			64.03125
+		]
+		position_relative_to_player = false
+		reverb_wet = 1.0
+		use_world_position = true
+		volume = 1.0
+	}
+	"amb.soundscapeParent.base" = 
+	{
+		base = "amb.base"
+		dsp_preset = "reverb_22_outsideOpen"
+		enable_child_events = false
+		override_dsp_preset = true
+		set_child_position = false
+		soundevent_01 = ""
+	}
+	SoundD23 = 
+	{
+		base = "amb.base"
+		comment = "This preset is used for debugging sound files to check if they work properly. For testing, it is recommended to create a simple soundscape and select the sound event do not forget to check 'Override soundscape with sound event'. You should hear the sound if you are within the soundscape radius."
+		position_relative_to_player = true
+		vsnd_files_track_01 = 
+		[
+			"sounds/common/pink_noise_mono_loop.vsnd"
+		]
+	}
+	"SoundDebug.00_01" = 
+	{
+		base = "amb.base"
+		comment = "This preset is used for debugging sound files to check if they work properly. For testing, it is recommended to create a simple soundscape and select the sound event do not forget to check 'Override soundscape with sound event'. You should hear the sound if you are within the soundscape radius."
+		position_relative_to_player = true
+		vsnd_files_track_01 = 
+		[
+			"sounds/common/pink_noise_mono_loop.vsnd"
+		]
+	}
+}
