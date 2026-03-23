@@ -150,6 +150,13 @@ input,select,textarea,button{font-family:inherit;font-size:inherit;color:inherit
 .footer{display:flex;align-items:center;justify-content:space-between;padding:4px 12px;background:var(--bg-tertiary);border-top:1px solid var(--border-subtle);font-size:10px;color:var(--text-muted);flex-shrink:0;-webkit-app-region:no-drag}
 .footer a{color:var(--text-muted);text-decoration:none}.footer a:hover{color:var(--text-secondary)}
 
+/* Schema download / parse progress (above footer) */
+.schema-progress-wrap{display:flex;align-items:center;gap:10px;padding:2px 12px 4px;background:var(--bg-secondary);border-top:1px solid var(--border-subtle);font-size:11px;color:var(--text-muted);flex-shrink:0;-webkit-app-region:no-drag}
+.schema-progress-wrap[hidden]{display:none!important}
+.schema-progress-track{flex:1;min-width:80px;height:4px;background:var(--bg-tertiary);border-radius:2px;overflow:hidden}
+.schema-progress-bar{height:100%;width:0;background:var(--accent);border-radius:2px;transition:width .12s ease-out}
+.schema-progress-label{flex:0 0 auto;max-width:45vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
 /* ── Status bar ──────────────────────────────────── */
 .status-bar{
   display:flex;

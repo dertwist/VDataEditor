@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
   saveFile: (filePath, content) => ipcRenderer.invoke('save-file', filePath, content),
   showSaveDialog: (opts) => ipcRenderer.invoke('show-save-dialog', opts),
+  pickResourceFile: (opts) => ipcRenderer.invoke('pick-resource-file', opts),
   getVersion: () => ipcRenderer.invoke('get-version'),
   getRecentFiles: () => ipcRenderer.invoke('get-recent-files'),
   clearRecentFiles: () => ipcRenderer.invoke('clear-recent-files'),

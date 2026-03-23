@@ -22,8 +22,24 @@ function buildResourceWidget(container, value, prefix, onChange) {
   btn.className = 'prop-resource-btn';
   btn.textContent = prefix === 'soundevent' ? '🔊' : '📁';
   btn.title = prefix === 'soundevent' ? 'Sound event' : 'Resource path';
-  btn.addEventListener('click', () => {
-    /* File picker can be wired via electron showOpenDialog when exposed in preload. */
+  btn.addEventListener('click', async () => {
+    if (!window.electronAPI?.pickResourceFile) return;
+    const doc = typeof docManager !== 'undefined' ? docManager.activeDoc : null;
+    const fp = doc?.filePath;
+    const baseDir =
+      typeof fp === 'string' && fp.length ? fp.replace(/[/\\][^/\\]+$/, '') : undefined;
+    const filters =
+      prefix === 'soundevent'
+        ? [{ name: 'Sound', extensions: ['vsndevts', 'vsndstck', 'wav', 'mp3'] }]
+        : [{ name: 'Models / particles / materials', extensions: ['vmdl', 'vpcf', 'vnmskel', 'vmat'] }];
+    const rel = await window.electronAPI.pickResourceFile({
+      defaultPath: baseDir,
+      relativeTo: baseDir,
+      filters
+    });
+    if (rel == null) return;
+    inp.value = rel;
+    onChange({ type: prefix, value: rel });
   });
 
   container.appendChild(inp);

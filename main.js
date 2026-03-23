@@ -125,6 +125,28 @@ ipcMain.handle('save-file', async (_e, filePath, content) => {
 
 ipcMain.handle('show-save-dialog', async (_e, opts) => dialog.showSaveDialog(mainWindow, opts))
 
+ipcMain.handle('pick-resource-file', async (_e, opts) => {
+  const w = BrowserWindow.getFocusedWindow() || mainWindow
+  const o = opts && typeof opts === 'object' ? opts : {}
+  const relativeTo = typeof o.relativeTo === 'string' && o.relativeTo.length ? o.relativeTo : null
+  const filters = Array.isArray(o.filters) && o.filters.length ? o.filters : [{ name: 'Resources', extensions: ['vmdl', 'vpcf', 'vnmskel', 'vmat', 'vsndevts'] }]
+  const r = await dialog.showOpenDialog(w, {
+    properties: ['openFile'],
+    defaultPath: o.defaultPath || relativeTo || undefined,
+    filters
+  })
+  if (r.canceled || !r.filePaths || !r.filePaths[0]) return null
+  const abs = r.filePaths[0]
+  if (relativeTo) {
+    try {
+      return path.relative(relativeTo, abs).replace(/\\/g, '/')
+    } catch {
+      return abs.replace(/\\/g, '/')
+    }
+  }
+  return abs.replace(/\\/g, '/')
+})
+
 ipcMain.handle('get-version', () => app.getVersion())
 ipcMain.handle('get-recent-files', () => recentFiles)
 

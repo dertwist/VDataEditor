@@ -62,6 +62,8 @@
     <div class="menu-dropdown-item" data-action="fullscreen"><span class="menu-item-label"><span class="menu-icon" id="mi-fullscreen"></span>Toggle Full Screen</span></div>
   </div>
   <div class="menu-dropdown" id="menuHelp">
+    <div class="menu-dropdown-item" data-action="refreshSchemas"><span class="menu-item-label">Refresh Schemas (force)</span></div>
+    <div class="menu-dropdown-item" data-action="schemaCacheAdvanced"><span class="menu-item-label">Schema cache…</span></div>
     <div class="menu-dropdown-item" data-action="about"><span class="menu-item-label"><span class="menu-icon" id="mi-about"></span>About VDataEditor</span></div>
   </div>
   <div id="tabBar" class="tab-bar"></div>
@@ -133,6 +135,12 @@
       </div>
     </div>
   </div>
+  <div id="schemaProgressWrap" class="schema-progress-wrap" hidden>
+    <div class="schema-progress-track">
+      <div id="schemaProgressBar" class="schema-progress-bar"></div>
+    </div>
+    <span id="schemaProgressLabel" class="schema-progress-label"></span>
+  </div>
   <div class="footer">
     <div id="statusBar" class="status-bar">
       <span id="statusIcon" class="status-icon"></span>
@@ -164,7 +172,8 @@
 <script src="src/widgets/number.js" defer></script>
 <script src="src/widgets/string.js" defer></script>
 <script src="src/widgets/components.js" defer></script>
-<script src="src/suggestions.js" defer></script>
+<script src="src/modes/runtime-schema-fetcher.js" defer></script>
+<script src="src/modes/suggestions.js" defer></script>
 <script src="src/prop-tree.js" defer></script>
 <script src="src/manual-editor.js" defer></script>
 <script src="src/menu-bar.js" defer></script>

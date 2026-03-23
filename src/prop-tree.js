@@ -139,11 +139,10 @@ const TYPE_ICONS = {
 };
 
 function getActiveMode() {
-  const sel = document.getElementById('editorModeSelect');
-  const v = sel ? sel.value : 'auto';
-  if (!v || v === 'auto')
-    return window.VDataEditorModes.getModeForFile(docManager.activeDoc?.fileName ?? 'Untitled');
-  return window.VDataEditorModes.getModeById(v);
+  if (window.VDataEditorModes?.resolveActiveEditorMode) {
+    return window.VDataEditorModes.resolveActiveEditorMode();
+  }
+  return window.VDataEditorModes.getModeForFile(docManager.activeDoc?.fileName ?? 'Untitled');
 }
 
 function resolveRowWidgetType(key, value, parentObj) {
@@ -738,9 +737,16 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath) {
         buildComponentsWidget(value, onComponentsChange, sliderOpts)
       );
       break;
-    case 'string':
-      buildStringWidget(valEl, value, onScalarChange);
+    case 'string': {
+      let listVals = [];
+      if (typeof VDataSuggestions !== 'undefined' && VDataSuggestions.getSuggestedValues) {
+        const pp = parentPathFromRowPath(propPath);
+        const parentKey = pp ? pp.slice(pp.lastIndexOf('/') + 1) : '';
+        listVals = VDataSuggestions.getSuggestedValues(key, Object.assign(schemaCtxForPropertyTree(), { parentKey }));
+      }
+      buildStringWidget(valEl, value, onScalarChange, { suggestedValues: listVals });
       break;
+    }
     case 'resource':
       buildResourceWidget(valEl, value, 'resource_name', onScalarChange);
       break;
@@ -873,12 +879,15 @@ function collectContainerPaths(obj, parentPath, depth) {
 }
 
 function setAllCollapsed(collapsed) {
+  const d = docManager.activeDoc;
+  if (!d?.root || typeof d.root !== 'object') return;
+  markPropTreeStructureDirty();
   propEx().clear();
   propCol().clear();
-  const all = collectContainerPaths(docManager.activeDoc.root, '', 0);
+  const all = collectContainerPaths(d.root, '', 0);
   if (collapsed) {
-    for (const k of Object.keys(docManager.activeDoc.root)) {
-      if (docManager.activeDoc.root[k] !== null && typeof docManager.activeDoc.root[k] === 'object') propCol().add(k);
+    for (const k of Object.keys(d.root)) {
+      if (d.root[k] !== null && typeof d.root[k] === 'object') propCol().add(k);
     }
   } else {
     all.forEach(({ path, depth }) => {
@@ -891,6 +900,7 @@ function setAllCollapsed(collapsed) {
 function expandAllChildrenForRow(row) {
   const ch = row.nextElementSibling;
   if (!ch || !ch.classList.contains('prop-row-children')) return;
+  markPropTreeStructureDirty();
   const path = row.dataset.propPath;
   const depth = parseInt(row.dataset.depth, 10);
   if (ch.dataset.lazy === '1') {
@@ -967,16 +977,19 @@ function showContextMenu(items, x, y) {
   setTimeout(() => document.addEventListener('mousedown', close, true), 0);
 }
 
-function showAddKeyDialog(parentRef, contextPath) {
+function showAddKeyDialog(parentRef, parentObjectPath) {
   document.getElementById('addKeyDialog')?.remove();
 
   const d = docManager.activeDoc;
   if (!d) return;
 
-  const suggestions =
-    typeof VDataSuggestions !== 'undefined' && VDataSuggestions.getSuggestions
-      ? VDataSuggestions.getSuggestions(d.fileName, contextPath ?? '')
-      : [];
+  const fileName = d.fileName || '';
+  const pp = parentObjectPath ?? '';
+
+  let suggestions = [];
+  if (typeof VDataSuggestions !== 'undefined' && VDataSuggestions.getSuggestions) {
+    suggestions = VDataSuggestions.getSuggestions(fileName, pp);
+  }
 
   const overlay = document.createElement('div');
   overlay.id = 'addKeyDialog';
@@ -1305,13 +1318,92 @@ function isPropRowDragExemptTarget(el) {
   );
 }
 
+/** True if `dstPath` is the moved node or a descendant (cannot reparent into self). */
+function propPathIsUnderOrEqual(ancestorPath, candidatePath) {
+  if (!ancestorPath || !candidatePath) return candidatePath === ancestorPath;
+  return candidatePath === ancestorPath || candidatePath.startsWith(ancestorPath + '/');
+}
+
+function movedKeyNameForObject(src) {
+  if (typeof src.key === 'string' && /^\[\d+\]$/.test(src.key)) return 'moved';
+  if (typeof src.key === 'string' && src.key.length) return src.key;
+  return 'moved';
+}
+
+/**
+ * Move a property from its current parent into an object or array row's value.
+ * @returns {boolean} true if handled
+ */
+function movePropIntoContainer(src, dstContainerPath, dstType) {
+  const root = docManager.activeDoc?.root;
+  if (!root || !src?.propPath || !dstContainerPath) return false;
+  if (src.propPath === dstContainerPath) return false;
+  if (propPathIsUnderOrEqual(src.propPath, dstContainerPath)) return false;
+
+  const target = getValueAtPath(root, dstContainerPath);
+  if (!target || typeof target !== 'object') return false;
+  if (dstType === 'array' && !Array.isArray(target)) return false;
+  if (dstType === 'object' && Array.isArray(target)) return false;
+
+  const srcParentPath = parentPathFromRowPath(src.propPath);
+  const srcParent = getValueAtPath(root, srcParentPath);
+  if (srcParent == null || typeof srcParent !== 'object') return false;
+
+  if (typeof src.arrayIdx === 'number') {
+    if (!Array.isArray(srcParent)) return false;
+    if (src.arrayIdx < 0 || src.arrayIdx >= srcParent.length) return false;
+  } else {
+    if (typeof src.key !== 'string' || !Object.prototype.hasOwnProperty.call(srcParent, src.key)) return false;
+  }
+
+  withDocUndo(() => {
+    let moved;
+    if (typeof src.arrayIdx === 'number') {
+      moved = deepClone(srcParent[src.arrayIdx]);
+      invalidatePropTreePathsForArrayContainer(arrayContainerPathFromRowPath(src.propPath));
+      srcParent.splice(src.arrayIdx, 1);
+    } else {
+      moved = deepClone(srcParent[src.key]);
+      invalidatePropTreePathsUnderObjectKey(src.propPath);
+      delete srcParent[src.key];
+    }
+
+    if (dstType === 'array' && Array.isArray(target)) {
+      invalidatePropTreePathsForArrayContainer(dstContainerPath);
+      target.push(moved);
+    } else {
+      let nk = movedKeyNameForObject(src);
+      const base = nk;
+      let n = 1;
+      while (Object.prototype.hasOwnProperty.call(target, nk)) nk = base + '_' + ++n;
+      invalidatePropTreePathsUnderObjectKey(dstContainerPath);
+      target[nk] = moved;
+    }
+  }, 'Move into');
+
+  return true;
+}
+
+function parseRowDragPayload(dt) {
+  const raw = dt.getData('application/x-vdata-row') || dt.getData('text/plain');
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch (_) {
+    return null;
+  }
+}
+
 function initRowDragDrop(row, dragHandle, key, parentRef, arrayIdx, propPath) {
   dragHandle.addEventListener('dragstart', (e) => {
+    const payload = JSON.stringify({
+      key,
+      arrayIdx: typeof arrayIdx === 'number' ? arrayIdx : null,
+      propPath
+    });
     e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData(
-      'application/x-vdata-row',
-      JSON.stringify({ key, arrayIdx: typeof arrayIdx === 'number' ? arrayIdx : null, propPath })
-    );
+    e.dataTransfer.setData('application/x-vdata-row', payload);
+    e.dataTransfer.setData('text/plain', payload);
     row.classList.add('drag-source');
   });
   dragHandle.addEventListener('dragend', () => {
@@ -1331,13 +1423,18 @@ function initRowDragDrop(row, dragHandle, key, parentRef, arrayIdx, propPath) {
     if (isPropRowDragExemptTarget(e.target)) return;
     e.preventDefault();
     row.classList.remove('drag-over');
-    let src;
-    try {
-      src = JSON.parse(e.dataTransfer.getData('application/x-vdata-row'));
-    } catch (_) {
+    const src = parseRowDragPayload(e.dataTransfer);
+    if (!src || !src.propPath) return;
+    if (src.propPath === propPath) return;
+
+    const dstType = row.dataset.type;
+    if (
+      (dstType === 'object' || dstType === 'array') &&
+      movePropIntoContainer(src, propPath, dstType)
+    ) {
       return;
     }
-    if (!src || src.propPath === propPath) return;
+
     if (parentPathFromRowPath(src.propPath) !== parentPathFromRowPath(propPath)) return;
     reorderProp(parentRef, src, { key, arrayIdx, propPath });
   });
@@ -1587,7 +1684,45 @@ function buildComponentsWidget(arr, onChange, sliderOpts) {
   return wrap;
 }
 
-function buildStringWidget(container, value, onChange) {
+let _propStrSuggestSeq = 0;
+
+function schemaCtxForPropertyTree() {
+  const d = docManager.activeDoc;
+  if (!d || !window.VDataEditorModes?.getSuggestionContext) {
+    const fn = d?.fileName || '';
+    const m = /\.([a-z0-9]+)$/i.exec(fn);
+    return {
+      modeId: 'generic',
+      fileExt: m ? m[1].toLowerCase() : '',
+      genericDataType: d?.root?.generic_data_type ?? ''
+    };
+  }
+  return window.VDataEditorModes.getSuggestionContext(d.fileName, d.root);
+}
+
+function buildStringWidget(container, value, onChange, options) {
+  const opts = options || {};
+  const listVals = opts.suggestedValues;
+  if (Array.isArray(listVals) && listVals.length) {
+    const listId = 'prop-str-sug-' + ++_propStrSuggestSeq;
+    const list = document.createElement('datalist');
+    list.id = listId;
+    for (let i = 0; i < listVals.length; i++) {
+      const o = document.createElement('option');
+      o.value = String(listVals[i]);
+      list.appendChild(o);
+    }
+    container.appendChild(list);
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'prop-input';
+    inp.setAttribute('list', listId);
+    inp.setAttribute('autocomplete', 'off');
+    inp.value = value == null ? '' : String(value);
+    inp.addEventListener('change', () => onChange(inp.value));
+    container.appendChild(inp);
+    return;
+  }
   const inp = document.createElement('input');
   inp.type = 'text';
   inp.className = 'prop-input';
@@ -1619,9 +1754,25 @@ function buildResourceWidget(container, value, prefix, onChange) {
   btn.type = 'button';
   btn.className = 'prop-resource-btn';
   btn.textContent = prefix === 'soundevent' ? '🔊' : '📁';
-  btn.title = prefix === 'soundevent' ? 'Sound event' : 'Resource path';
-  btn.addEventListener('click', () => {
-    /* File picker can be wired via electron showOpenDialog when exposed in preload. */
+  btn.title = prefix === 'soundevent' ? 'Pick sound asset' : 'Pick resource file';
+  btn.addEventListener('click', async () => {
+    if (!window.electronAPI?.pickResourceFile) return;
+    const doc = docManager.activeDoc;
+    const fp = doc?.filePath;
+    const baseDir =
+      typeof fp === 'string' && fp.length ? fp.replace(/[/\\][^/\\]+$/, '') : undefined;
+    const filters =
+      prefix === 'soundevent'
+        ? [{ name: 'Sound', extensions: ['vsndevts', 'vsndstck', 'wav', 'mp3'] }]
+        : [{ name: 'Models / particles / materials', extensions: ['vmdl', 'vpcf', 'vnmskel', 'vmat', 'vmdl_c'] }];
+    const rel = await window.electronAPI.pickResourceFile({
+      defaultPath: baseDir,
+      relativeTo: baseDir,
+      filters
+    });
+    if (rel == null) return;
+    inp.value = rel;
+    onChange({ type: prefix, value: rel });
   });
 
   container.appendChild(inp);

@@ -296,10 +296,14 @@ function openWidgetConfigDialog() {
   });
 }
 
-function initEditorModeSelect() {
+/** Rebuild mode dropdown (Auto + Generic + registered modes, including runtime `schema:…` entries). */
+function rebuildEditorModeSelect() {
   const sel = document.getElementById('editorModeSelect');
-  if (!sel || sel.dataset.bound || !window.VDataEditorModes) return;
-  sel.dataset.bound = '1';
+  if (!sel || !window.VDataEditorModes) return;
+  const prev = sel.value;
+  while (sel.children.length > 1) {
+    sel.removeChild(sel.lastChild);
+  }
   const generic = window.VDataEditorModes.getModeById('generic');
   if (generic) {
     const opt = document.createElement('option');
@@ -313,12 +317,26 @@ function initEditorModeSelect() {
     opt.textContent = m.label;
     sel.appendChild(opt);
   });
+  const ok = Array.from(sel.options).some((o) => o.value === prev);
+  sel.value = ok ? prev : 'auto';
+  syncEditorModeSelect();
+}
+
+function initEditorModeSelect() {
+  const sel = document.getElementById('editorModeSelect');
+  if (!sel || sel.dataset.bound || !window.VDataEditorModes) return;
+  sel.dataset.bound = '1';
+  rebuildEditorModeSelect();
   sel.addEventListener('change', () => {
     syncEditorModeSelect();
     renderAll();
   });
   syncEditorModeSelect();
 }
+
+window.addEventListener('vdata-schema-modes-updated', () => {
+  rebuildEditorModeSelect();
+});
 
 async function loadRecentFiles() {
   if (!window.electronAPI?.getRecentFiles) return;
@@ -568,9 +586,132 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+function reportSchemaDownloadProgress(msg, pct) {
+  if (typeof setSchemaProgress === 'function') {
+    setSchemaProgress(true, pct != null && pct !== '' ? Number(pct) : 0, msg || '');
+  }
+  if (typeof setStatus === 'function') {
+    setStatus(pct != null && pct !== '' ? msg + ' (' + pct + '%)' : msg, 'info');
+  }
+}
+window.reportSchemaDownloadProgress = reportSchemaDownloadProgress;
+
+function formatSchemaAgeMs(ms) {
+  if (ms == null || typeof ms !== 'number') return '—';
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return s + ' s';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + ' min';
+  const h = Math.floor(m / 60);
+  if (h < 72) return h + ' h';
+  return Math.floor(h / 24) + ' d';
+}
+
+function refreshSchemaDialogStatus(overlay) {
+  const R = window.VDataSchemaRuntime;
+  if (!R || typeof R.getSchemaCacheStatus !== 'function' || !overlay) return;
+  const st = R.getSchemaCacheStatus();
+  const ttlDays = (st.ttlMs / 86400000).toFixed(1);
+  const ageEl = overlay.querySelector('#scd-age');
+  const staleEl = overlay.querySelector('#scd-stale');
+  const fetchedEl = overlay.querySelector('#scd-fetched');
+  const countEl = overlay.querySelector('#scd-count');
+  const ttlEl = overlay.querySelector('#scd-ttl');
+  if (ageEl) ageEl.textContent = st.hasData && st.ageMs != null ? formatSchemaAgeMs(st.ageMs) + ' ago' : '—';
+  if (staleEl) {
+    staleEl.textContent = !st.hasData ? 'No cache' : st.isStale ? 'Yes — refresh recommended' : 'No';
+  }
+  if (fetchedEl) {
+    fetchedEl.textContent = st.hasData && st.fetchedAt ? new Date(st.fetchedAt).toLocaleString() : '—';
+  }
+  if (countEl) countEl.textContent = String(st.schemaKeyCount);
+  if (ttlEl) ttlEl.textContent = ttlDays + ' days';
+}
+
+function showSchemaCacheAdvancedDialog() {
+  document.getElementById('schemaCacheDialog')?.remove();
+  const R = window.VDataSchemaRuntime;
+  const S = window.VDataSuggestions;
+  if (!R || !S) {
+    if (typeof setStatus === 'function') setStatus('Schema runtime not available', 'error');
+    return;
+  }
+  const overlay = document.createElement('div');
+  overlay.id = 'schemaCacheDialog';
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal-dialog" style="width:440px">
+      <div class="modal-header">
+        <span class="modal-title">Schema cache</span>
+        <button type="button" class="modal-close" id="scd-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="margin:0 0 12px;font-size:12px;color:var(--text-muted);line-height:1.45">
+          Local copy of GameTracking CS2 vdata + source2sdk headers. Parsed with the same KV3 parser as files.
+          When the cache is older than the TTL, the app re-downloads on startup and shows progress below.
+        </p>
+        <table style="width:100%;font-size:12px;border-collapse:collapse">
+          <tr><td style="padding:4px 10px 4px 0;color:var(--text-muted);vertical-align:top">Cache age</td><td id="scd-age">—</td></tr>
+          <tr><td style="padding:4px 10px 4px 0;color:var(--text-muted)">Outdated (TTL)</td><td id="scd-stale">—</td></tr>
+          <tr><td style="padding:4px 10px 4px 0;color:var(--text-muted)">Last saved</td><td id="scd-fetched">—</td></tr>
+          <tr><td style="padding:4px 10px 4px 0;color:var(--text-muted)">Schema buckets</td><td id="scd-count">0</td></tr>
+          <tr><td style="padding:4px 10px 4px 0;color:var(--text-muted)">TTL</td><td id="scd-ttl">—</td></tr>
+        </table>
+        <div class="modal-row" style="margin-top:16px;flex-wrap:wrap;gap:8px;justify-content:flex-start">
+          <button type="button" class="btn btn-sm" id="scd-update-if-stale">Update if outdated</button>
+          <button type="button" class="btn btn-sm btn-accent" id="scd-force">Force re-download all</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  refreshSchemaDialogStatus(overlay);
+
+  overlay.querySelector('#scd-close')?.addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+
+  overlay.querySelector('#scd-update-if-stale')?.addEventListener('click', async () => {
+    const st = R.getSchemaCacheStatus();
+    if (st.hasData && !st.isStale) {
+      if (typeof setStatus === 'function') setStatus('Schema cache is already within TTL.', 'info');
+      refreshSchemaDialogStatus(overlay);
+      return;
+    }
+    try {
+      await S.refreshSchemasAdvanced(window.reportSchemaDownloadProgress, { forceRefresh: false });
+    } finally {
+      if (typeof setSchemaProgress === 'function') setSchemaProgress(false);
+      refreshSchemaDialogStatus(overlay);
+      if (typeof setStatus === 'function') setStatus('Schemas updated', 'info');
+    }
+  });
+
+  overlay.querySelector('#scd-force')?.addEventListener('click', async () => {
+    try {
+      await S.refreshSchemasAdvanced(window.reportSchemaDownloadProgress, { forceRefresh: true });
+    } finally {
+      if (typeof setSchemaProgress === 'function') setSchemaProgress(false);
+      refreshSchemaDialogStatus(overlay);
+      if (typeof setStatus === 'function') setStatus('All schemas re-downloaded', 'info');
+    }
+  });
+}
+window.showSchemaCacheAdvancedDialog = showSchemaCacheAdvancedDialog;
+
 if (typeof initAppTheme === 'function') initAppTheme();
 initMenuBar();
 initTabBar();
+
+if (typeof VDataSuggestions?.initSchemas === 'function') {
+  VDataSuggestions.initSchemas(window.reportSchemaDownloadProgress)
+    .catch(function () {
+      /* offline / fetch errors logged in initSchemas */
+    })
+    .finally(function () {
+      if (typeof setSchemaProgress === 'function') setSchemaProgress(false);
+    });
+}
 
 // Register active-changed BEFORE newDoc() so the first event is caught.
 docManager.addEventListener('active-changed', () => {
