@@ -1,9 +1,58 @@
-// Mode-layer runtime data: fetch CS2 vdata/SDK hints from GitHub, parse with KV3Format, cache in localStorage.
+/**
+ * Runtime schema hints from Counter-Strike 2 data in
+ * https://github.com/SteamTracking/GameTracking-CS2
+ *
+ * Discovers `.vdata` files by recursively crawling selected repo directories via the GitHub Contents API,
+ * then fetches each file from `download_url` (or raw.githubusercontent.com), parses KV3, and merges into schema buckets.
+ */
 (function () {
   'use strict';
 
   const CACHE_KEY = 'vdata_schema_cache';
   const CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
+  const GT_REPO = 'SteamTracking/GameTracking-CS2';
+  const GT_BRANCH = 'master';
+  const GT_API = 'https://api.github.com/repos/' + GT_REPO + '/contents';
+  const GT_RAW = 'https://raw.githubusercontent.com/' + GT_REPO + '/' + GT_BRANCH;
+  const SDK_RAW = 'https://raw.githubusercontent.com/neverlosecc/source2sdk/main/cs2';
+
+  const GITHUB_FETCH_INIT = {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28'
+    }
+  };
+
+  const CRAWL_ROOTS = [
+    'game/csgo/pak01_dir/scripts',
+    'game/csgo/pak01_dir/entities',
+    'game/csgo/pak01_dir/data',
+    'game/csgo/pak01_dir/cfg'
+  ];
+
+  const SKIP_DIRS = new Set([
+    'game/csgo/pak01_dir/maps',
+    'game/csgo/pak01_dir/sounds',
+    'game/csgo/pak01_dir/materials',
+    'game/csgo/pak01_dir/models',
+    'game/csgo/pak01_dir/panorama'
+  ]);
+
+  const KNOWN_TYPE_MAP = {
+    weapons: 'type:CBasePlayerWeaponVData',
+    decalgroups: 'type:CDecalGroupData',
+    propdata: 'type:CPropData',
+    light_styles: 'type:CLightStyleData',
+    light_style_event_types: 'type:CLightStyleEventTypes',
+    nav_hulls: 'type:CNavHullData',
+    nav_hulls_presets: 'type:CNavHullPresetsData',
+    navlinks: 'type:CNavLinkData',
+    precipitation: 'type:CPrecipitationData',
+    survival_config: 'type:CSurvivalConfig',
+    inventory_image_data: 'type:CInventoryImageData',
+    game_asset_tags: 'type:CGameAssetTagData',
+    anim_preview_archetypes: 'type:CAnimPreviewData'
+  };
 
   function readCacheMeta() {
     try {
@@ -18,8 +67,71 @@
       return null;
     }
   }
-  const GT_RAW = 'https://raw.githubusercontent.com/SteamTracking/GameTracking-CS2/master';
-  const SDK_RAW = 'https://raw.githubusercontent.com/neverlosecc/source2sdk/main/cs2';
+
+  function pathToSchemaKey(filePath) {
+    const base = filePath.split('/').pop().replace(/\.vdata$/i, '');
+    return KNOWN_TYPE_MAP[base] || 'path:' + base;
+  }
+
+  function dirIsSkipped(dirPath) {
+    if (SKIP_DIRS.has(dirPath)) return true;
+    for (const prefix of SKIP_DIRS) {
+      if (dirPath === prefix || dirPath.startsWith(prefix + '/')) return true;
+    }
+    return false;
+  }
+
+  async function crawlVdataFiles(onProgress) {
+    const found = [];
+    let apiCalls = 0;
+
+    async function crawlDir(dirPath) {
+      if (dirIsSkipped(dirPath)) return;
+
+      const apiUrl = GT_API + '/' + dirPath + '?ref=' + encodeURIComponent(GT_BRANCH);
+      let entries;
+      try {
+        apiCalls++;
+        const res = await fetch(apiUrl, GITHUB_FETCH_INIT);
+        if (!res.ok) return;
+        entries = await res.json();
+      } catch {
+        return;
+      }
+
+      if (!Array.isArray(entries)) return;
+
+      const subdirs = [];
+      for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i];
+        if (!entry || !entry.type) continue;
+        if (entry.type === 'file' && entry.name && entry.name.endsWith('.vdata')) {
+          found.push({
+            path: entry.path,
+            rawUrl: entry.download_url || GT_RAW + '/' + entry.path,
+            schemaKey: pathToSchemaKey(entry.path)
+          });
+        } else if (entry.type === 'dir' && entry.path) {
+          subdirs.push(entry.path);
+        }
+      }
+
+      for (let j = 0; j < subdirs.length; j++) {
+        await crawlDir(subdirs[j]);
+      }
+    }
+
+    onProgress && onProgress('Discovering vdata files…', 2);
+    for (let r = 0; r < CRAWL_ROOTS.length; r++) {
+      await crawlDir(CRAWL_ROOTS[r]);
+    }
+
+    found.sort(function (a, b) {
+      return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
+    });
+    onProgress && onProgress('Found ' + found.length + ' vdata files (' + apiCalls + ' API calls)', 8);
+    return found;
+  }
 
   function parseKV3Text(text) {
     const K = typeof KV3Format !== 'undefined' ? KV3Format : null;
@@ -105,6 +217,32 @@
     for (const k of Object.keys(ch)) pruneEnumsDeep(ch[k]);
   }
 
+  function mergeSchemas(base, incoming) {
+    const out = base;
+    if (!out.keys) out.keys = {};
+    if (!out.children) out.children = {};
+    if (!incoming) return out;
+
+    for (const [key, def] of Object.entries(incoming.keys || {})) {
+      if (!out.keys[key]) {
+        out.keys[key] = def;
+      } else {
+        out.keys[key].count = (out.keys[key].count ?? 0) + (def.count ?? 1);
+        const prevLen = out.keys[key].enum?.length ?? 0;
+        const nextLen = def.enum?.length ?? 0;
+        if (nextLen > prevLen) {
+          out.keys[key].enum = def.enum;
+          out.keys[key].widget = 'select';
+        }
+      }
+    }
+
+    for (const [ck, cs] of Object.entries(incoming.children || {})) {
+      out.children[ck] = out.children[ck] ? mergeSchemas(out.children[ck], cs) : cs;
+    }
+    return out;
+  }
+
   function parseSDKHeader(text) {
     const fields = {};
     const re = /^\s+([\w:<>*, ]+?)\s+(m_\w+)\s*;/gm;
@@ -147,7 +285,6 @@
     return meta.schemas;
   }
 
-  /** Cached schemas even if TTL expired (read-only; does not imply validity). */
   function peekCacheSchemas() {
     const meta = readCacheMeta();
     return meta ? meta.schemas : null;
@@ -197,47 +334,65 @@
   async function fetchParseAndSaveAllSchemas(onProgress) {
     const schemas = {};
 
-    const vdataJobs = [
-      { path: 'game/csgo/pak01_dir/scripts/weapons.vdata', schemaKey: 'type:CBasePlayerWeaponVData' },
-      { path: 'game/csgo/pak01_dir/scripts/decalgroups.vdata', schemaKey: 'type:CDecalGroupData' },
-      { path: 'game/csgo/pak01_dir/scripts/propdata.vdata', schemaKey: 'type:CPropData' },
-      { path: 'game/csgo/pak01_dir/scripts/light_styles.vdata', schemaKey: 'type:CLightStyleData' },
-      { path: 'game/csgo/pak01_dir/scripts/nav_hulls.vdata', schemaKey: 'type:CNavHullData' }
-    ];
+    const vdataFiles = await crawlVdataFiles(onProgress);
+    const total = vdataFiles.length;
+    const BATCH = 6;
+    let filesHandled = 0;
 
-    for (let i = 0; i < vdataJobs.length; i++) {
-      const job = vdataJobs[i];
-      const path = job.path;
-      const schemaKey = job.schemaKey;
-      onProgress &&
-        onProgress('Parsing ' + path.split('/').pop() + '…', Math.round((i / vdataJobs.length) * 60));
-      try {
-        const text = await fetchText(GT_RAW + '/' + path);
-        schemas[schemaKey] = extractSchemaFromVdata(text);
-      } catch (e) {
-        console.warn('[schema] Failed to fetch ' + path + ':', e.message);
+    if (total === 0) {
+      onProgress && onProgress('Parsed 0/0 files (no vdata discovered)', 80);
+    } else {
+      for (let i = 0; i < vdataFiles.length; i += BATCH) {
+        const batch = vdataFiles.slice(i, i + BATCH);
+        await Promise.all(
+          batch.map(async function (job) {
+            const label = job.path.split('/').pop();
+            try {
+              const text = await fetchText(job.rawUrl);
+              const schema = extractSchemaFromVdata(text);
+              if (schemas[job.schemaKey]) {
+                schemas[job.schemaKey] = mergeSchemas(schemas[job.schemaKey], schema);
+              } else {
+                schemas[job.schemaKey] = schema;
+              }
+            } catch (e) {
+              console.warn('[schema] Failed ' + label + ':', e.message);
+              filesHandled++;
+              const skipPct = 8 + Math.round((filesHandled / total) * 72);
+              onProgress && onProgress('Skipped ' + label + ': ' + e.message, skipPct);
+              return;
+            }
+            filesHandled++;
+          })
+        );
+        const pct = 8 + Math.round((filesHandled / total) * 72);
+        onProgress && onProgress('Parsed ' + filesHandled + '/' + total + ' files…', pct);
       }
     }
 
-    const sdkClasses = ['CBasePlayerWeaponVData', 'CBasePlayerPawnVData', 'CCSPlayerController'];
+    const sdkClasses = [
+      'CBasePlayerWeaponVData',
+      'CBasePlayerPawnVData',
+      'CCSPlayerController',
+      'CDecalGroupData',
+      'CPropData',
+      'CLightStyleData'
+    ];
+    const nSdk = sdkClasses.length;
 
-    for (let i = 0; i < sdkClasses.length; i++) {
+    for (let i = 0; i < nSdk; i++) {
       const cls = sdkClasses[i];
-      onProgress &&
-        onProgress('Fetching SDK: ' + cls + '…', 60 + Math.round((i / sdkClasses.length) * 35));
+      onProgress && onProgress('SDK: ' + cls + '…', 80 + Math.round((i / nSdk) * 15));
       try {
         const url = SDK_RAW + '/client/' + cls + '.hpp';
         const text = await fetchText(url);
         const sdkFields = parseSDKHeader(text);
         const sk = 'type:' + cls;
-        const base = schemas[sk] || { keys: {}, enums: {}, children: {} };
-        schemas[sk] = mergeSDKIntoSchema(base, sdkFields);
+        schemas[sk] = mergeSDKIntoSchema(schemas[sk] || { keys: {}, enums: {}, children: {} }, sdkFields);
       } catch {
         /* header missing */
       }
     }
-
-    onProgress && onProgress('Done', 100);
 
     schemas._global = {
       keys: {
@@ -250,7 +405,10 @@
       children: {}
     };
 
+    onProgress && onProgress('Saving…', 98);
     saveCache(schemas);
+    const bucketCount = Object.keys(schemas).length;
+    onProgress && onProgress('Done — ' + bucketCount + ' schemas from ' + total + ' vdata files', 100);
     return schemas;
   }
 
@@ -299,8 +457,12 @@
 
   const api = {
     CACHE_TTL,
+    GT_REPO,
+    GT_BRANCH,
+    GT_HTML: 'https://github.com/' + GT_REPO,
     loadSchemasRuntime,
     fetchParseAndSaveAllSchemas,
+    crawlVdataFiles,
     invalidateCache,
     getCacheAge,
     getSchemaCacheStatus,
