@@ -477,9 +477,9 @@ input,select,textarea,button{font-family:inherit;font-size:inherit;color:inherit
 }
 .dock-resize-v:hover,.dock-resize-v.active{background:var(--accent)}
 
-/* History dock */
+/* History dock — no flex-grow; .me-editor-wrap keeps remaining height (CM needs non-zero area) */
 .history-dock{
-  flex:1;
+  flex:0 1 auto;
   min-height:40px;
   max-height:35%;
   display:flex;
