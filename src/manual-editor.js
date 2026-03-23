@@ -21,6 +21,7 @@ function buildCmTheme() {
     '.cm-line': { padding: '0 8px' },
     '.cm-line:nth-child(even)': { background: 'rgba(255,255,255,.008)' },
     '.cm-activeLine': { background: 'rgba(var(--accent-rgb), 0.06) !important' },
+    '.cm-scroller': { overflow: 'auto', height: '100%' },
     '.cm-gutters': {
       background: 'var(--bg-surface)',
       borderRight: '1px solid var(--border-subtle)',
