@@ -592,20 +592,20 @@ html[data-theme="light"] #cmEditor .cm-content:focus *::selection{
 .prop-row-drag-handle{
   cursor:grab;
   flex-shrink:0;
-  width:14px;
-  height:14px;
+  width:20px;
+  height:20px;
   display:inline-flex;
   align-items:center;
   justify-content:center;
   text-align:center;
   opacity:.45;
-  font-size:9px;
+  font-size:12px;
   line-height:1;
-  letter-spacing:-3px;
+  letter-spacing:-2px;
   user-select:none;
   color:var(--text-muted);
 }
-.prop-row-drag-handle .icon-png{width:12px;height:12px;display:block}
+.prop-row-drag-handle .icon-png{width:16px;height:16px;display:block}
 .prop-row:hover .prop-row-drag-handle{opacity:.85}
 .prop-row-drag-handle:active{cursor:grabbing}
 .prop-row.drag-source{opacity:.45}

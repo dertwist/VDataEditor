@@ -228,12 +228,46 @@
       _suppressSync = false;
     }
 
+    _manualEditorModelDirty = false;
+
     requestAnimationFrame(() => {
       if (_cmView) _cmView.scrollDOM.scrollTop = scroll;
     });
     try {
       _cmView.requestMeasure();
     } catch (_) {}
+  }
+
+  function markManualEditorNeedsSync() {
+    if (_suppressManualDirtyMark) return;
+    _manualEditorModelDirty = true;
+  }
+
+  function isEditorsPanelEffectivelyVisible() {
+    const p = document.getElementById('editorsPanel');
+    if (!p) return false;
+    const st = window.getComputedStyle(p);
+    if (st.display === 'none' || st.visibility === 'hidden') return false;
+    const r = p.getBoundingClientRect();
+    return r.width > 8 && r.height > 8;
+  }
+
+  function syncManualEditorIfNeeded() {
+    if (!isEditorsPanelEffectivelyVisible()) return;
+    if (!_manualEditorModelDirty) return;
+    syncManualEditor();
+  }
+
+  function attachEditorsPanelResizeSync() {
+    const ep = document.getElementById('editorsPanel');
+    if (!ep || typeof ResizeObserver === 'undefined') return;
+    let lastVisible = isEditorsPanelEffectivelyVisible();
+    const ro = new ResizeObserver(() => {
+      const vis = isEditorsPanelEffectivelyVisible();
+      if (vis && (!lastVisible || _manualEditorModelDirty)) syncManualEditorIfNeeded();
+      lastVisible = vis;
+    });
+    ro.observe(ep);
   }
 
   function syncManualEditorDebounced() {
@@ -279,40 +313,6 @@
       }
     } catch (e) {
       _setStatus('Parse error: ' + e.message, 'error');
-      return;
-    }
-
-    const label =
-      _meFormat === 'json' ? 'Apply JSON' : d.format === 'keyvalue' ? 'Apply KeyValues' : 'Apply KV3';
-
-    withDocUndo(() => {
-      if (_meFormat === 'json') d.format = 'json';
-      d.root = parsed;
-      if (typeof ensureSmartPropRootArrays === 'function') ensureSmartPropRootArrays(d);
-      d.recalcElementIds();
-    }, label);
-
-    _setStatus(label + ' — OK', 'edited');
-  }
-
-  // ── Search / replace ───────────────────────────────────────────────────────
-
-  function toggleMeSearchBar(forceOpen) {
-    const bar = document.getElementById('meSearchBar');
-    if (!bar) return;
-    const open = forceOpen ?? (bar.style.display === 'none');
-    bar.style.display = open ? 'flex' : 'none';
-    if (open) document.getElementById('meSearchInput')?.focus();
-  }
-
-  function _initSearchBridge() {
-    const searchInput = document.getElementById('meSearchInput');
-    const replaceInput = document.getElementById('meReplaceInput');
-    const matchCount = document.getElementById('meMatchCount');
-
-    let _matches = [];
-    let _matchIdx = 0;
-
     function _scan() {
       _matches = [];
       const needle = searchInput?.value ?? '';
@@ -392,6 +392,10 @@
   window.syncManualEditor = syncManualEditor;
   window.syncManualEditorDebounced = syncManualEditorDebounced;
   window.applyManualEdit = applyManualEdit;
+  window.toggleMeSearchBar = toggleMeSearchBar;
+  window.initManualEditPanel = () => true;
+})();
+
   window.toggleMeSearchBar = toggleMeSearchBar;
   window.initManualEditPanel = () => true;
 })();
