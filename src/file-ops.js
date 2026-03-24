@@ -18,10 +18,12 @@ function syncEditorModeSelect() {
   const fileName = d ? d.fileName : 'Untitled';
   const detected = window.VDataEditorModes.getModeForFile(fileName);
   if (sel.value === 'auto') {
-    sel.title = 'Property editor mode — Auto: ' + (detected?.label || 'Generic');
+    sel.title = 'Document context — Auto: ' + (detected?.label || 'Generic');
   } else {
-    sel.title = 'Property editor mode';
+    sel.title = 'Document context';
   }
+  if (typeof refreshPropertyBrowserContextList === 'function') refreshPropertyBrowserContextList();
+  if (typeof refreshPropertyBrowserPropertyList === 'function') refreshPropertyBrowserPropertyList();
 }
 
 function downloadBlob(blob, filename) {

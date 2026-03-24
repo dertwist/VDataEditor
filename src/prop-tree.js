@@ -1306,12 +1306,6 @@ function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPa
     },
     { sep: true },
     {
-      label: 'Add key here…',
-      icon: ICONS.plus,
-      disabled: isArrayIndex,
-      action: () => showAddKeyDialog(parentRef, parentPathFromRowPath(propPath))
-    },
-    {
       label: 'Add object here…',
       icon: ICONS.typeObject,
       disabled: isArrayIndex,
@@ -2203,12 +2197,6 @@ function initPropTreePanelContextMenu() {
 
     const items = [
       {
-        label: 'Add property…',
-        icon: ICONS.plus,
-        action: () => showAddKeyDialog(d.root, '')
-      },
-      { sep: true },
-      {
         label: 'Add object',
         icon: ICONS.typeObject,
         action: () => {
@@ -2262,4 +2250,197 @@ function initPropTreePanelContextMenu() {
     showContextMenu(items, e.clientX, e.clientY);
   });
 }
+
+let _propertyBrowserContextFilter = '';
+let _propertyBrowserPropertyFilter = '';
+let _propertyBrowserSelectedContext = 'auto';
+let _propertyBrowserSelectedProperty = '';
+
+function defaultValueForPropertyType(t) {
+  switch (t) {
+    case 'string':
+      return '';
+    case 'int':
+      return 0;
+    case 'float':
+      return 0.0;
+    case 'bool':
+      return false;
+    case 'object':
+      return {};
+    case 'array':
+      return [];
+    case 'vec2':
+      return [0, 0];
+    case 'vec3':
+      return [0, 0, 0];
+    case 'vec4':
+      return [0, 0, 0, 0];
+    case 'color':
+      return [0, 0, 0];
+    case 'resource':
+      return { type: 'resource_name', value: '' };
+    case 'soundevent':
+      return { type: 'soundevent', value: '' };
+    default:
+      return '';
+  }
+}
+
+function inferPropertyTypeFromSuggestion(suggestion) {
+  if (!suggestion) return 'string';
+  const st = suggestion.type;
+  if (st === 'bool' || st === 'int' || st === 'float' || st === 'vec2' || st === 'vec3' || st === 'vec4' || st === 'color' || st === 'resource' || st === 'soundevent' || st === 'array' || st === 'object') return st;
+  return 'string';
+}
+
+function getPropertyBrowserContextEntries() {
+  if (!window.VDataEditorModes) return [{ value: 'auto', label: 'Document Context' }];
+  const out = [{ value: 'auto', label: 'Document Context' }];
+  const generic = window.VDataEditorModes.getModeById('generic');
+  if (generic) out.push({ value: 'generic', label: generic.label || 'Generic' });
+  const modes = window.VDataEditorModes.listModes();
+  for (let i = 0; i < modes.length; i++) {
+    out.push({ value: modes[i].id, label: modes[i].label || modes[i].id });
+  }
+  return out;
+}
+
+function buildPropertyBrowserContextList() {
+  const list = document.getElementById('propertyBrowserContextList');
+  const sel = document.getElementById('editorModeSelect');
+  if (!list || !sel) return;
+  const entries = getPropertyBrowserContextEntries();
+  const q = _propertyBrowserContextFilter;
+  const selected = sel.value || 'auto';
+  _propertyBrowserSelectedContext = selected;
+  list.innerHTML = '';
+  for (let i = 0; i < entries.length; i++) {
+    const item = entries[i];
+    if (q && item.label.toLowerCase().indexOf(q) < 0 && item.value.toLowerCase().indexOf(q) < 0) continue;
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'property-browser-item' + (item.value === selected ? ' is-selected' : '');
+    row.textContent = item.label;
+    row.title = item.value;
+    row.addEventListener('click', () => {
+      if (sel.value === item.value) return;
+      sel.value = item.value;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    list.appendChild(row);
+  }
+}
+
+function getPropertyBrowserSuggestions() {
+  const d = docManager.activeDoc;
+  if (!d || !d.root || typeof d.root !== 'object') return [];
+  if (!window.VDataSuggestions || typeof window.VDataSuggestions.getSuggestions !== 'function') return [];
+  return window.VDataSuggestions.getSuggestions(d.fileName || '', '');
+}
+
+function buildPropertyBrowserPropertyList() {
+  const list = document.getElementById('propertyBrowserPropertyList');
+  if (!list) return;
+  const suggestions = getPropertyBrowserSuggestions();
+  const q = _propertyBrowserPropertyFilter;
+  list.innerHTML = '';
+  for (let i = 0; i < suggestions.length; i++) {
+    const s = suggestions[i];
+    const key = s.key || '';
+    const type = inferPropertyTypeFromSuggestion(s);
+    if (q && key.toLowerCase().indexOf(q) < 0 && type.toLowerCase().indexOf(q) < 0) continue;
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'property-browser-item property-browser-prop-item' + (_propertyBrowserSelectedProperty === key ? ' is-selected' : '');
+    row.innerHTML = '<span class="property-browser-prop-key"></span><span class="property-browser-prop-type"></span>';
+    row.querySelector('.property-browser-prop-key').textContent = key;
+    row.querySelector('.property-browser-prop-type').textContent = type;
+    row.addEventListener('click', () => {
+      _propertyBrowserSelectedProperty = key;
+      buildPropertyBrowserPropertyList();
+    });
+    list.appendChild(row);
+  }
+}
+
+function refreshPropertyBrowserContextList() {
+  buildPropertyBrowserContextList();
+}
+window.refreshPropertyBrowserContextList = refreshPropertyBrowserContextList;
+
+function refreshPropertyBrowserPropertyList() {
+  buildPropertyBrowserPropertyList();
+}
+window.refreshPropertyBrowserPropertyList = refreshPropertyBrowserPropertyList;
+
+function addPropertyFromBrowser() {
+  const d = docManager.activeDoc;
+  if (!d || !d.root || typeof d.root !== 'object') return;
+  const key = (_propertyBrowserSelectedProperty || '').trim();
+  if (!key) {
+    setStatus('Select a property first', 'error');
+    return;
+  }
+  if (Object.prototype.hasOwnProperty.call(d.root, key)) {
+    setStatus(`Key "${key}" already exists`, 'error');
+    return;
+  }
+  const suggestions = getPropertyBrowserSuggestions();
+  const match = suggestions.find((s) => s.key === key);
+  const type = inferPropertyTypeFromSuggestion(match);
+  withDocUndo(() => {
+    d.root[key] = defaultValueForPropertyType(type);
+  }, 'Add key');
+  requestAnimationFrame(() => {
+    const rows = document.querySelectorAll('#propTreeRoot .prop-row');
+    let row = null;
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i].dataset.propPath === key) {
+        row = rows[i];
+        break;
+      }
+    }
+    const target = row?.querySelector('.prop-input, .prop-input-bool');
+    if (target && typeof target.focus === 'function') {
+      target.focus();
+      if (typeof target.select === 'function') target.select();
+    }
+  });
+}
+
+function initPropertyBrowser() {
+  const contextFilter = document.getElementById('propertyBrowserContextFilter');
+  const propFilter = document.getElementById('propertyBrowserPropertyFilter');
+  const addBtn = document.getElementById('propertyBrowserAddBtn');
+  if (!contextFilter || !propFilter || !addBtn || contextFilter.dataset.bound) return;
+  contextFilter.dataset.bound = '1';
+  contextFilter.addEventListener('input', () => {
+    _propertyBrowserContextFilter = contextFilter.value.trim().toLowerCase();
+    buildPropertyBrowserContextList();
+  });
+  propFilter.addEventListener('input', () => {
+    _propertyBrowserPropertyFilter = propFilter.value.trim().toLowerCase();
+    buildPropertyBrowserPropertyList();
+  });
+  addBtn.addEventListener('click', addPropertyFromBrowser);
+  if (typeof docManager !== 'undefined' && docManager && !docManager._propertyBrowserBound) {
+    docManager._propertyBrowserBound = true;
+    docManager.addEventListener('active-changed', () => {
+      _propertyBrowserSelectedProperty = '';
+      buildPropertyBrowserContextList();
+      buildPropertyBrowserPropertyList();
+    });
+  }
+  if (!window.__vdataPropertyBrowserSchemaBound) {
+    window.__vdataPropertyBrowserSchemaBound = true;
+    window.addEventListener('vdata-schema-modes-updated', () => {
+      buildPropertyBrowserContextList();
+      buildPropertyBrowserPropertyList();
+    });
+  }
+  buildPropertyBrowserContextList();
+  buildPropertyBrowserPropertyList();
+}
+window.initPropertyBrowser = initPropertyBrowser;
 

@@ -426,6 +426,19 @@ input,select,textarea,button{font-family:inherit;font-size:inherit;color:inherit
   -webkit-app-region:no-drag;
 }
 .mode-select:focus{outline:none;border-color:var(--accent)}
+.property-browser-panel{display:flex;flex-direction:column;gap:8px;padding:8px;overflow:auto}
+.property-browser-section{display:flex;flex-direction:column;gap:6px;min-height:0}
+.property-browser-section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted)}
+.property-browser-search{width:100%;max-width:none}
+.property-browser-mode-select{display:none}
+.property-browser-list{display:flex;flex-direction:column;gap:2px;max-height:180px;overflow:auto;padding:2px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-primary)}
+.property-browser-item{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;border:none;background:transparent;color:var(--text-secondary);font-size:11px;padding:4px 6px;border-radius:3px;cursor:pointer;text-align:left}
+.property-browser-item:hover{background:var(--bg-hover);color:var(--text-primary)}
+.property-browser-item.is-selected{background:var(--bg-selected);color:var(--text-primary)}
+.property-browser-prop-item{font-family:var(--font-mono),monospace}
+.property-browser-prop-key{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.property-browser-prop-type{font-size:10px;color:var(--text-muted);flex-shrink:0}
+.property-browser-actions{margin-top:auto;display:flex;justify-content:flex-end}
 /* Manual editor (CodeMirror) line striping — fallback when theme not loaded */
 #cmEditor .cm-line:nth-child(even){
   background:rgba(255,255,255,.008);

@@ -61,7 +61,10 @@
     if (n === 'CStrongHandle' || n === 'CStrongHandleCopyable') return 'resource';
     if (n === 'CUtlVector' || n === 'C_NetworkUtlVectorBase' || n === 'C_UtlVectorEmbeddedNetworkVar') return 'array';
     if (n === 'CUtlString' || n === 'CUtlSymbolLarge' || n === 'char*') return 'string';
-    if (n === 'CResourceNameTyped' || n === 'CWeakHandle' || /ResourceName|StrongHandle/i.test(n)) return 'resource';
+    if (n === 'CResourceNameTyped' || n === 'CWeakHandle' || /ResourceName|StrongHandle|Handle/i.test(n)) return 'resource';
+    if (n === 'CEntityHandle' || n === 'EHANDLE') return 'int';
+    if (/QAngle|Euler/i.test(n)) return 'vec3';
+    if (/Quaternion/i.test(n)) return 'vec4';
     if (INTRINSIC_WIDGET.has(n)) return INTRINSIC_WIDGET.get(n);
     return null;
   }
@@ -91,6 +94,11 @@
 
     if (cat === 'declared_class') {
       if (INTRINSIC_WIDGET.has(name)) return INTRINSIC_WIDGET.get(name);
+      if (/Vector2D/i.test(name)) return 'vec2';
+      if (/Vector4D|Quaternion/i.test(name)) return 'vec4';
+      if (/Vector|QAngle|Euler|Angles/i.test(name)) return 'vec3';
+      if (/Color/i.test(name)) return 'color';
+      if (/ResourceName|StrongHandle|WeakHandle|Sound/i.test(name)) return 'resource';
       return 'object';
     }
 
@@ -98,8 +106,11 @@
 
     if (cat === 'fixed_array' || cat === 'array') return 'array';
 
+    if (cat === 'bitfield') return 'int';
+
     if (cat === 'generic') {
       if (type.inner) return typeToWidget(type.inner);
+      if (name && /Vector|UtlVector|CUtlVector/i.test(name)) return 'array';
     }
 
     return null;
@@ -268,7 +279,7 @@
       if (!f || typeof f.name !== 'string') continue;
       const w = typeToWidget(f.type);
       const dv = Object.prototype.hasOwnProperty.call(defaults, f.name) ? defaults[f.name] : null;
-      out.push({ name: f.name, type: w, defaultValue: dv });
+      out.push({ name: f.name, type: w, defaultValue: dv, rawType: f.type || null, metadata: f.metadata || [] });
     }
     return out;
   }

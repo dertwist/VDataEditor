@@ -21,6 +21,7 @@
     if (widgetStr === 'vec4') return { type: 'string', widget: 'vec4' };
     if (widgetStr === 'color') return { type: 'string', widget: 'color' };
     if (widgetStr === 'resource') return { type: 'string', widget: 'resource' };
+    if (widgetStr === 'soundevent') return { type: 'string', widget: 'soundevent' };
     if (widgetStr === 'array') return { type: 'string', widget: 'string' };
     if (widgetStr === 'object') return { type: 'string', widget: 'string' };
     if (widgetStr.indexOf('enum:') === 0) {
@@ -48,13 +49,18 @@
     const total = names.length;
     const reportEvery = Math.max(1, Math.floor(total / 25));
 
+    const globalFreq = {};
+    const globalDef = {};
     for (let i = 0; i < names.length; i++) {
       const className = names[i];
       const fields = S.getFields(className);
       const keys = {};
       for (let j = 0; j < fields.length; j++) {
         const f = fields[j];
-        keys[f.name] = widgetToDef(f.type);
+        const def = widgetToDef(f.type);
+        keys[f.name] = def;
+        globalFreq[f.name] = (globalFreq[f.name] || 0) + 1;
+        if (!globalDef[f.name]) globalDef[f.name] = def;
       }
       out['type:' + className] = { keys: keys, children: {}, enums: {} };
 
@@ -62,6 +68,16 @@
         onProgress('Building schema types…', Math.round(((i + 1) / total) * 100));
       }
     }
+
+    const minFreq = Math.max(8, Math.floor(names.length * 0.01));
+    const globalKeys = {};
+    const allGlobalNames = Object.keys(globalFreq);
+    for (let k = 0; k < allGlobalNames.length; k++) {
+      const name = allGlobalNames[k];
+      if (globalFreq[name] < minFreq) continue;
+      globalKeys[name] = globalDef[name] || widgetToDef('string');
+    }
+    out._global.keys = globalKeys;
 
     _lastBuckets = out;
     return out;

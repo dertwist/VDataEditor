@@ -129,10 +129,12 @@
   function getSuggestedKeys(context) {
     const ctx = context || {};
     const siblingKeys = ctx.siblingKeys || [];
+    const schemaKeys = new Set();
     const results = new Set();
 
     const flat = resolveSchema(ctx);
     Object.keys(flat).forEach(function (k) {
+      schemaKeys.add(k);
       results.add(k);
     });
 
@@ -141,12 +143,16 @@
       collectKeyNamesDeep(root, results);
     }
 
-    const out = [];
+    const outSchema = [];
+    const outDoc = [];
     results.forEach(function (k) {
-      if (siblingKeys.indexOf(k) < 0) out.push(k);
+      if (siblingKeys.indexOf(k) >= 0) return;
+      if (schemaKeys.has(k)) outSchema.push(k);
+      else outDoc.push(k);
     });
-    out.sort();
-    return out;
+    outSchema.sort();
+    outDoc.sort();
+    return outSchema.concat(outDoc);
   }
 
   function getSuggestedValues(key, context) {

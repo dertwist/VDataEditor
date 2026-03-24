@@ -301,9 +301,11 @@ function rebuildEditorModeSelect() {
   const sel = document.getElementById('editorModeSelect');
   if (!sel || !window.VDataEditorModes) return;
   const prev = sel.value;
-  while (sel.children.length > 1) {
-    sel.removeChild(sel.lastChild);
-  }
+  sel.innerHTML = '';
+  const auto = document.createElement('option');
+  auto.value = 'auto';
+  auto.textContent = 'Document Context';
+  sel.appendChild(auto);
   const generic = window.VDataEditorModes.getModeById('generic');
   if (generic) {
     const opt = document.createElement('option');
@@ -320,6 +322,8 @@ function rebuildEditorModeSelect() {
   const ok = Array.from(sel.options).some((o) => o.value === prev);
   sel.value = ok ? prev : 'auto';
   syncEditorModeSelect();
+  if (typeof refreshPropertyBrowserContextList === 'function') refreshPropertyBrowserContextList();
+  if (typeof refreshPropertyBrowserPropertyList === 'function') refreshPropertyBrowserPropertyList();
 }
 
 function initEditorModeSelect() {
@@ -402,11 +406,6 @@ function initRecentFilesMenu() {
 }
 
 function initPropDockToolbar() {
-  document.getElementById('tb-add-root-key')?.addEventListener('click', () => {
-    const d = docManager.activeDoc;
-    if (!d || typeof showAddKeyDialog !== 'function') return;
-    showAddKeyDialog(d.root, '');
-  });
   const c = document.getElementById('tb-collapse-all');
   const x = document.getElementById('tb-expand-all');
   c?.addEventListener('click', () => setAllCollapsed(true));
@@ -416,6 +415,7 @@ function initPropDockToolbar() {
 // ── Docking ─────────────────────────────────────────────────────────────
 
 const dockPanelMap = {
+  'property-browser': document.getElementById('propertyBrowserPanel'),
   properties: document.getElementById('propsPanel'),
   editors: document.getElementById('editorsPanel')
 };
@@ -732,6 +732,7 @@ docManager.newDoc(); // fires active-changed → renderAll() syncs manual editor
 
 initPropTreeSearch();
 if (typeof initPropTreePanelContextMenu === 'function') initPropTreePanelContextMenu();
+if (typeof initPropertyBrowser === 'function') initPropertyBrowser();
 initHistoryDock();
 initEditorModeSelect();
 initRecentFilesMenu();
