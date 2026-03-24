@@ -34,7 +34,7 @@
     return { type: 'string', widget: 'string' };
   }
 
-  function buildRuntimeBuckets(onProgress) {
+  async function buildRuntimeBuckets(onProgress) {
     const S = window.SchemaDB;
     if (!S || !S.isLoaded()) {
       _lastBuckets = { _global: { keys: {}, children: {}, enums: {} } };
@@ -48,6 +48,7 @@
 
     const total = names.length;
     const reportEvery = Math.max(1, Math.floor(total / 25));
+    const yieldEveryNClasses = 64;
 
     const globalFreq = {};
     const globalDef = {};
@@ -65,7 +66,15 @@
       out['type:' + className] = { keys: keys, children: {}, enums: {} };
 
       if (onProgress && (i % reportEvery === 0 || i === total - 1)) {
-        onProgress('Building schema types…', Math.round(((i + 1) / total) * 100));
+        const pct = 35 + Math.min(64, Math.floor((64 * (i + 1)) / Math.max(1, total)));
+        onProgress('Building schema types…', pct);
+        await new Promise(function (r) {
+          setTimeout(r, 0);
+        });
+      } else if (i % yieldEveryNClasses === yieldEveryNClasses - 1 && i !== total - 1) {
+        await new Promise(function (r) {
+          setTimeout(r, 0);
+        });
       }
     }
 
@@ -78,6 +87,12 @@
       globalKeys[name] = globalDef[name] || widgetToDef('string');
     }
     out._global.keys = globalKeys;
+
+    if (allGlobalNames.length > 400) {
+      await new Promise(function (r) {
+        setTimeout(r, 0);
+      });
+    }
 
     _lastBuckets = out;
     return out;
@@ -99,6 +114,8 @@
     const onProgress = typeof o.onProgress === 'function' ? o.onProgress : null;
     const forceRefresh = !!o.forceRefresh;
 
+    _lastBuckets = null;
+
     if (!window.SchemaDB) {
       console.warn('[VDataSchemaRuntime] SchemaDB not available');
       _lastBuckets = { _global: { keys: {}, children: {}, enums: {} } };
@@ -113,7 +130,7 @@
 
     if (onProgress) onProgress('Building suggestion index…', 35);
 
-    const buckets = buildRuntimeBuckets(onProgress);
+    const buckets = await buildRuntimeBuckets(onProgress);
 
     if (onProgress) onProgress('Schema ready', 100);
 

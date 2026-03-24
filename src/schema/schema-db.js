@@ -168,13 +168,24 @@
     return JSON.parse(text);
   }
 
+  function validateSchemaPayload(data, game) {
+    const label = game || 'schema';
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      throw new Error('[schema-db] Invalid schema [' + label + ']: root must be an object');
+    }
+    if (!Array.isArray(data.classes)) {
+      throw new Error('[schema-db] Invalid schema [' + label + ']: missing or invalid classes array');
+    }
+  }
+
   /**
    * Apply parsed SchemaExplorer JSON (same shape as remote .json.gz).
    */
   function applySchemaPayload(data, game) {
     const g = game === 'dota2' || game === 'deadlock' ? game : 'cs2';
-    _raw = data;
+    validateSchemaPayload(data, g);
     buildIndexes(data);
+    _raw = null;
 
     _revisionInfo = {
       revision: data.revision,
@@ -218,40 +229,75 @@
     const g = game === 'dota2' || game === 'deadlock' ? game : 'cs2';
     const opts = options && typeof options === 'object' ? options : {};
     const forceRemote = !!opts.forceRemote;
+    const tryElectronLocal =
+      typeof window !== 'undefined' &&
+      window.electronAPI &&
+      typeof window.electronAPI.readSchemaBundle === 'function' &&
+      (!forceRemote || g === 'deadlock');
 
     _loaded = false;
     _game = g;
     _revisionInfo = null;
     _raw = null;
+    _classesByName = new Map();
+    _enumByKey = new Map();
 
-    if (
-      !forceRemote &&
-      typeof window !== 'undefined' &&
-      window.electronAPI &&
-      typeof window.electronAPI.readSchemaBundle === 'function'
-    ) {
+    if (tryElectronLocal) {
       try {
         const result = await window.electronAPI.readSchemaBundle(g);
+        if (result && result.ok === true && typeof result.jsonText === 'string') {
+          try {
+            const jt = result.jsonText;
+            if (jt.length > 400000) {
+              await new Promise(function (r) {
+                setTimeout(r, 0);
+              });
+            }
+            const data = JSON.parse(jt);
+            return applySchemaPayload(data, g);
+          } catch (parseErr) {
+            const detail = parseErr && parseErr.message ? parseErr.message : String(parseErr);
+            console.warn('[schema-db] local bundle parse/validate [' + g + '] failed:', detail);
+          }
+        }
         if (result && result.ok === true && result.data && typeof result.data === 'object') {
-          return applySchemaPayload(result.data, g);
+          try {
+            return applySchemaPayload(result.data, g);
+          } catch (applyErr) {
+            const detail = applyErr && applyErr.message ? applyErr.message : String(applyErr);
+            console.warn('[schema-db] local bundle apply [' + g + '] failed:', detail);
+          }
         }
         if (result && result.ok === false) {
           console.warn('[schema-db] local schemas/' + g + '.json:', result.error, result.path);
         }
       } catch (e) {
-        console.warn('[schema-db] readSchemaBundle failed, falling back to network', e);
+        console.warn(
+          '[schema-db] readSchemaBundle failed' + (g === 'deadlock' ? ' [' + g + ']' : ', falling back to network'),
+          e
+        );
       }
     }
 
-    try {
-      return await loadFromNetwork(g, true);
-    } catch (e) {
-      console.warn('[schema-db] network gzip failed, trying relative schemas/' + g + '.json', e);
+    if (g !== 'deadlock') {
+      try {
+        return await loadFromNetwork(g, true);
+      } catch (e) {
+        console.warn('[schema-db] network gzip failed, trying relative schemas/' + g + '.json', e);
+      }
+    } else {
+      console.warn('[schema-db] deadlock: remote .json.gz skipped (use local schemas/deadlock.json only)');
     }
 
     const rel = 'schemas/' + g + '.json';
     const res2 = await fetch(rel, { cache: 'no-cache' });
-    if (!res2.ok) throw new Error('Schema load failed: no bundle, network, or ' + rel);
+    if (!res2.ok) {
+      throw new Error(
+        g === 'deadlock'
+          ? 'Deadlock schema: add or fix local schemas/deadlock.json (remote fetch disabled for this game).'
+          : 'Schema load failed: no bundle, network, or ' + rel
+      );
+    }
     const data = await res2.json();
     return applySchemaPayload(data, g);
   }

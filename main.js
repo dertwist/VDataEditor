@@ -124,9 +124,8 @@ ipcMain.handle('read-schema-bundle', async (_e, game) => {
   }
   const bundlePath = path.join(__dirname, 'schemas', g + '.json')
   try {
-    const raw = fs.readFileSync(bundlePath, 'utf8')
-    const data = JSON.parse(raw)
-    return { ok: true, data, path: bundlePath }
+    const jsonText = await fs.promises.readFile(bundlePath, 'utf8')
+    return { ok: true, jsonText, path: bundlePath }
   } catch (e) {
     return {
       ok: false,
