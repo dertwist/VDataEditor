@@ -1,4 +1,4 @@
-const { kv3ToJSON } = KV3Format;
+const { parseKV3Document, detectKV3HeaderFromFileName } = KV3Format;
 const { keyValueToJSON } = KeyValueFormat;
 
 function deepClone(obj) {
@@ -21,7 +21,12 @@ function parseDocumentContent(text, hintFileName) {
   const ext = fileExtension(hintFileName);
   if (ext === 'vmat' || ext === 'vmt') return { root: keyValueToJSON(text), format: 'keyvalue' };
   if (ext === 'json') return { root: JSON.parse(text), format: 'json' };
-  return { root: kv3ToJSON(text), format: 'kv3' };
+  const parsed = parseKV3Document(text);
+  return {
+    root: parsed.root,
+    format: 'kv3',
+    kv3Header: parsed.header || detectKV3HeaderFromFileName(hintFileName)
+  };
 }
 
 const KV3_LIKE_EXT = new Set([
@@ -41,7 +46,10 @@ function syncDocumentFormatFromFilename(doc, name) {
   const ext = fileExtension(name);
   if (ext === 'vmat' || ext === 'vmt') doc.format = 'keyvalue';
   else if (ext === 'json') doc.format = 'json';
-  else doc.format = 'kv3';
+  else {
+    doc.format = 'kv3';
+    if (!doc.kv3Header) doc.kv3Header = detectKV3HeaderFromFileName(name);
+  }
 }
 
 /** Smart-prop roots expect these arrays; do not add them to arbitrary KeyValues trees (e.g. VMAT). */

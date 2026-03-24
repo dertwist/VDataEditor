@@ -8,6 +8,38 @@
     root.KV3Format = factory();
   }
 })(typeof self !== 'undefined' ? self : this, function () {
+  const DEFAULT_KV3_HEADER =
+    '<!-- kv3 encoding:text:version{e21c7f3c-8a33-41c5-9977-a76d3a32aa0d} format:generic:version{7412167c-06e9-4698-aff2-e63eb59037e7} -->';
+  const MODELDOC41_KV3_HEADER =
+    '<!-- kv3 encoding:text:version{e21c7f3c-8a33-41c5-9977-a76d3a32aa0d} format:modeldoc41:version{12fc9d44-453a-4ae4-b4d9-7e2ac0bbd4e0} -->';
+  const DEFAULT_STYLE = {
+    splitContainerAssignment: false,
+    trailingArrayCommas: false,
+    spacedEmptyArray: false,
+    rootLeadingNewline: false
+  };
+  const MODELDOC41_STYLE = {
+    splitContainerAssignment: true,
+    trailingArrayCommas: true,
+    spacedEmptyArray: true,
+    rootLeadingNewline: false
+  };
+
+  function detectKV3HeaderFromFileName(fileName) {
+    const name = typeof fileName === 'string' ? fileName.toLowerCase() : '';
+    if (name.endsWith('.vmdl')) return MODELDOC41_KV3_HEADER;
+    return DEFAULT_KV3_HEADER;
+  }
+
+  function normalizeKV3Header(header) {
+    if (typeof header !== 'string') return '';
+    const trimmed = header.trim();
+    if (!trimmed) return '';
+    if (trimmed.startsWith('<!--') && trimmed.endsWith('-->')) return trimmed;
+    if (trimmed.startsWith('kv3 ')) return `<!-- ${trimmed} -->`;
+    return '';
+  }
+
   function escapeKV3String(s) {
     return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   }
@@ -18,31 +50,38 @@
     return `"${escapeKV3String(key)}"`;
   }
 
-  function jsonToKV3(obj) {
+  function jsonToKV3(obj, options = {}) {
     const header =
-      '<!-- kv3 encoding:text:version{e21c7f3c-8a33-41c5-9977-a76d3a32aa0d} format:generic:version{7412167c-06e9-4698-aff2-e63eb59037e7} -->';
-    return header + '\n' + serializeKV3Value(obj, 0);
+      normalizeKV3Header(options.header) ||
+      detectKV3HeaderFromFileName(options.fileName) ||
+      DEFAULT_KV3_HEADER;
+    const useModelDocStyle = header.includes('format:modeldoc41');
+    const style = useModelDocStyle ? MODELDOC41_STYLE : DEFAULT_STYLE;
+    return header + '\n' + serializeKV3Value(obj, 0, style, '');
   }
 
-  function serializeKV3Value(val, depth) {
+  function serializeKV3Value(val, depth, style, keyName) {
     const indent = '\t'.repeat(depth);
     const indent1 = '\t'.repeat(depth + 1);
     if (val === null || val === undefined) return 'null';
     if (typeof val === 'boolean') return val ? 'true' : 'false';
-    if (typeof val === 'number') return String(val);
+    if (typeof val === 'number') {
+      if (keyName === 'import_scale' && Number.isFinite(val) && Number.isInteger(val)) return val.toFixed(1);
+      return String(val);
+    }
     if (typeof val === 'string') {
       if (val.endsWith('.vmdl') || val.endsWith('.vsmart') || val.endsWith('.vmat'))
         return `resource_name:"${escapeKV3String(val)}"`;
       return `"${escapeKV3String(val)}"`;
     }
     if (Array.isArray(val)) {
-      if (val.length === 0) return '[]';
+      if (val.length === 0) return style.spacedEmptyArray ? '[  ]' : '[]';
       // Simple numeric array
       if (val.every((v) => typeof v === 'number')) return `[${val.join(', ')}]`;
       let s = '\n' + indent + '[\n';
       val.forEach((item, i) => {
-        s += indent1 + serializeKV3Value(item, depth + 1).trimStart();
-        if (i < val.length - 1) s += ',';
+        s += indent1 + serializeKV3Value(item, depth + 1, style, '').trimStart();
+        if (i < val.length - 1 || style.trailingArrayCommas) s += ',';
         s += '\n';
       });
       s += indent + ']';
@@ -65,14 +104,17 @@
       }
       const keys = Object.keys(val);
       if (keys.length === 0) return '{}';
-      let s = '\n' + indent + '{\n';
+      let s = '';
+      if (depth === 0 && !style.rootLeadingNewline) s = '{\n';
+      else s = '\n' + indent + '{\n';
       keys.forEach((key) => {
         const v = val[key];
         if (v === undefined) return;
-        const serialized = serializeKV3Value(v, depth + 1);
+        const serialized = serializeKV3Value(v, depth + 1, style, key);
         const k = kv3ObjectKey(key);
         if (serialized.startsWith('\n')) {
-          s += indent1 + k + ' = ' + serialized.trimStart() + '\n';
+          if (style.splitContainerAssignment) s += indent1 + k + ' = ' + serialized + '\n';
+          else s += indent1 + k + ' = ' + serialized.trimStart() + '\n';
         } else {
           s += indent1 + k + ' = ' + serialized + '\n';
         }
@@ -83,11 +125,17 @@
     return String(val);
   }
 
+  function parseKV3Document(text) {
+    const source = String(text ?? '');
+    const match = source.match(/^\s*(<!--\s*kv3[\s\S]*?-->)\s*/i);
+    const header = match ? match[1].trim() : '';
+    const body = source.replace(/^\s*<!--.*?-->\s*/s, '');
+    const parser = new KV3Parser(body);
+    return { header, root: parser.parseValue() };
+  }
+
   function kv3ToJSON(text) {
-    // Strip header line (allowing leading whitespace/newlines) if present
-    text = text.replace(/^\s*<!--.*?-->\s*/s, '');
-    const parser = new KV3Parser(text);
-    return parser.parseValue();
+    return parseKV3Document(text).root;
   }
 
   class KV3Parser {
@@ -227,7 +275,14 @@
   }
 
   return {
+    DEFAULT_KV3_HEADER,
+    MODELDOC41_KV3_HEADER,
+    DEFAULT_STYLE,
+    MODELDOC41_STYLE,
+    detectKV3HeaderFromFileName,
+    normalizeKV3Header,
     jsonToKV3,
+    parseKV3Document,
     kv3ToJSON,
     KV3Parser,
     serializeKV3Value

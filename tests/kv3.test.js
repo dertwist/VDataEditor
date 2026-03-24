@@ -13,6 +13,16 @@ describe('KV3 format', () => {
     expect(kv3.startsWith('<!-- kv3 encoding:text:version{e21c7f3c-8a33-41c5-9977-a76d3a32aa0d} format:generic:version{7412167c-06e9-4698-aff2-e63eb59037e7} -->\n')).toBe(true);
   });
 
+  it('uses modeldoc41 header for .vmdl output', () => {
+    const input = { rootNode: { _class: 'RootNode' } };
+    const kv3 = KV3Format.jsonToKV3(input, { fileName: 'test.vmdl' });
+    expect(
+      kv3.startsWith(
+        '<!-- kv3 encoding:text:version{e21c7f3c-8a33-41c5-9977-a76d3a32aa0d} format:modeldoc41:version{12fc9d44-453a-4ae4-b4d9-7e2ac0bbd4e0} -->\n'
+      )
+    ).toBe(true);
+  });
+
   it('round trips a simple object', () => {
     const input = {
       generic_data_type: 'CSmartPropRoot',
@@ -107,6 +117,36 @@ describe('KV3 format', () => {
     const parsed = KV3Format.kv3ToJSON(text);
     expect(parsed.enabled).toBe(true);
     expect(parsed.count).toBe(42);
+  });
+
+  it('preserves detected KV3 header via parseKV3Document', () => {
+    const text =
+      '<!-- kv3 encoding:text:version{e21c7f3c-8a33-41c5-9977-a76d3a32aa0d} format:modeldoc41:version{12fc9d44-453a-4ae4-b4d9-7e2ac0bbd4e0} -->\n' +
+      '{ rootNode = { _class = "RootNode" } }';
+    const parsed = KV3Format.parseKV3Document(text);
+    expect(parsed.header).toContain('format:modeldoc41');
+    expect(parsed.root).toEqual({ rootNode: { _class: 'RootNode' } });
+  });
+
+  it('serializes modeldoc41 with valve-like spacing and commas', () => {
+    const obj = {
+      rootNode: {
+        _class: 'RootNode',
+        children: [
+          {
+            _class: 'RenderMeshFile',
+            import_scale: 1,
+            import_filter: { exclude_by_default: false, exception_list: [] }
+          }
+        ]
+      }
+    };
+    const kv3 = KV3Format.jsonToKV3(obj, { fileName: 'x.vmdl' });
+    expect(kv3).toContain('\n\trootNode = \n\t{');
+    expect(kv3).toContain('children = \n\t\t[');
+    expect(kv3).toContain('import_scale = 1.0');
+    expect(kv3).toContain('exception_list = [  ]');
+    expect(kv3).toContain('\n\t\t\t},\n');
   });
 });
 

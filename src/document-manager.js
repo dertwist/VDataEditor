@@ -23,8 +23,8 @@ class DocumentManager extends EventTarget {
   }
 
   async openFromContent(content, fileName, filePath = null) {
-    const { root, format } = parseDocumentContent(content, fileName);
-    const doc = new VDataDocument({ root, format, filePath, fileName });
+    const { root, format, kv3Header = '' } = parseDocumentContent(content, fileName);
+    const doc = new VDataDocument({ root, format, filePath, fileName, kv3Header });
     ensureSmartPropRootArrays(doc);
     doc.recalcElementIds();
     doc.dirty = false;
@@ -42,8 +42,8 @@ class DocumentManager extends EventTarget {
     }
     const content = await window.electronAPI.readFile(filePath);
     const fileName = pathBasename(filePath);
-    const { root, format } = parseDocumentContent(content, fileName);
-    const doc = new VDataDocument({ root, format, filePath, fileName });
+    const { root, format, kv3Header = '' } = parseDocumentContent(content, fileName);
+    const doc = new VDataDocument({ root, format, filePath, fileName, kv3Header });
     ensureSmartPropRootArrays(doc);
     doc.recalcElementIds();
     doc.dirty = false;

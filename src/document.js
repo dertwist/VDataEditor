@@ -1,12 +1,13 @@
 // Per-tab document: root JSON, format, file identity, undo stacks, property-tree UI state.
 class VDataDocument {
-  constructor({ root = null, format = 'kv3', filePath = null, fileName = 'Untitled' } = {}) {
+  constructor({ root = null, format = 'kv3', filePath = null, fileName = 'Untitled', kv3Header = '' } = {}) {
     this.root =
       root ??
       ({ generic_data_type: 'CSmartPropRoot', m_Children: [], m_Variables: [] });
     this.format = format;
     this.filePath = filePath;
     this.fileName = fileName;
+    this.kv3Header = kv3Header;
     this.dirty = false;
 
     this.undoStack = [];
@@ -65,7 +66,7 @@ class VDataDocument {
   serialize() {
     if (this.format === 'json') return JSON.stringify(this.root, null, 2);
     if (this.format === 'keyvalue') return KeyValueFormat.jsonToKeyValue(this.root);
-    return KV3Format.jsonToKV3(this.root);
+    return KV3Format.jsonToKV3(this.root, { fileName: this.fileName, header: this.kv3Header });
   }
 
   get title() {

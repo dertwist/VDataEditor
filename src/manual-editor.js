@@ -28,7 +28,7 @@
     try {
       if (_meFormat === 'json') return JSON.stringify(root, null, 2);
       if (d.format === 'keyvalue') return KeyValueFormat.jsonToKeyValue(root);
-      return KV3Format.jsonToKV3(root);
+      return KV3Format.jsonToKV3(root, { fileName: d.fileName, header: d.kv3Header });
     } catch (e) {
       console.error('[ManualEditor] serialize failed:', e);
       return JSON.stringify(root, null, 2);
@@ -273,7 +273,9 @@
       } else if (d.format === 'keyvalue') {
         parsed = KeyValueFormat.keyValueToJSON(text);
       } else {
-        parsed = KV3Format.kv3ToJSON(text);
+        const parsedDoc = KV3Format.parseKV3Document(text);
+        parsed = parsedDoc.root;
+        d.kv3Header = parsedDoc.header || d.kv3Header || KV3Format.detectKV3HeaderFromFileName(d.fileName);
       }
     } catch (e) {
       _setStatus('Parse error: ' + e.message, 'error');
