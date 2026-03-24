@@ -4,6 +4,8 @@ function buildSliderInput(value, type, onChange, opts) {
   const clamp01 = !!opts.clamp01;
   const isFloat = type === 'float' || clamp01;
   const step = type === 'int' ? 1 : 0.01;
+  /** Without a cap, half = |v|*10+10 grows each time you scrub to the edge (1→20→210→…), so values explode. */
+  const sliderHalfLimit = type === 'int' ? 10_000_000 : 1_000_000;
   function parseNumeric(raw) {
     if (typeof raw === 'number') return raw;
     if (typeof raw !== 'string') return Number(raw);
@@ -19,6 +21,8 @@ function buildSliderInput(value, type, onChange, opts) {
   let current = Number.isFinite(initial) ? initial : 0;
   if (!isFloat) current = Math.round(current);
   if (clamp01) current = Math.max(0, Math.min(1, current));
+  /** Slider min/max are derived from this; updated only on manual text edits / init, not while scrubbing. */
+  let rangeAnchor = current;
 
   const wrap = document.createElement('div');
   wrap.className = 'slider-input-wrap' + (clamp01 ? ' float-slider-01' : '');
@@ -59,22 +63,45 @@ function buildSliderInput(value, type, onChange, opts) {
     if (typeof opts.onScrubEnd === 'function') opts.onScrubEnd(current);
   }
 
-  function ensureSliderBounds(v) {
+  function ensureSliderBounds() {
     if (clamp01) {
       slider.min = '0';
       slider.max = '1';
       return;
     }
-    const abs = Math.max(1, Math.abs(Number(v) || 0));
-    const span = Math.max(10, Math.ceil(abs * 1.25));
-    slider.min = String(-span);
-    slider.max = String(span);
+    const av = Number.isFinite(rangeAnchor) ? rangeAnchor : 0;
+    const mag = Math.abs(av);
+    /** Symmetric window: e.g. value 1 → half-range 20 → [-20, 20], capped so scrubbing cannot blow up magnitude. */
+    let half = Math.min(mag * 10 + 10, sliderHalfLimit);
+    if (mag > half) half = sliderHalfLimit;
+    let minB = -half;
+    let maxB = half;
+    if (type === 'int') {
+      minB = Math.floor(minB);
+      maxB = Math.ceil(maxB);
+    }
+    slider.min = String(minB);
+    slider.max = String(maxB);
   }
 
-  function syncUi(v) {
+  function syncUi(v, fromSlider) {
+    const scrub = fromSlider === true;
     current = v;
-    ensureSliderBounds(v);
-    slider.value = String(v);
+    if (!scrub) {
+      rangeAnchor = v;
+    }
+    ensureSliderBounds();
+    let sv = v;
+    if (clamp01) {
+      sv = Math.max(0, Math.min(1, v));
+    } else {
+      const minN = Number(slider.min);
+      const maxN = Number(slider.max);
+      if (Number.isFinite(minN) && Number.isFinite(maxN)) {
+        sv = Math.max(minN, Math.min(maxN, v));
+      }
+    }
+    slider.value = String(sv);
     input.value = isFloat ? parseFloat(Number(v).toFixed(6)).toString() : String(Math.round(v));
   }
 
@@ -86,7 +113,7 @@ function buildSliderInput(value, type, onChange, opts) {
     return nv;
   }
 
-  syncUi(current);
+  syncUi(current, false);
   wrap.appendChild(input);
   wrap.appendChild(slider);
 
@@ -103,24 +130,24 @@ function buildSliderInput(value, type, onChange, opts) {
     if (!scrubActive) startScrub();
     const nv = normalize(slider.value);
     if (nv == null) return;
-    syncUi(nv);
+    syncUi(nv, true);
     onChange(nv);
   });
 
   function commitNumberInput() {
     const nv = normalize(input.value);
     if (nv == null) {
-      syncUi(current);
+      syncUi(current, false);
       return;
     }
-    syncUi(nv);
+    syncUi(nv, false);
     onChange(nv);
   }
 
   input.addEventListener('input', () => {
     const nv = normalize(input.value);
     if (nv == null) return;
-    syncUi(nv);
+    syncUi(nv, false);
     onChange(nv);
   });
   input.addEventListener('change', commitNumberInput);
@@ -132,7 +159,7 @@ function buildSliderInput(value, type, onChange, opts) {
       input.blur();
     } else if (e.key === 'Escape') {
       e.preventDefault();
-      syncUi(current);
+      syncUi(current, false);
       input.blur();
     }
   });

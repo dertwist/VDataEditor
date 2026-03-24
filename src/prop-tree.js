@@ -2454,6 +2454,12 @@ function buildPropertyBrowserPropertyList() {
       _propertyBrowserSelectedProperty = key;
       buildPropertyBrowserPropertyList();
     });
+    row.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      _propertyBrowserSelectedProperty = key;
+      addPropertyFromBrowser(key);
+      buildPropertyBrowserPropertyList();
+    });
     list.appendChild(row);
   }
 }
@@ -2468,10 +2474,10 @@ function refreshPropertyBrowserPropertyList() {
 }
 window.refreshPropertyBrowserPropertyList = refreshPropertyBrowserPropertyList;
 
-function addPropertyFromBrowser() {
+function addPropertyFromBrowser(overrideKey) {
   const d = docManager.activeDoc;
   if (!d || !d.root || typeof d.root !== 'object') return;
-  const key = (_propertyBrowserSelectedProperty || '').trim();
+  const key = (overrideKey != null ? String(overrideKey) : _propertyBrowserSelectedProperty || '').trim();
   if (!key) {
     setStatus('Select a property first', 'error');
     return;
