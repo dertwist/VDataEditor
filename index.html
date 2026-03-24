@@ -62,18 +62,40 @@
     <div class="menu-dropdown-item" data-action="fullscreen"><span class="menu-item-label"><span class="menu-icon" id="mi-fullscreen"></span>Toggle Full Screen</span></div>
   </div>
   <div class="menu-dropdown" id="menuHelp">
+    <div class="menu-dropdown-item" data-action="schemaManage"><span class="menu-item-label">Manage Schemas…</span></div>
     <div class="menu-dropdown-item" data-action="about"><span class="menu-item-label"><span class="menu-icon" id="mi-about"></span>About VDataEditor</span></div>
   </div>
   <div id="tabBar" class="tab-bar"></div>
   <div class="dock-container" id="dockContainer">
+    <div class="dock-panel panel" id="propertyBrowserPanel" style="width:280px;min-width:220px;border-right:1px solid var(--border-subtle);background:var(--bg-secondary)">
+      <div class="dock-handle" data-dock-id="property-browser">
+        <span class="dock-handle-title">Property Browser</span>
+        <div class="dock-handle-actions">
+          <button id="tb-undock-property-browser" onclick="undockPanel('property-browser')" title="Undock"></button>
+        </div>
+      </div>
+      <div class="panel-body property-browser-panel" id="propertyBrowserContainer">
+        <section class="property-browser-section">
+          <div class="property-browser-section-title">Context filter</div>
+          <input type="search" id="propertyBrowserContextFilter" class="prop-tree-search-inline property-browser-search" placeholder="Filter contexts..." autocomplete="off" />
+          <select id="editorModeSelect" class="mode-select property-browser-mode-select" title="Property browser context"></select>
+          <div id="propertyBrowserContextList" class="property-browser-list"></div>
+        </section>
+        <section class="property-browser-section">
+          <div class="property-browser-section-title">Property filter</div>
+          <input type="search" id="propertyBrowserPropertyFilter" class="prop-tree-search-inline property-browser-search" placeholder="Filter properties..." autocomplete="off" />
+          <div id="propertyBrowserPropertyList" class="property-browser-list"></div>
+        </section>
+        <div class="property-browser-actions">
+          <button type="button" id="propertyBrowserAddBtn" class="btn btn-sm btn-accent">Add</button>
+        </div>
+      </div>
+    </div>
+    <div class="dock-resize-h" data-resize="browser-props"></div>
     <div class="dock-panel panel" id="propsPanel" style="flex:1;min-width:280px;border-right:1px solid var(--border-subtle);background:var(--bg-secondary)">
       <div class="dock-handle" data-dock-id="properties">
         <span class="dock-handle-title">Property Editor</span>
         <div class="dock-handle-actions dock-handle-actions-grow">
-          <select id="editorModeSelect" class="mode-select" title="Property editor mode">
-            <option value="auto">Auto</option>
-          </select>
-          <button type="button" id="tb-add-root-key" class="btn btn-sm btn-icon" title="Add root property"></button>
           <button type="button" id="tb-collapse-all" class="btn btn-sm btn-icon" title="Collapse all"></button>
           <button type="button" id="tb-expand-all" class="btn btn-sm btn-icon" title="Expand all"></button>
           <input type="search" id="propTreeSearch" placeholder="Search…" class="prop-tree-search-inline" autocomplete="off" />
@@ -133,6 +155,12 @@
       </div>
     </div>
   </div>
+  <div id="schemaProgressWrap" class="schema-progress-wrap" hidden>
+    <div class="schema-progress-track">
+      <div id="schemaProgressBar" class="schema-progress-bar"></div>
+    </div>
+    <span id="schemaProgressLabel" class="schema-progress-label"></span>
+  </div>
   <div class="footer">
     <div id="statusBar" class="status-bar">
       <span id="statusIcon" class="status-icon"></span>
@@ -164,7 +192,10 @@
 <script src="src/widgets/number.js" defer></script>
 <script src="src/widgets/string.js" defer></script>
 <script src="src/widgets/components.js" defer></script>
-<script src="src/suggestions.js" defer></script>
+  <script src="src/schema/schema-db.js" defer></script>
+  <script src="src/modes/runtime-schema-fetcher.js" defer></script>
+  <script src="src/modes/suggestions.js" defer></script>
+  <script src="src/modes/schema-progress-dialog.js" defer></script>
 <script src="src/prop-tree.js" defer></script>
 <script src="src/manual-editor.js" defer></script>
 <script src="src/menu-bar.js" defer></script>
@@ -175,9 +206,9 @@ document.addEventListener('DOMContentLoaded', function() {
     var el = document.getElementById(id);
     if (el && icon) el.innerHTML = icon;
   }
+  setIcon('tb-undock-property-browser', ICONS.undock);
   setIcon('tb-undock-properties', ICONS.undock);
   setIcon('tb-undock-editors', ICONS.undock);
-  setIcon('tb-add-root-key', ICONS.plus);
   setIcon('tb-collapse-all', ICONS.collapseAll);
   setIcon('tb-expand-all', ICONS.expandAll);
   setIcon('mi-new',       ICONS.filePlus);

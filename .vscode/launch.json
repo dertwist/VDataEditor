@@ -8,11 +8,20 @@
             "type": "node",
             "request": "launch",
             "name": "Electron: Main",
-            "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron.cmd",
+            "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron",
             "args": ["."],
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
-            "skipFiles": ["<node_internals>/**"]
+            "skipFiles": ["<node_internals>/**"],
+            "windows": {
+                "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron.cmd"
+            },
+            "osx": {
+                "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron"
+            },
+            "linux": {
+                "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron"
+            }
         },
         {
             "type": "node",

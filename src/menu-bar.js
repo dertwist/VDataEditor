@@ -73,7 +73,25 @@ function initMenuBar() {
       } else if (action === 'minimize' && window.electronAPI?.minimize) window.electronAPI.minimize();
       else if (action === 'zoom' && window.electronAPI?.zoom) window.electronAPI.zoom();
       else if (action === 'fullscreen' && window.electronAPI?.toggleFullScreen) window.electronAPI.toggleFullScreen();
-      else if (action === 'about') {
+      else if (action === 'schemaManage') {
+        if (typeof window.showSchemaCacheAdvancedDialog === 'function') {
+          window.showSchemaCacheAdvancedDialog();
+        } else if (typeof VDataSuggestions?.refreshSchemasAdvanced === 'function') {
+          // Fallback for environments where the schema dialog is not available.
+          const rep =
+            typeof window.reportSchemaDownloadProgress === 'function'
+              ? window.reportSchemaDownloadProgress
+              : function (msg, pct) {
+                  setStatus(pct != null ? msg + ' (' + pct + '%)' : msg, 'info');
+                };
+          VDataSuggestions.refreshSchemasAdvanced(rep, { forceRefresh: false }).finally(function () {
+            if (typeof setSchemaProgress === 'function') setSchemaProgress(false);
+            setStatus('Schemas updated', 'info');
+          });
+        } else {
+          setStatus('Schema tools unavailable', 'error');
+        }
+      } else if (action === 'about') {
         if (window.electronAPI?.getVersion) {
           window.electronAPI.getVersion().then((v) => setStatus(`VDataEditor v${v}`, 'info'));
         } else {

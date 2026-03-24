@@ -6,6 +6,21 @@ const STATUS_STATES = {
   info: { icon: '', cls: '', flash: false }
 };
 
+/** Thin progress row for long-running tasks (e.g. schema download). */
+function setSchemaProgress(visible, percent, label) {
+  const wrap = document.getElementById('schemaProgressWrap');
+  const bar = document.getElementById('schemaProgressBar');
+  const lbl = document.getElementById('schemaProgressLabel');
+  if (!wrap || !bar) return;
+  const show = !!visible;
+  wrap.hidden = !show;
+  wrap.classList.toggle('schema-progress-wrap--active', show);
+  const p = Math.max(0, Math.min(100, Number(percent) || 0));
+  bar.style.width = p + '%';
+  if (lbl) lbl.textContent = label != null ? String(label) : '';
+  if (!show) bar.style.width = '0%';
+}
+
 function setStatus(msg, state = 'info') {
   const bar = document.getElementById('statusBar');
   if (!bar) return;
