@@ -425,11 +425,18 @@ function updatePropRowValues(container) {
 
 function renderObjectRows(container, obj, depth, parentPath) {
   if (!obj || typeof obj !== 'object') return;
-  for (const [key, value] of Object.entries(obj)) {
+  const entries = Object.entries(obj).filter(([, value]) => value !== undefined);
+  const total = entries.length;
+  for (let idx = 0; idx < total; idx++) {
+    const [key, value] = entries[idx];
     if (value === undefined) continue;
     const type = resolveRowWidgetType(key, value, obj);
     const rowPath = parentPath ? `${parentPath}/${key}` : key;
-    const row = buildPropRow(key, value, type, depth, obj, undefined, rowPath);
+    const row = buildPropRow(key, value, type, depth, obj, undefined, rowPath, {
+      index: idx,
+      total,
+      parentKind: 'object'
+    });
     container.appendChild(row);
     if (type === 'object' && value !== null) {
       const children = document.createElement('div');
@@ -450,8 +457,8 @@ function renderObjectRows(container, obj, depth, parentPath) {
       }
       container.appendChild(children);
       const toggle = row.querySelector('.prop-key-toggle');
-      if (toggle && depth >= 1) toggle.textContent = propEx().has(rowPath) ? '▾' : '▸';
-      else if (toggle && depth === 0 && propCol().has(rowPath)) toggle.textContent = '▸';
+      if (toggle && depth >= 1) setPropKeyToggleIcon(toggle, propEx().has(rowPath));
+      else if (toggle && depth === 0) setPropKeyToggleIcon(toggle, !propCol().has(rowPath), !propCol().has(rowPath));
     } else if (type === 'array') {
       const children = document.createElement('div');
       children.className = 'prop-row-children';
@@ -471,18 +478,23 @@ function renderObjectRows(container, obj, depth, parentPath) {
       }
       container.appendChild(children);
       const toggle = row.querySelector('.prop-key-toggle');
-      if (toggle && depth >= 1) toggle.textContent = propEx().has(rowPath) ? '▾' : '▸';
-      else if (toggle && depth === 0 && propCol().has(rowPath)) toggle.textContent = '▸';
+      if (toggle && depth >= 1) setPropKeyToggleIcon(toggle, propEx().has(rowPath));
+      else if (toggle && depth === 0) setPropKeyToggleIcon(toggle, !propCol().has(rowPath), !propCol().has(rowPath));
     }
   }
 }
 
 function renderArrayRows(container, arr, depth, parentPath) {
   if (!Array.isArray(arr)) return;
+  const total = arr.length;
   arr.forEach((item, idx) => {
     const itemType = resolveRowWidgetType(`[${idx}]`, item, arr);
     const rowPath = `${parentPath}/[${idx}]`;
-    const row = buildPropRow(`[${idx}]`, item, itemType, depth, arr, idx, rowPath);
+    const row = buildPropRow(`[${idx}]`, item, itemType, depth, arr, idx, rowPath, {
+      index: idx,
+      total,
+      parentKind: 'array'
+    });
     container.appendChild(row);
     if (itemType === 'object' && item !== null) {
       const children = document.createElement('div');
@@ -503,8 +515,8 @@ function renderArrayRows(container, arr, depth, parentPath) {
       }
       container.appendChild(children);
       const toggle = row.querySelector('.prop-key-toggle');
-      if (toggle && depth >= 1) toggle.textContent = propEx().has(rowPath) ? '▾' : '▸';
-      else if (toggle && depth === 0 && propCol().has(rowPath)) toggle.textContent = '▸';
+      if (toggle && depth >= 1) setPropKeyToggleIcon(toggle, propEx().has(rowPath));
+      else if (toggle && depth === 0) setPropKeyToggleIcon(toggle, !propCol().has(rowPath), !propCol().has(rowPath));
     } else if (itemType === 'array') {
       const children = document.createElement('div');
       children.className = 'prop-row-children';
@@ -524,13 +536,48 @@ function renderArrayRows(container, arr, depth, parentPath) {
       }
       container.appendChild(children);
       const toggle = row.querySelector('.prop-key-toggle');
-      if (toggle && depth >= 1) toggle.textContent = propEx().has(rowPath) ? '▾' : '▸';
-      else if (toggle && depth === 0 && propCol().has(rowPath)) toggle.textContent = '▸';
+      if (toggle && depth >= 1) setPropKeyToggleIcon(toggle, propEx().has(rowPath));
+      else if (toggle && depth === 0) setPropKeyToggleIcon(toggle, !propCol().has(rowPath), !propCol().has(rowPath));
     }
   });
 }
 
-function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath) {
+function resolveHierarchyIconKey(type, depth, hierarchyMeta) {
+  const idx = hierarchyMeta?.index ?? 0;
+  const total = hierarchyMeta?.total ?? 1;
+  const isParent = type === 'object' || type === 'array';
+  const prefix = isParent ? 'parentChildParent' : 'parentChildChild'; // fallback family
+  if (depth === 0 && isParent && ICONS.hierarchyForceExpanded) return 'hierarchyForceExpanded';
+  if (total <= 1) {
+    if (ICONS.hierarchyLastChild) return 'hierarchyLastChild';
+    return prefix + 'Only';
+  }
+  if (idx >= total - 1) {
+    if (ICONS.hierarchyLastChild) return 'hierarchyLastChild';
+    return prefix + 'Last';
+  }
+  if (ICONS.hierarchyChild) return 'hierarchyChild';
+  if (idx <= 0) return prefix + 'First';
+  return prefix + 'Mid';
+}
+
+function setPropKeyToggleIcon(toggle, isExpanded, forceExpanded = false) {
+  if (!toggle) return;
+  toggle.classList.toggle('is-expanded', !!isExpanded);
+  toggle.classList.toggle('is-collapsed', !isExpanded);
+  toggle.classList.toggle('is-force-expanded', !!forceExpanded);
+  if (forceExpanded && ICONS.hierarchyForceExpanded) {
+    toggle.innerHTML = ICONS.hierarchyForceExpanded;
+    return;
+  }
+  if (isExpanded) {
+    toggle.innerHTML = ICONS.hierarchyExpanded || '▾';
+  } else {
+    toggle.innerHTML = ICONS.hierarchyCollapsed || '▸';
+  }
+}
+
+function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hierarchyMeta) {
   const row = document.createElement('div');
   row.className = 'prop-row' + (type === 'object' || type === 'array' ? ' is-object' : '');
   const mode = getActiveMode();
@@ -563,15 +610,19 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath) {
   keyIcon.title = type;
   const iconKey = TYPE_ICONS[type];
   if (iconKey && ICONS[iconKey]) keyIcon.innerHTML = ICONS[iconKey];
+
+  const treeNodeIcon = document.createElement('span');
+  treeNodeIcon.className = 'prop-tree-node-icon';
+
   keyEl.appendChild(dragHandle);
+  keyEl.appendChild(treeNodeIcon);
   keyEl.appendChild(keyIcon);
 
   if (type === 'object' || type === 'array') {
     const childrenWillBeLazy = depth >= 1;
-    const toggle = document.createElement('span');
-    toggle.className = 'prop-key-toggle';
-    toggle.textContent = childrenWillBeLazy ? '▸' : '▾';
-    toggle.addEventListener('click', () => {
+    treeNodeIcon.classList.add('prop-key-toggle');
+    setPropKeyToggleIcon(treeNodeIcon, !childrenWillBeLazy, depth === 0 && !childrenWillBeLazy);
+    treeNodeIcon.addEventListener('click', () => {
       const ch = row.nextElementSibling;
       if (!ch || !ch.classList.contains('prop-row-children')) return;
       if (ch.dataset.lazy === '1') {
@@ -581,7 +632,7 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath) {
       }
       const wasCollapsed = ch.style.display === 'none';
       ch.style.display = wasCollapsed ? '' : 'none';
-      toggle.textContent = wasCollapsed ? '▾' : '▸';
+      setPropKeyToggleIcon(treeNodeIcon, wasCollapsed, depth === 0 && wasCollapsed);
       if (depth >= 1) {
         if (wasCollapsed) propEx().add(propPath);
         else propEx().delete(propPath);
@@ -591,13 +642,12 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath) {
       }
       stripePropTree();
     });
-    keyEl.appendChild(toggle);
   } else {
-    const spacer = document.createElement('span');
-    spacer.className = 'prop-key-toggle';
-    spacer.style.visibility = 'hidden';
-    spacer.textContent = '▾';
-    keyEl.appendChild(spacer);
+    treeNodeIcon.classList.add('prop-hierarchy-icon');
+    const hierarchyIconKey = resolveHierarchyIconKey(type, depth, hierarchyMeta);
+    if (hierarchyIconKey && ICONS[hierarchyIconKey]) {
+      treeNodeIcon.innerHTML = ICONS[hierarchyIconKey];
+    }
   }
 
   const keyText = document.createElement('span');
@@ -607,7 +657,7 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath) {
     keyText.title = 'Double-click to rename';
     keyText.addEventListener('dblclick', (e) => {
       e.stopPropagation();
-      startInlineRename(keyEl, keyText, key, parentRef);
+      startInlineRename(keyEl, keyText, key, parentRef, propPath);
     });
   }
   keyEl.appendChild(keyText);
@@ -916,7 +966,7 @@ function expandAllChildrenForRow(row) {
   sub.forEach(({ path: p }) => propEx().add(p));
   ch.style.display = '';
   const toggle = row.querySelector('.prop-key-toggle');
-  if (toggle) toggle.textContent = '▾';
+  if (toggle) setPropKeyToggleIcon(toggle, true, depth === 0);
   buildPropertyTree();
 }
 
@@ -1120,6 +1170,9 @@ function showAddKeyDialog(parentRef, parentObjectPath) {
 function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPath, row) {
   const isContainer = type === 'object' || type === 'array';
   const isArrayIndex = typeof arrayIdx === 'number';
+  const castOptions = STATIC_TYPE_SUMMARY.has(type)
+    ? ALL_CAST_TARGETS.filter((t) => t !== type)
+    : TYPE_CAST_OPTIONS[type] || [];
   const items = [
     {
       label: 'Copy value',
@@ -1173,6 +1226,26 @@ function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPa
         }, 'Delete');
       }
     },
+    { sep: true },
+    {
+      label: 'Rename key…',
+      icon: ICONS.pencil,
+      disabled: isArrayIndex,
+      action: () => {
+        if (isArrayIndex) return;
+        const keyEl = row.querySelector('.prop-key');
+        const keyText = row.querySelector('.prop-key-text');
+        if (!keyEl || !keyText) return;
+        startInlineRename(keyEl, keyText, key, parentRef, propPath);
+      }
+    },
+    ...castOptions.map((targetType) => ({
+      label: `Change type → ${targetType}`,
+      icon: ICONS.wrench,
+      action: () => {
+        castPropertyType(parentRef, key, value, type, targetType, arrayIdx);
+      }
+    })),
     { sep: true },
     {
       label: 'Copy',
@@ -1330,6 +1403,27 @@ function movedKeyNameForObject(src) {
   return 'moved';
 }
 
+function collectPropTreeStateUnder(pathPrefix) {
+  const oldPrefix = pathPrefix + '/';
+  return {
+    ex: [...propEx()].filter((p) => p === pathPrefix || p.startsWith(oldPrefix)),
+    col: [...propCol()].filter((p) => p === pathPrefix || p.startsWith(oldPrefix))
+  };
+}
+
+function restorePropTreeStateUnder(oldPrefix, newPrefix, snapshot) {
+  const oldWithSlash = oldPrefix + '/';
+  const newWithSlash = newPrefix + '/';
+  (snapshot.ex || []).forEach((p) => {
+    if (p === oldPrefix) propEx().add(newPrefix);
+    else if (p.startsWith(oldWithSlash)) propEx().add(newWithSlash + p.slice(oldWithSlash.length));
+  });
+  (snapshot.col || []).forEach((p) => {
+    if (p === oldPrefix) propCol().add(newPrefix);
+    else if (p.startsWith(oldWithSlash)) propCol().add(newWithSlash + p.slice(oldWithSlash.length));
+  });
+}
+
 /**
  * Move a property from its current parent into an object or array row's value.
  * @returns {boolean} true if handled
@@ -1357,7 +1451,9 @@ function movePropIntoContainer(src, dstContainerPath, dstType) {
   }
 
   withDocUndo(() => {
+    const movedTreeState = collectPropTreeStateUnder(src.propPath);
     let moved;
+    let movedNewPath = '';
     if (typeof src.arrayIdx === 'number') {
       moved = deepClone(srcParent[src.arrayIdx]);
       invalidatePropTreePathsForArrayContainer(arrayContainerPathFromRowPath(src.propPath));
@@ -1371,6 +1467,7 @@ function movePropIntoContainer(src, dstContainerPath, dstType) {
     if (dstType === 'array' && Array.isArray(target)) {
       invalidatePropTreePathsForArrayContainer(dstContainerPath);
       target.push(moved);
+      movedNewPath = `${dstContainerPath}/[${target.length - 1}]`;
     } else {
       let nk = movedKeyNameForObject(src);
       const base = nk;
@@ -1378,7 +1475,11 @@ function movePropIntoContainer(src, dstContainerPath, dstType) {
       while (Object.prototype.hasOwnProperty.call(target, nk)) nk = base + '_' + ++n;
       invalidatePropTreePathsUnderObjectKey(dstContainerPath);
       target[nk] = moved;
+      movedNewPath = `${dstContainerPath}/${nk}`;
     }
+
+    // Keep expanded/collapsed state of the moved branch at its new path.
+    if (movedNewPath) restorePropTreeStateUnder(src.propPath, movedNewPath, movedTreeState);
   }, 'Move into');
 
   return true;
@@ -1394,6 +1495,43 @@ function parseRowDragPayload(dt) {
   }
 }
 
+const PROP_DROP_ZONE_BEFORE = 'before';
+const PROP_DROP_ZONE_AFTER = 'after';
+const PROP_DROP_ZONE_INTO = 'into';
+
+function clearPropDropZoneClasses(row) {
+  row.classList.remove('drag-over', 'drag-over-before', 'drag-over-after', 'drag-over-into');
+}
+
+function setPropDropZoneClass(row, zone) {
+  clearPropDropZoneClasses(row);
+  if (zone === PROP_DROP_ZONE_BEFORE) row.classList.add('drag-over', 'drag-over-before');
+  else if (zone === PROP_DROP_ZONE_AFTER) row.classList.add('drag-over', 'drag-over-after');
+  else if (zone === PROP_DROP_ZONE_INTO) row.classList.add('drag-over', 'drag-over-into');
+}
+
+function detectRowDropZone(row, evt) {
+  const rect = row.getBoundingClientRect();
+  const y = evt.clientY - rect.top;
+  const h = rect.height || 1;
+  const edge = Math.max(4, Math.min(10, h * 0.25));
+  const dstType = row.dataset.type;
+  const canDropInto = dstType === 'object' || dstType === 'array';
+  if (y < edge) return PROP_DROP_ZONE_BEFORE;
+  if (y > h - edge) return PROP_DROP_ZONE_AFTER;
+  return canDropInto ? PROP_DROP_ZONE_INTO : PROP_DROP_ZONE_AFTER;
+}
+
+function autoScrollPropTreeOnDrag(evt) {
+  const root = document.getElementById('propTreeRoot');
+  if (!root) return;
+  const rect = root.getBoundingClientRect();
+  const threshold = 28;
+  const speed = 14;
+  if (evt.clientY < rect.top + threshold) root.scrollTop -= speed;
+  else if (evt.clientY > rect.bottom - threshold) root.scrollTop += speed;
+}
+
 function initRowDragDrop(row, dragHandle, key, parentRef, arrayIdx, propPath) {
   dragHandle.addEventListener('dragstart', (e) => {
     const payload = JSON.stringify({
@@ -1407,49 +1545,52 @@ function initRowDragDrop(row, dragHandle, key, parentRef, arrayIdx, propPath) {
     row.classList.add('drag-source');
   });
   dragHandle.addEventListener('dragend', () => {
-    row.classList.remove('drag-source', 'drag-over');
+    clearPropDropZoneClasses(row);
+    row.classList.remove('drag-source');
   });
   row.addEventListener('dragover', (e) => {
     if (isPropRowDragExemptTarget(e.target)) {
-      row.classList.remove('drag-over');
+      clearPropDropZoneClasses(row);
       return;
     }
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    row.classList.add('drag-over');
+    autoScrollPropTreeOnDrag(e);
+    const zone = detectRowDropZone(row, e);
+    setPropDropZoneClass(row, zone);
   });
-  row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+  row.addEventListener('dragleave', () => clearPropDropZoneClasses(row));
   row.addEventListener('drop', (e) => {
     if (isPropRowDragExemptTarget(e.target)) return;
     e.preventDefault();
-    row.classList.remove('drag-over');
+    const dropZone = detectRowDropZone(row, e);
+    clearPropDropZoneClasses(row);
     const src = parseRowDragPayload(e.dataTransfer);
     if (!src || !src.propPath) return;
     if (src.propPath === propPath) return;
 
     const dstType = row.dataset.type;
-    if (
-      (dstType === 'object' || dstType === 'array') &&
-      movePropIntoContainer(src, propPath, dstType)
-    ) {
+    if (dropZone === PROP_DROP_ZONE_INTO && (dstType === 'object' || dstType === 'array') && movePropIntoContainer(src, propPath, dstType)) {
       return;
     }
 
     if (parentPathFromRowPath(src.propPath) !== parentPathFromRowPath(propPath)) return;
-    reorderProp(parentRef, src, { key, arrayIdx, propPath });
+    reorderProp(parentRef, src, { key, arrayIdx, propPath }, dropZone);
   });
 }
 
-function reorderProp(parentRef, src, dst) {
+function reorderProp(parentRef, src, dst, dropZone) {
+  const placeAfter = dropZone === PROP_DROP_ZONE_AFTER;
   if (Array.isArray(parentRef)) {
     const si = src.arrayIdx;
     const di = dst.arrayIdx;
     if (typeof si !== 'number' || typeof di !== 'number') return;
-    if (si === di) return;
+    const insertBase = di + (placeAfter ? 1 : 0);
+    const insert = si < insertBase ? insertBase - 1 : insertBase;
+    if (si === insert) return;
     withDocUndo(() => {
       invalidatePropTreePathsForArrayContainer(arrayContainerPathFromRowPath(dst.propPath || ''));
       const [item] = parentRef.splice(si, 1);
-      const insert = si < di ? di - 1 : di;
       parentRef.splice(insert, 0, item);
     }, 'Reorder');
     return;
@@ -1462,19 +1603,50 @@ function reorderProp(parentRef, src, dst) {
     const dstIdx = entries.findIndex(([k]) => k === dst.key);
     if (srcIdx < 0 || dstIdx < 0) return;
     const [entry] = entries.splice(srcIdx, 1);
-    entries.splice(dstIdx, 0, entry);
+    const insertBase = dstIdx + (placeAfter ? 1 : 0);
+    const insert = srcIdx < insertBase ? insertBase - 1 : insertBase;
+    entries.splice(insert, 0, entry);
     for (const k of Object.keys(parentRef)) delete parentRef[k];
     for (const [k, v] of entries) parentRef[k] = v;
   }, 'Reorder');
 }
 
-function startInlineRename(keyEl, keyTextSpan, oldKey, parentRef) {
+function startInlineRename(keyEl, keyTextSpan, oldKey, parentRef, propPath) {
   if (keyEl.querySelector('.prop-key-rename')) return;
 
   const inp = document.createElement('input');
   inp.type = 'text';
   inp.className = 'prop-key-rename';
   inp.value = oldKey;
+
+  let renameListEl = null;
+  const d = docManager.activeDoc;
+  const parentObjectPath = parentPathFromRowPath(propPath || oldKey);
+  let keySuggestions = [];
+  if (d && typeof VDataSuggestions !== 'undefined' && VDataSuggestions.getSuggestions) {
+    try {
+      keySuggestions = VDataSuggestions
+        .getSuggestions(d.fileName || '', parentObjectPath)
+        .map((s) => s.key)
+        .filter((k) => typeof k === 'string' && k.length);
+    } catch (_) {}
+  }
+  if (keySuggestions.length) {
+    const listId = 'prop-key-rename-sug-' + ++_propKeyRenameSuggestSeq;
+    renameListEl = document.createElement('datalist');
+    renameListEl.id = listId;
+    const seen = new Set();
+    keySuggestions.forEach((k) => {
+      if (seen.has(k)) return;
+      seen.add(k);
+      const opt = document.createElement('option');
+      opt.value = k;
+      renameListEl.appendChild(opt);
+    });
+    inp.setAttribute('list', listId);
+    inp.setAttribute('autocomplete', 'off');
+    keyEl.appendChild(renameListEl);
+  }
 
   keyTextSpan.replaceWith(inp);
   inp.focus();
@@ -1485,6 +1657,7 @@ function startInlineRename(keyEl, keyTextSpan, oldKey, parentRef) {
   function commit() {
     if (aborted) return;
     const newKey = inp.value.trim();
+    if (renameListEl) renameListEl.remove();
     inp.replaceWith(keyTextSpan);
     if (!newKey || newKey === oldKey) {
       keyTextSpan.textContent = oldKey;
@@ -1575,6 +1748,7 @@ function startInlineRename(keyEl, keyTextSpan, oldKey, parentRef) {
       e.preventDefault();
       aborted = true;
       inp.removeEventListener('blur', commit);
+      if (renameListEl) renameListEl.remove();
       inp.replaceWith(keyTextSpan);
       keyTextSpan.textContent = oldKey;
     }
@@ -1685,6 +1859,7 @@ function buildComponentsWidget(arr, onChange, sliderOpts) {
 }
 
 let _propStrSuggestSeq = 0;
+let _propKeyRenameSuggestSeq = 0;
 
 function schemaCtxForPropertyTree() {
   const d = docManager.activeDoc;
@@ -1998,7 +2173,7 @@ function filterPropTree(query) {
             else propEx().add(pp);
           }
           const toggle = parentRow?.querySelector('.prop-key-toggle');
-          if (toggle) toggle.textContent = '▾';
+          if (toggle) setPropKeyToggleIcon(toggle, true, dep === 0);
         }
         el = el.parentElement;
       }

@@ -33,6 +33,29 @@
     gitCommit: img(COMMON + 'parentchild_child_mid.png'),
     layoutGrid: img(COMMON + 'tileset_overlay.png'),
 
+    // ── Property tree hierarchy icons ───────────────────────────────────────
+    hierarchyChild: img(PROPEDITOR + 'hierarchy_passthrough.png'),
+    hierarchyLastChild: img(PROPEDITOR + 'hierarchy_lastchild.png'),
+    hierarchyCollapsed: img(PROPEDITOR + 'hierarchy_collapsed.png'),
+    hierarchyCollapsedHover: img(PROPEDITOR + 'hierarchy_collapsed_hover.png'),
+    hierarchyExpanded: img(PROPEDITOR + 'hierarchy_expanded.png'),
+    hierarchyExpandedHover: img(PROPEDITOR + 'hierarchy_expanded_hover.png'),
+    hierarchyForceExpanded: img(PROPEDITOR + 'hierarchy_force_expanded.png'),
+    hierarchyPassthrough: img(PROPEDITOR + 'hierarchy_passthrough.png'),
+    arrayDragCursor: img(PROPEDITOR + 'array_drag_cursor.png'),
+    parentChildParentFirst: img(COMMON + 'parentchild_parent_first.png'),
+    parentChildParentMid: img(COMMON + 'parentchild_parent_mid.png'),
+    parentChildParentLast: img(COMMON + 'parentchild_parent_last.png'),
+    parentChildParentOnly: img(COMMON + 'parentchild_parent_only.png'),
+    parentChildParentRoot: img(COMMON + 'parentchild_parent_root.png'),
+    parentChildParentSkip: img(COMMON + 'parentchild_parent_skip.png'),
+    parentChildChildFirst: img(COMMON + 'parentchild_child_first.png'),
+    parentChildChildMid: img(COMMON + 'parentchild_child_mid.png'),
+    parentChildChildLast: img(COMMON + 'parentchild_child_last.png'),
+    parentChildChildOnly: img(COMMON + 'parentchild_child_only.png'),
+    parentChildChildRoot: img(COMMON + 'parentchild_child_root.png'),
+    parentChildChildSkip: img(COMMON + 'parentchild_child_skip.png'),
+
     // ── Tree section headers ──────────────────────────────────────────────────
 
     layers: img(COMMON + 'multi_files.png'),
