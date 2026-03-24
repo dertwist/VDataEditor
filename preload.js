@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('electronAPI', {
   onOpenFile: (callback) => ipcRenderer.on('open-file', (_event, path) => callback(path)),
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
+  readSchemaBundle: (game) => ipcRenderer.invoke('read-schema-bundle', game),
   saveFile: (filePath, content) => ipcRenderer.invoke('save-file', filePath, content),
   showSaveDialog: (opts) => ipcRenderer.invoke('show-save-dialog', opts),
   pickResourceFile: (opts) => ipcRenderer.invoke('pick-resource-file', opts),

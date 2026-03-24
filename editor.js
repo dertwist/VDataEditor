@@ -647,10 +647,10 @@ function showSchemaCacheAdvancedDialog() {
       </div>
       <div class="modal-body">
         <p style="margin:0 0 12px;font-size:12px;color:var(--text-muted);line-height:1.45">
-          Schemas are built from a recursive crawl of selected folders in
-          <a href="https://github.com/SteamTracking/GameTracking-CS2" target="_blank" rel="noopener noreferrer">GameTracking-CS2</a>
-          (GitHub Contents API), batched raw fetches, plus source2sdk headers. Parsed with the same KV3 parser as files.
-          When the cache is older than the TTL, the app re-downloads on startup and shows progress below.
+          Class and enum data comes from
+          <a href="https://github.com/ValveResourceFormat/SchemaExplorer" target="_blank" rel="noopener noreferrer">SchemaExplorer</a>
+          (DumpSource2 / GameTracking). The app loads bundled <code>schemas/&lt;game&gt;.json</code> in Electron, or downloads the official
+          <code>.json.gz</code> when refreshing. When the cache is older than the TTL, a refresh pulls the latest gzip from GitHub.
         </p>
         <table style="width:100%;font-size:12px;border-collapse:collapse">
           <tr><td style="padding:4px 10px 4px 0;color:var(--text-muted);vertical-align:top">Cache age</td><td id="scd-age">—</td></tr>

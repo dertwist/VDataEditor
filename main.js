@@ -115,6 +115,27 @@ if (!gotLock) {
 
 // ── IPC handlers ───────────────────────────────────────────────────────────
 
+const SCHEMA_BUNDLE_GAMES = new Set(['cs2', 'dota2', 'deadlock'])
+
+ipcMain.handle('read-schema-bundle', async (_e, game) => {
+  const g = typeof game === 'string' ? game.toLowerCase() : 'cs2'
+  if (!SCHEMA_BUNDLE_GAMES.has(g)) {
+    return { ok: false, error: 'Unknown game: ' + g }
+  }
+  const bundlePath = path.join(__dirname, 'schemas', g + '.json')
+  try {
+    const raw = fs.readFileSync(bundlePath, 'utf8')
+    const data = JSON.parse(raw)
+    return { ok: true, data, path: bundlePath }
+  } catch (e) {
+    return {
+      ok: false,
+      error: e && e.message ? e.message : String(e),
+      path: bundlePath
+    }
+  }
+})
+
 ipcMain.handle('read-file', async (_e, filePath) => fs.readFileSync(filePath, 'utf-8'))
 
 ipcMain.handle('save-file', async (_e, filePath, content) => {
