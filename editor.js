@@ -755,6 +755,7 @@ docManager.addEventListener('active-changed', () => {
 docManager.newDoc(); // fires active-changed → renderAll() syncs manual editor when shell is ready
 
 initPropTreeSearch();
+if (typeof initPropTreeColumnResize === 'function') initPropTreeColumnResize();
 if (typeof initPropTreePanelContextMenu === 'function') initPropTreePanelContextMenu();
 if (typeof initPropertyBrowser === 'function') initPropertyBrowser();
 initHistoryDock();

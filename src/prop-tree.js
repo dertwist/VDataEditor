@@ -2200,6 +2200,75 @@ function filterPropTree(query) {
   stripePropTree();
 }
 
+const PROP_TREE_KEY_COL_STORAGE = 'vdata_prop_tree_key_col_v1';
+const PROP_TREE_KEY_COL_PREF_MIN = 120;
+const PROP_TREE_VAL_COL_MIN = 100;
+const PROP_TREE_GRID_GAP = 8;
+const PROP_TREE_H_PAD = 16;
+
+function parsePropTreeKeyColPx(panel) {
+  const inline = panel.style.getPropertyValue('--prop-tree-key-col').trim();
+  if (inline) {
+    const n = parseFloat(inline);
+    if (Number.isFinite(n)) return n;
+  }
+  const cs = getComputedStyle(panel).getPropertyValue('--prop-tree-key-col').trim();
+  const n2 = parseFloat(cs);
+  return Number.isFinite(n2) ? n2 : 180;
+}
+
+function clampPropTreeKeyCol(panel, px) {
+  const maxKey = Math.max(
+    0,
+    panel.clientWidth - PROP_TREE_H_PAD - PROP_TREE_GRID_GAP - PROP_TREE_VAL_COL_MIN
+  );
+  const minKey = Math.min(PROP_TREE_KEY_COL_PREF_MIN, maxKey);
+  return Math.min(Math.max(minKey, px), Math.max(minKey, maxKey));
+}
+
+function initPropTreeColumnResize() {
+  const panel = document.getElementById('propsContainer');
+  const resizer = panel?.querySelector('.prop-tree-col-resizer');
+  if (!panel || !resizer || resizer.dataset.bound) return;
+  resizer.dataset.bound = '1';
+
+  function applyStoredWidth() {
+    try {
+      const raw = localStorage.getItem(PROP_TREE_KEY_COL_STORAGE);
+      if (raw == null) return;
+      const n = parseInt(raw, 10);
+      if (!Number.isFinite(n) || panel.clientWidth < 48) return;
+      panel.style.setProperty('--prop-tree-key-col', clampPropTreeKeyCol(panel, n) + 'px');
+    } catch (_) {}
+  }
+  applyStoredWidth();
+  if (panel.clientWidth < 48) requestAnimationFrame(applyStoredWidth);
+
+  let startX;
+  let startW;
+  function onMove(e2) {
+    const next = clampPropTreeKeyCol(panel, startW + (e2.clientX - startX));
+    panel.style.setProperty('--prop-tree-key-col', next + 'px');
+  }
+  function onUp() {
+    resizer.classList.remove('active');
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    const px = Math.round(parsePropTreeKeyColPx(panel));
+    try {
+      localStorage.setItem(PROP_TREE_KEY_COL_STORAGE, String(px));
+    } catch (_) {}
+  }
+  resizer.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    startX = e.clientX;
+    startW = parsePropTreeKeyColPx(panel);
+    resizer.classList.add('active');
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
 function initPropTreeSearch() {
   const inp = document.getElementById('propTreeSearch');
   if (!inp || inp.dataset.bound) return;
