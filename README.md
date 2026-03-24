@@ -19,6 +19,10 @@ VDataEditor is a lightweight desktop tool for viewing, editing, and saving Sourc
 
 ## Project documentation
 
+### Performance
+
+For keeping the UI responsive (DOM, workers, Electron, profiling), see **[readme/js-performance-guide.md](readme/js-performance-guide.md)**.
+
 ### Architecture
 
 VDataEditor follows the usual Electron split:

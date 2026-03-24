@@ -1,3 +1,10 @@
+/** Above this UTF-16 length (~byte size for ASCII), first paint skips immediate CodeMirror full-doc sync (still happens debounced). */
+const LARGE_DOCUMENT_UTF16_UNITS = 350_000;
+
+function yieldToUiForPaint() {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
 class DocumentManager extends EventTarget {
   constructor() {
     super();
@@ -23,8 +30,13 @@ class DocumentManager extends EventTarget {
   }
 
   async openFromContent(content, fileName, filePath = null) {
+    if (typeof setStatus === 'function') setStatus('Parsing ' + fileName + '…', 'info');
+    await yieldToUiForPaint();
     const { root, format, kv3Header = '' } = parseDocumentContent(content, fileName);
     const doc = new VDataDocument({ root, format, filePath, fileName, kv3Header });
+    if (typeof content === 'string' && content.length >= LARGE_DOCUMENT_UTF16_UNITS) {
+      doc.deferInitialManualEditorSync = true;
+    }
     ensureSmartPropRootArrays(doc);
     doc.recalcElementIds();
     doc.dirty = false;
@@ -40,10 +52,17 @@ class DocumentManager extends EventTarget {
       this._activate(existing);
       return this._docs[existing];
     }
+    if (typeof setStatus === 'function') setStatus('Reading file…', 'info');
+    await yieldToUiForPaint();
     const content = await window.electronAPI.readFile(filePath);
     const fileName = pathBasename(filePath);
+    if (typeof setStatus === 'function') setStatus('Parsing ' + fileName + '…', 'info');
+    await yieldToUiForPaint();
     const { root, format, kv3Header = '' } = parseDocumentContent(content, fileName);
     const doc = new VDataDocument({ root, format, filePath, fileName, kv3Header });
+    if (content.length >= LARGE_DOCUMENT_UTF16_UNITS) {
+      doc.deferInitialManualEditorSync = true;
+    }
     ensureSmartPropRootArrays(doc);
     doc.recalcElementIds();
     doc.dirty = false;

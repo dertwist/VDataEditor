@@ -769,7 +769,11 @@ docManager.addEventListener('active-changed', () => {
     syncEditorModeSelect();
   }
   if (typeof refreshHistoryDock === 'function') refreshHistoryDock();
-  if (_editorShellReady) renderAll({ immediateManualSync: true });
+  if (_editorShellReady) {
+    const deferCm = d && d.deferInitialManualEditorSync;
+    if (deferCm) delete d.deferInitialManualEditorSync;
+    renderAll({ immediateManualSync: !deferCm });
+  }
 });
 
 docManager.newDoc(); // fires active-changed → renderAll() syncs manual editor when shell is ready
