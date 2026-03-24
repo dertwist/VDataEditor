@@ -75,17 +75,22 @@
         </div>
       </div>
       <div class="panel-body property-browser-panel" id="propertyBrowserContainer">
-        <section class="property-browser-section">
+        <div class="property-browser-split-pane" id="propertyBrowserPaneContext">
+        <section class="property-browser-section property-browser-section--fill">
           <div class="property-browser-section-title">Context filter</div>
           <input type="search" id="propertyBrowserContextFilter" class="prop-tree-search-inline property-browser-search" placeholder="Filter contexts..." autocomplete="off" />
           <select id="editorModeSelect" class="mode-select property-browser-mode-select" title="Property browser context"></select>
           <div id="propertyBrowserContextList" class="property-browser-list"></div>
         </section>
-        <section class="property-browser-section">
+        </div>
+        <div class="dock-resize-v" id="propertyBrowserVSplit"></div>
+        <div class="property-browser-split-pane" id="propertyBrowserPaneProps">
+        <section class="property-browser-section property-browser-section--fill">
           <div class="property-browser-section-title">Property filter</div>
           <input type="search" id="propertyBrowserPropertyFilter" class="prop-tree-search-inline property-browser-search" placeholder="Filter properties..." autocomplete="off" />
           <div id="propertyBrowserPropertyList" class="property-browser-list"></div>
         </section>
+        </div>
         <div class="property-browser-actions">
           <button type="button" id="propertyBrowserAddBtn" class="btn btn-sm btn-accent">Add</button>
         </div>

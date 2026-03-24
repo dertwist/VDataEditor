@@ -145,15 +145,14 @@ function initHistoryDock() {
       startY = e.clientY;
       startEditorH = editorWrap.offsetHeight;
       startHistoryH = historyDock.offsetHeight;
+      historyDock.style.maxHeight = 'none';
 
       function onMove(e2) {
         const dy = e2.clientY - startY;
         const nextEditorH = Math.max(60, startEditorH + dy);
         const nextHistoryH = Math.max(40, startHistoryH - dy);
-        editorWrap.style.flex = 'none';
-        editorWrap.style.height = nextEditorH + 'px';
-        historyDock.style.flex = 'none';
-        historyDock.style.height = nextHistoryH + 'px';
+        editorWrap.style.flex = `${nextEditorH} 1 ${nextEditorH}px`;
+        historyDock.style.flex = `${nextHistoryH} 1 ${nextHistoryH}px`;
       }
 
       function onUp() {

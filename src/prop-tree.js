@@ -2466,6 +2466,35 @@ function initPropertyBrowser() {
   }
   buildPropertyBrowserContextList();
   buildPropertyBrowserPropertyList();
+
+  const vSplit = document.getElementById('propertyBrowserVSplit');
+  const paneTop = document.getElementById('propertyBrowserPaneContext');
+  const paneBottom = document.getElementById('propertyBrowserPaneProps');
+  if (vSplit && paneTop && paneBottom && !vSplit.dataset.bound) {
+    vSplit.dataset.bound = '1';
+    const MIN_PANE = 80;
+    vSplit.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      vSplit.classList.add('active');
+      const startY = e.clientY;
+      const startTopH = paneTop.offsetHeight;
+      const startBotH = paneBottom.offsetHeight;
+      function onMove(e2) {
+        const dy = e2.clientY - startY;
+        const newTop = Math.max(MIN_PANE, startTopH + dy);
+        const newBot = Math.max(MIN_PANE, startBotH - dy);
+        paneTop.style.flex = `${newTop} 1 ${newTop}px`;
+        paneBottom.style.flex = `${newBot} 1 ${newBot}px`;
+      }
+      function onUp() {
+        vSplit.classList.remove('active');
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
 }
 window.initPropertyBrowser = initPropertyBrowser;
 
