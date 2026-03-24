@@ -26,7 +26,8 @@ class VDataDocument {
   /** Push a command { undo, redo, label, time } onto this document's stack. */
   pushUndo(cmd) {
     this.undoStack.push({ ...cmd, time: cmd.time ?? Date.now() });
-    if (this.undoStack.length > 200) this.undoStack.shift();
+    // Each entry retains full root snapshots in closures — keep cap lower for huge documents.
+    if (this.undoStack.length > 80) this.undoStack.shift();
     this.redoStack.length = 0;
   }
 

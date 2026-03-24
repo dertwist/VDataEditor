@@ -134,32 +134,48 @@ function buildSliderInput(value, type, onChange, opts) {
     onChange(nv);
   });
 
+  let valueAtFocus = current;
+  let skipNextBlur = false;
+
   function commitNumberInput() {
     const nv = normalize(input.value);
     if (nv == null) {
-      syncUi(current, false);
+      syncUi(valueAtFocus, false);
       return;
     }
     syncUi(nv, false);
     onChange(nv);
   }
 
+  input.addEventListener('focus', () => {
+    valueAtFocus = current;
+  });
+
+  /** Live slider/text sync only; model commits on blur / Enter (avoids full doc work per keystroke). */
   input.addEventListener('input', () => {
     const nv = normalize(input.value);
     if (nv == null) return;
     syncUi(nv, false);
-    onChange(nv);
   });
-  input.addEventListener('change', commitNumberInput);
-  input.addEventListener('blur', commitNumberInput);
+
+  input.addEventListener('blur', () => {
+    if (skipNextBlur) {
+      skipNextBlur = false;
+      return;
+    }
+    commitNumberInput();
+  });
+
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       commitNumberInput();
+      skipNextBlur = true;
       input.blur();
     } else if (e.key === 'Escape') {
       e.preventDefault();
-      syncUi(current, false);
+      syncUi(valueAtFocus, false);
+      skipNextBlur = true;
       input.blur();
     }
   });

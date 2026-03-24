@@ -22,6 +22,12 @@ function buildColorWidget(container, value, onChange) {
     const rgb = fromHex(picker.value);
     swatch.style.background = picker.value;
     const next = arr.length === 4 ? [...rgb, arr[3]] : rgb;
+    for (let i = 0; i < Math.min(3, next.length); i++) arr[i] = next[i];
+  });
+
+  picker.addEventListener('change', () => {
+    const rgb = fromHex(picker.value);
+    const next = arr.length === 4 ? [...rgb, arr[3]] : rgb;
     onChange(next);
   });
 

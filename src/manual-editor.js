@@ -280,6 +280,18 @@
     }, 400);
   }
 
+  /** Coalesce model→CM sync after property-tree edits; skips work when the editors panel is hidden (stays dirty until shown). */
+  function scheduleManualEditorSyncFromModel() {
+    markManualEditorNeedsSync();
+    if (!isEditorsPanelEffectivelyVisible()) return;
+    clearTimeout(_debounceTimer);
+    _debounceTimer = setTimeout(() => {
+      _debounceTimer = null;
+      if (!isEditorsPanelEffectivelyVisible()) return;
+      syncManualEditor();
+    }, 400);
+  }
+
   function flushSyncDebounce() {
     if (_debounceTimer) {
       clearTimeout(_debounceTimer);
@@ -427,6 +439,8 @@
   };
 
   window.flushSyncDebounce = flushSyncDebounce;
+  window.markManualEditorNeedsSync = markManualEditorNeedsSync;
+  window.scheduleManualEditorSyncFromModel = scheduleManualEditorSyncFromModel;
   window.syncManualEditor = syncManualEditor;
   window.syncManualEditorDebounced = syncManualEditorDebounced;
   window.applyManualEdit = applyManualEdit;

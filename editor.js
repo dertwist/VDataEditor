@@ -209,12 +209,24 @@ function withDocUndo(applyFn, label) {
   setStatus('Property edited', 'edited');
 }
 
-function renderAll() {
+/**
+ * @param {object} [options]
+ * @param {boolean} [options.immediateManualSync] If true, flush debounce and push the full document into CodeMirror immediately (tab switches, first paint). Otherwise debounce + skip when editors panel is hidden.
+ * DevTools: on large files, Performance should show fewer long tasks in KV3/JSON serialize + CodeMirror replace after property edits (debounced path).
+ */
+function renderAll(options = {}) {
   try {
+    const immediate = options.immediateManualSync === true;
     // Defined in src/manual-editor.js; accessed via window for reliability.
-    window.flushSyncDebounce?.();
+    if (immediate) {
+      window.flushSyncDebounce?.();
+    }
     if (typeof buildPropertyTree === 'function') buildPropertyTree();
-    if (typeof syncManualEditor === 'function') syncManualEditor();
+    if (immediate) {
+      if (typeof syncManualEditor === 'function') syncManualEditor();
+    } else {
+      window.scheduleManualEditorSyncFromModel?.();
+    }
     if (typeof updateStatusBar === 'function') updateStatusBar();
   } catch (e) {
     console.error('renderAll failed', e);
@@ -757,7 +769,7 @@ docManager.addEventListener('active-changed', () => {
     syncEditorModeSelect();
   }
   if (typeof refreshHistoryDock === 'function') refreshHistoryDock();
-  if (_editorShellReady) renderAll();
+  if (_editorShellReady) renderAll({ immediateManualSync: true });
 });
 
 docManager.newDoc(); // fires active-changed → renderAll() syncs manual editor when shell is ready
@@ -774,7 +786,7 @@ initRecentFilesMenu();
 initPropDockToolbar();
 
 _editorShellReady = true;
-renderAll();
+renderAll({ immediateManualSync: true });
 
 if (window.electronAPI?.getVersion) {
   window.electronAPI.getVersion().then((v) => {
