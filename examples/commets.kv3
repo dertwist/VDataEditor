@@ -1,0 +1,191 @@
+<!-- kv3 encoding:text:version{e21c7f3c-8a33-41c5-9977-a76d3a32aa0d} format:generic:version{7412167c-06e9-4698-aff2-e63eb59037e7} -->
+{
+	generic_data_type = "CitadelAbilityVData"
+	////////////////////
+	// Tier 2 Boss Stomp
+	////////////////////
+	citadel_ability_tier2boss_stomp = 
+	{
+		_class = "citadel_ability_tier2boss_stomp"
+		m_mapAbilityProperties = 
+		{
+			AbilityCooldown = 
+			{
+				m_strValue = "5.1"
+				m_strDisableValue = "0"
+				m_strCSSClass = "cooldown"
+				m_bCanSetTokenOverride = true
+				m_subclassScaleFunction = subclass:
+				{
+					_class = "scale_function_single_stat"
+					_my_subclass_name = "AbilityCooldown_scale_function"
+					m_eSpecificStatScaleType = "ETechCooldown"
+				}
+			}
+			AbilityDuration = 
+			{
+				m_strValue = "0"
+				m_strDisableValue = "0"
+				m_strCSSClass = "duration"
+				m_bCanSetTokenOverride = true
+				m_subclassScaleFunction = subclass:
+				{
+					_class = "scale_function_single_stat"
+					_my_subclass_name = "AbilityDuration_scale_function"
+					m_eSpecificStatScaleType = "ETechDuration"
+				}
+			}
+			AbilityCastRange = 
+			{
+				m_strValue = "1000"
+				m_eDisplayUnits = "EDisplayUnit_Meters"
+				m_strCSSClass = "range"
+				m_bCanSetTokenOverride = true
+				m_subclassScaleFunction = subclass:
+				{
+					_class = "scale_function_single_stat"
+					_my_subclass_name = "AbilityCastRange_scale_function"
+					m_eSpecificStatScaleType = "ETechRange"
+					m_bFunctionDisabled = true
+				}
+			}
+			AbilityUnitTargetLimit = 
+			{
+				m_strValue = "100"
+				m_bCanSetTokenOverride = true
+			}
+			AbilityCastDelay = 
+			{
+				m_strValue = "0.01"
+				m_strDisableValue = "0"
+				m_strCSSClass = "cast"
+				m_bCanSetTokenOverride = true
+			}
+			AbilityChannelTime = 
+			{
+				m_strValue = "0"
+				m_strDisableValue = "0"
+				m_strCSSClass = "cast"
+				m_bCanSetTokenOverride = true
+				m_subclassScaleFunction = subclass:
+				{
+					_class = "scale_function_multi_stats"
+					_my_subclass_name = "scale_duration"
+					m_vecScalingStats = 
+					[
+						"EChannelDuration",
+						"ETechDuration",
+					]
+				}
+			}
+			AbilityPostCastDuration = 
+			{
+				m_strValue = "0"
+				m_strDisableValue = "0"
+			}
+			AbilityCharges = 
+			{
+				m_strValue = "0"
+				m_strDisableValue = "0"
+				m_strCSSClass = "cast"
+				m_bCanSetTokenOverride = true
+				m_subclassScaleFunction = subclass:
+				{
+					_class = "scale_function_single_stat"
+					_my_subclass_name = "AbilityCharges_scale_function"
+					m_eSpecificStatScaleType = "EMaxChargesIncrease"
+				}
+			}
+			AbilityCooldownBetweenCharge = 
+			{
+				m_strValue = "0"
+				m_strDisableValue = "0"
+				m_strCSSClass = "charge_cooldown"
+				m_bCanSetTokenOverride = true
+				m_subclassScaleFunction = subclass:
+				{
+					_class = "scale_function_single_stat"
+					_my_subclass_name = "AbilityCooldownBetweenCharge_scale_function"
+					m_eSpecificStatScaleType = "ETechCooldownBetweenChargeUses"
+				}
+			}
+			ChannelMoveSpeed = 
+			{
+				m_strValue = "50"
+				m_eDisplayUnits = "EDisplayUnit_MetersPerSecond"
+				m_strCSSClass = "move_speed"
+				m_bCanSetTokenOverride = true
+			}
+			AbilityResourceCost = 
+			{
+				m_strValue = "0"
+				m_strDisableValue = "0"
+				m_bCanSetTokenOverride = true
+			}
+			TechPower = 
+			{
+				m_strValue = "0"
+				m_strDisableValue = "0"
+				m_bCanSetTokenOverride = true
+				m_eProvidedPropertyType = "MODIFIER_VALUE_TECH_POWER"
+			}
+			WeaponPower = 
+			{
+				m_strValue = "0"
+				m_strDisableValue = "0"
+				m_bCanSetTokenOverride = true
+				m_eProvidedPropertyType = "MODIFIER_VALUE_WEAPON_POWER"
+			}
+			StompDamage = 
+			{
+				m_strValue = "700"
+			}
+			StunDuration = 
+			{
+				m_strValue = "2"
+				m_strCSSClass = "duration"
+			}
+			TossVelocity = 
+			{
+				m_strValue = "500"
+			}
+			ActivationDistance = 
+			{
+				m_strValue = "2000"
+			}
+		}
+		m_bitsPostCastEnabledStateMask = "MODIFIER_STATE_BUSY_WITH_ACTION"
+		_editor = 
+		{
+			folder_name = "NPC/Tier 2"
+		}
+		_multibase = 
+		[
+			"npc_base",
+		]
+		m_bStartTrained = true
+		m_eAbilityType = "EAbilityType_Signature"
+		m_bitsInterruptingStates = "MODIFIER_STATE_STUNNED | MODIFIER_STATE_IS_ASLEEP"
+		m_eAbilityTargetingLocation = "CITADEL_ABILITY_TARGETING_LOCATION_UNIT"
+		m_eAbilityTargetingShape = "CITADEL_ABILITY_TARGETING_SHAPE_CIRCLE"
+		m_eAbilityActivation = "CITADEL_ABILITY_ACTIVATION_INSTANT_CAST"
+		m_nAbilityBehaviors = "CITADEL_ABILITY_BEHAVIOR_NO_TARGET"
+		m_strAbilityImage = panorama:"file://{images}/hud/abilities/sumo/sumo_stomp.png"
+		m_nAbilityTargetTypes = "CITADEL_UNIT_TARGET_ALL_ENEMY"
+		m_nAbilityTargetFlags = "CITADEL_UNIT_TARGET_FLAG_PENETRATE_INVULNERABLE"
+		m_AutoCastDelayModifier = subclass:
+		{
+			_class = "modifier_base"
+			_my_subclass_name = "walker_precast_particle"
+			/*
+				TEST: Hi, hello, this is a hack. The comment like that looks like this
+				unlike the // comment.
+
+				TestValue2
+				TestValue3
+			*/
+			m_strParticleEffect = resource_name:"particles/npc/tier2boss/tier2boss_stomp_precast.vpcf"
+			m_strParticleEffectConfig = "normal_walker"
+		}
+	}
+}
