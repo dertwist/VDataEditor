@@ -70,6 +70,17 @@
   --color-string:rgb(255,209,153);--color-expr:rgb(255,123,125);
   --color-bool:var(--text-primary);--color-combo:var(--text-secondary);
   --color-vec3:rgb(181,255,239);--color-color:#f5c2e7;
+  --prop-row-even-bg:transparent;
+  --prop-row-odd-bg:rgba(255,255,255,.018);
+  --prop-row-depth-1:rgba(255,255,255,.006);
+  --prop-row-depth-2:rgba(255,255,255,.010);
+  --prop-row-depth-3:rgba(255,255,255,.014);
+  --prop-row-depth-4:rgba(255,255,255,.018);
+  --prop-row-depth-5:rgba(255,255,255,.020);
+  --prop-row-depth-6:rgba(255,255,255,.022);
+  --prop-row-depth-7:rgba(255,255,255,.024);
+  --prop-row-depth-8:rgba(255,255,255,.026);
+  --prop-row-depth-9:rgba(255,255,255,.028);
 }
 html[data-theme="light"]{
   color-scheme:light;
@@ -92,6 +103,17 @@ html[data-theme="light"]{
   --border:#c4c4cc;
   --border-subtle:#d0d0d8;
   --scrollbar-thumb:#b0b8c4;
+  --prop-row-even-bg:#ffffff;
+  --prop-row-odd-bg:#f3f5f9;
+  --prop-row-depth-1:#f8f9fc;
+  --prop-row-depth-2:#f4f6fb;
+  --prop-row-depth-3:#f1f3f9;
+  --prop-row-depth-4:#eef1f8;
+  --prop-row-depth-5:#ebeff7;
+  --prop-row-depth-6:#e9edf6;
+  --prop-row-depth-7:#e6ebf5;
+  --prop-row-depth-8:#e4e9f4;
+  --prop-row-depth-9:#e2e7f3;
 }
 html,body{height:100%;overflow:hidden;font-family:var(--font-sans);background:var(--bg-primary);color:var(--text-primary);font-size:10pt;line-height:1.5}
 input,select,textarea,button{font-family:inherit;font-size:inherit;color:inherit}
@@ -344,19 +366,19 @@ input,select,textarea,button{font-family:inherit;font-size:inherit;color:inherit
 .prop-tree-panel{display:flex;flex-direction:column;height:100%;overflow:hidden;min-height:0}
 .prop-tree{flex:1;overflow-y:auto;padding:4px 0;min-height:0}
 .prop-row{display:grid;grid-template-columns:minmax(120px,220px) 1fr;align-items:center;min-height:28px;padding:0 8px;border-bottom:1px solid var(--border-subtle);gap:8px}
-.prop-row.prop-row-even{background:transparent}
-.prop-row.prop-row-odd{background:rgba(255,255,255,.018)}
+.prop-row.prop-row-even{background:var(--prop-row-even-bg)}
+.prop-row.prop-row-odd{background:var(--prop-row-odd-bg)}
 .prop-row:hover{background:var(--bg-hover)!important}
-.prop-row[data-depth="1"]{--row-indent-tint:rgba(255,255,255,.006)}
-.prop-row[data-depth="2"]{--row-indent-tint:rgba(255,255,255,.010)}
-.prop-row[data-depth="3"]{--row-indent-tint:rgba(255,255,255,.014)}
-.prop-row[data-depth="4"]{--row-indent-tint:rgba(255,255,255,.018)}
-.prop-row[data-depth="5"]{--row-indent-tint:rgba(255,255,255,.020)}
-.prop-row[data-depth="6"]{--row-indent-tint:rgba(255,255,255,.022)}
-.prop-row[data-depth="7"]{--row-indent-tint:rgba(255,255,255,.024)}
-.prop-row[data-depth="8"]{--row-indent-tint:rgba(255,255,255,.026)}
-.prop-row[data-depth="9"]{--row-indent-tint:rgba(255,255,255,.028)}
-.prop-row[data-depth]:not([data-depth="0"]).prop-row-odd{background:var(--row-indent-tint,rgba(255,255,255,.018))}
+.prop-row[data-depth="1"]{--row-indent-tint:var(--prop-row-depth-1)}
+.prop-row[data-depth="2"]{--row-indent-tint:var(--prop-row-depth-2)}
+.prop-row[data-depth="3"]{--row-indent-tint:var(--prop-row-depth-3)}
+.prop-row[data-depth="4"]{--row-indent-tint:var(--prop-row-depth-4)}
+.prop-row[data-depth="5"]{--row-indent-tint:var(--prop-row-depth-5)}
+.prop-row[data-depth="6"]{--row-indent-tint:var(--prop-row-depth-6)}
+.prop-row[data-depth="7"]{--row-indent-tint:var(--prop-row-depth-7)}
+.prop-row[data-depth="8"]{--row-indent-tint:var(--prop-row-depth-8)}
+.prop-row[data-depth="9"]{--row-indent-tint:var(--prop-row-depth-9)}
+.prop-row[data-depth]:not([data-depth="0"]).prop-row-odd{background:var(--row-indent-tint,var(--prop-row-odd-bg))}
 .prop-row[data-depth="1"] .prop-key{padding-left:16px}
 .prop-row[data-depth="2"] .prop-key{padding-left:32px}
 .prop-row[data-depth="3"] .prop-key{padding-left:48px}
@@ -739,19 +761,26 @@ html[data-theme="light"] #cmEditor .cm-content:focus *::selection{
 .wc-readonly-list{opacity:.55;pointer-events:none}
 .wc-sys-row{margin-bottom:3px}
 /* ── Property type icon (key column) ────────────── */
-.prop-type-icon-badge{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex-shrink:0;color:var(--text-muted);opacity:.7}
-.prop-type-icon-badge svg{width:13px;height:13px}
-.prop-type-badge-interactive.prop-type-icon-badge{cursor:pointer;border-radius:3px;padding:1px;transition:background .1s,opacity .1s}
-.prop-type-badge-interactive.prop-type-icon-badge:hover{background:var(--bg-hover);opacity:1;color:var(--text-primary)}
+.prop-type-icon-badge{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex-shrink:0;opacity:.95}
+.prop-type-circle{
+  width:12px;
+  height:12px;
+  border-radius:50%;
+  background:var(--type-circle-fill,#AAAAAA);
+  border:1px solid transparent;
+  box-sizing:border-box;
+}
+.prop-type-badge-interactive.prop-type-icon-badge{
+  cursor:pointer;
+  border-radius:3px;
+  padding:1px;
+  transition:background .1s,opacity .1s;
+}
+.prop-type-badge-interactive.prop-type-icon-badge:hover{
+  background:var(--bg-hover);
+  opacity:1;
+}
+.prop-type-badge-interactive.prop-type-icon-badge:hover .prop-type-circle{
+  border-color:var(--type-circle-border,#888888);
+}
 .prop-value-summary{font-size:10px;color:var(--text-muted);font-family:var(--font-mono),monospace;flex-shrink:0}
-.prop-row[data-type="string"] .prop-type-icon-badge{color:var(--color-string)}
-.prop-row[data-type="int"] .prop-type-icon-badge{color:var(--color-int)}
-.prop-row[data-type="float"] .prop-type-icon-badge{color:var(--color-float)}
-.prop-row[data-type="bool"] .prop-type-icon-badge{color:var(--color-bool)}
-.prop-row[data-type="color"] .prop-type-icon-badge{color:var(--color-color)}
-.prop-row[data-type="vec2"] .prop-type-icon-badge,.prop-row[data-type="vec3"] .prop-type-icon-badge,.prop-row[data-type="vec4"] .prop-type-icon-badge{color:var(--color-vec3)}
-.prop-row[data-type="resource"] .prop-type-icon-badge{color:var(--accent)}
-.prop-row[data-type="soundevent"] .prop-type-icon-badge{color:var(--green)}
-.prop-row[data-type="object"] .prop-type-icon-badge{color:var(--yellow)}
-.prop-row[data-type="array"] .prop-type-icon-badge{color:var(--peach)}
-.prop-row[data-type="null"] .prop-type-icon-badge,.prop-row[data-type="unknown"] .prop-type-icon-badge{color:var(--text-muted)}

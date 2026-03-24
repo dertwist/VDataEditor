@@ -118,25 +118,42 @@ function inferType(key, value) {
   return 'unknown';
 }
 
-const TYPE_ICONS = {
-  string: 'typeString',
-  int: 'typeInt',
-  float: 'typeFloat',
-  bool: 'typeBool',
-  color: 'typeColor',
-  object: 'typeObject',
-  array: 'typeArray',
-  vec2: 'typeVec2',
-  vec3: 'typeVec3',
-  vec4: 'typeVec4',
-  resource: 'typeResource',
-  soundevent: 'typeSound',
-  null: 'typeNull',
-  unknown: 'typeUnknown',
-  components: 'typeVec3',
-  readonly_string: 'typeString',
-  float_slider_01: 'typeFloat'
+const TYPE_ICON_COLORS = {
+  int: '#4A90D9',
+  float: '#7EC8E3',
+  string: '#E8943A',
+  bool: '#5CB85C',
+  color: '#9B59B6',
+  vec2: '#9B59B6',
+  vec3: '#9B59B6',
+  vec4: '#9B59B6',
+  array: '#F0C040',
+  object: '#E05555',
+  components: '#9B59B6',
+  readonly_string: '#E8943A',
+  float_slider_01: '#7EC8E3'
 };
+const TYPE_ICON_FALLBACK_COLOR = '#AAAAAA';
+
+function darkenHexColor(hex, amount = 28) {
+  if (typeof hex !== 'string') return TYPE_ICON_FALLBACK_COLOR;
+  const clean = hex.replace('#', '');
+  if (!/^[0-9a-fA-F]{6}$/.test(clean)) return TYPE_ICON_FALLBACK_COLOR;
+  const clamp = (n) => Math.max(0, Math.min(255, n));
+  const r = clamp(parseInt(clean.slice(0, 2), 16) - amount);
+  const g = clamp(parseInt(clean.slice(2, 4), 16) - amount);
+  const b = clamp(parseInt(clean.slice(4, 6), 16) - amount);
+  return '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('');
+}
+
+function paintTypeBadgeCircle(el, type) {
+  if (!el) return;
+  const fill = TYPE_ICON_COLORS[type] || TYPE_ICON_FALLBACK_COLOR;
+  const border = darkenHexColor(fill, 24);
+  el.innerHTML = '<span class="prop-type-circle" aria-hidden="true"></span>';
+  el.style.setProperty('--type-circle-fill', fill);
+  el.style.setProperty('--type-circle-border', border);
+}
 
 function getActiveMode() {
   if (window.VDataEditorModes?.resolveActiveEditorMode) {
@@ -174,8 +191,7 @@ function buildTypeBadge(currentType, onCast) {
   const wrap = document.createElement('span');
   wrap.className = 'prop-type-icon-badge prop-type-badge-interactive';
   wrap.title = `Type: ${currentType} (click to change)`;
-  const ik = TYPE_ICONS[currentType];
-  if (ik && ICONS[ik]) wrap.innerHTML = ICONS[ik];
+  paintTypeBadgeCircle(wrap, currentType);
 
   const options = TYPE_CAST_OPTIONS[currentType];
   if (!options || options.length === 0) {
@@ -608,8 +624,7 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
   const keyIcon = document.createElement('span');
   keyIcon.className = 'prop-type-icon-badge';
   keyIcon.title = type;
-  const iconKey = TYPE_ICONS[type];
-  if (iconKey && ICONS[iconKey]) keyIcon.innerHTML = ICONS[iconKey];
+  paintTypeBadgeCircle(keyIcon, type);
 
   const treeNodeIcon = document.createElement('span');
   treeNodeIcon.className = 'prop-tree-node-icon';
