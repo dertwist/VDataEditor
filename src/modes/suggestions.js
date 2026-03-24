@@ -143,10 +143,11 @@
       collectKeyNamesDeep(root, results);
     }
 
+    const includeExistingSiblings = !!ctx.includeExistingSiblings;
     const outSchema = [];
     const outDoc = [];
     results.forEach(function (k) {
-      if (siblingKeys.indexOf(k) >= 0) return;
+      if (!includeExistingSiblings && siblingKeys.indexOf(k) >= 0) return;
       if (schemaKeys.has(k)) outSchema.push(k);
       else outDoc.push(k);
     });
@@ -225,8 +226,13 @@
     return cur;
   }
 
-  /** Legacy: [{ key, type, hint }] for the Add Property modal. */
-  function getSuggestions(fileName, parentObjectPath) {
+  /**
+   * @param {string} fileName
+   * @param {string} [parentObjectPath]
+   * @param {{ includeExistingSiblings?: boolean }} [options] When true (Property Browser), list keys even if already present on parent.
+   */
+  function getSuggestions(fileName, parentObjectPath, options) {
+    const opts = options && typeof options === 'object' ? options : {};
     const root = typeof docManager !== 'undefined' ? docManager.activeDoc && docManager.activeDoc.root : null;
     const parentPath = parentObjectPath && typeof parentObjectPath === 'string' ? parentObjectPath : '';
     const parentKey = parentPath ? parentPath.slice(parentPath.lastIndexOf('/') + 1) : '';
@@ -251,7 +257,8 @@
     const keys = getSuggestedKeys(
       Object.assign({}, base, {
         parentKey,
-        siblingKeys
+        siblingKeys,
+        includeExistingSiblings: !!opts.includeExistingSiblings
       })
     );
 

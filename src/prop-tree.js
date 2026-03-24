@@ -14,6 +14,13 @@ let _propTreeBuiltForDoc = null;
 /** Internal clipboard for context-menu paste (row Copy). */
 let _clipboard = null;
 
+const PROP_SUGGESTION_MIME = 'application/x-vdata-property-suggestion';
+
+/** @type {Set<string>} */
+let _propTreeSelection = new Set();
+/** Last plain-click path (for Shift+click range). */
+let _propTreeSelectionAnchorPath = '';
+
 function markPropTreeStructureDirty() {
   _propTreeStructuralDirty = true;
 }
@@ -324,6 +331,62 @@ function stripePropTree() {
   });
 }
 
+function getVisiblePropRowPathsOrdered() {
+  const out = [];
+  document.querySelectorAll('#propTreeRoot .prop-row').forEach((row) => {
+    if (row.classList.contains('search-hidden')) return;
+    if (isPropRowInHiddenBranch(row)) return;
+    const p = row.dataset.propPath;
+    if (p) out.push(p);
+  });
+  return out;
+}
+
+function syncPropTreeSelectionClasses() {
+  document.querySelectorAll('#propTreeRoot .prop-row').forEach((row) => {
+    const p = row.dataset.propPath;
+    row.classList.toggle('is-selected', !!(p && _propTreeSelection.has(p)));
+  });
+}
+
+function prunePropTreeSelectionFromDom() {
+  const keep = new Set();
+  document.querySelectorAll('#propTreeRoot .prop-row').forEach((row) => {
+    const p = row.dataset.propPath;
+    if (p && _propTreeSelection.has(p)) keep.add(p);
+  });
+  _propTreeSelection.clear();
+  keep.forEach((p) => _propTreeSelection.add(p));
+  if (_propTreeSelectionAnchorPath && !_propTreeSelection.has(_propTreeSelectionAnchorPath)) {
+    _propTreeSelectionAnchorPath = _propTreeSelection.size ? [..._propTreeSelection][0] : '';
+  }
+}
+
+function applyPropTreePointerSelection(ev, path) {
+  if (!path) return;
+  const ordered = getVisiblePropRowPathsOrdered();
+  if (ev.shiftKey) {
+    const anchor = _propTreeSelectionAnchorPath || path;
+    let ia = ordered.indexOf(anchor);
+    const ib = ordered.indexOf(path);
+    if (ib < 0) return;
+    if (ia < 0) ia = ib;
+    const lo = Math.min(ia, ib);
+    const hi = Math.max(ia, ib);
+    _propTreeSelection.clear();
+    for (let i = lo; i <= hi; i++) _propTreeSelection.add(ordered[i]);
+  } else if (ev.ctrlKey || ev.metaKey) {
+    if (_propTreeSelection.has(path)) _propTreeSelection.delete(path);
+    else _propTreeSelection.add(path);
+    _propTreeSelectionAnchorPath = path;
+  } else {
+    _propTreeSelection.clear();
+    _propTreeSelection.add(path);
+    _propTreeSelectionAnchorPath = path;
+  }
+  syncPropTreeSelectionClasses();
+}
+
 function buildPropertyTree() {
   const container = document.getElementById('propTreeRoot');
   if (!container) return;
@@ -348,14 +411,18 @@ function buildPropertyTree() {
     updatePropRowValues(container);
     if (q) filterPropTree(q);
     stripePropTree();
+    syncPropTreeSelectionClasses();
     return;
   }
 
   _propTreeStructuralDirty = false;
   container.innerHTML = '';
   renderObjectRows(container, root, 0, '');
+  prunePropTreeSelectionFromDom();
+  syncPropTreeSelectionClasses();
   if (q) filterPropTree(q);
   stripePropTree();
+  syncPropTreeSelectionClasses();
   requestAnimationFrame(() => {
     container.scrollTop = scrollTop;
   });
@@ -654,6 +721,14 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
     });
   }
   keyEl.appendChild(keyText);
+
+  keyEl.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    if (e.target.closest('.prop-row-drag-handle, .prop-key-toggle, .prop-type-icon-badge')) return;
+    if (e.target.closest('.prop-key-rename')) return;
+    if (isPropRowDragExemptTarget(e.target)) return;
+    applyPropTreePointerSelection(e, propPath);
+  });
 
   const valEl = document.createElement('div');
   valEl.className = 'prop-value';
@@ -1395,6 +1470,7 @@ function isPropRowDragExemptTarget(el) {
     el.closest(
       'input, textarea, button, select, ' +
         '.prop-key-toggle, ' +
+        '.prop-row-drag-handle, ' +
         '.slider-input-wrap, ' +
         '.prop-color-swatch, ' +
         '.components-widget, ' +
@@ -1507,6 +1583,24 @@ function parseRowDragPayload(dt) {
   }
 }
 
+function dataTransferIsBrowserSuggestion(dt) {
+  if (!dt || !dt.types) return false;
+  if (typeof dt.types.includes === 'function') return dt.types.includes(PROP_SUGGESTION_MIME);
+  for (let i = 0; i < dt.types.length; i++) if (dt.types[i] === PROP_SUGGESTION_MIME) return true;
+  return false;
+}
+
+function parseBrowserDragPayload(dt) {
+  if (!dt) return null;
+  const raw = dt.getData(PROP_SUGGESTION_MIME);
+  if (!raw) return null;
+  try {
+    const o = JSON.parse(raw);
+    if (o && o.kind === 'vdata-property-suggestion' && typeof o.key === 'string') return o;
+  } catch (_) {}
+  return null;
+}
+
 const PROP_DROP_ZONE_BEFORE = 'before';
 const PROP_DROP_ZONE_AFTER = 'after';
 const PROP_DROP_ZONE_INTO = 'into';
@@ -1561,6 +1655,20 @@ function initRowDragDrop(row, dragHandle, key, parentRef, arrayIdx, propPath) {
     row.classList.remove('drag-source');
   });
   row.addEventListener('dragover', (e) => {
+    if (dataTransferIsBrowserSuggestion(e.dataTransfer)) {
+      if (row.dataset.type === 'object') {
+        const zone = detectRowDropZone(row, e);
+        if (zone === PROP_DROP_ZONE_INTO) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+          autoScrollPropTreeOnDrag(e);
+          setPropDropZoneClass(row, zone);
+          return;
+        }
+      }
+      clearPropDropZoneClasses(row);
+      return;
+    }
     if (isPropRowDragExemptTarget(e.target)) {
       clearPropDropZoneClasses(row);
       return;
@@ -1573,6 +1681,18 @@ function initRowDragDrop(row, dragHandle, key, parentRef, arrayIdx, propPath) {
   });
   row.addEventListener('dragleave', () => clearPropDropZoneClasses(row));
   row.addEventListener('drop', (e) => {
+    const sug = parseBrowserDragPayload(e.dataTransfer);
+    if (sug) {
+      e.preventDefault();
+      e.stopPropagation();
+      const dropZone = detectRowDropZone(row, e);
+      clearPropDropZoneClasses(row);
+      const dstType = row.dataset.type;
+      if (dropZone === PROP_DROP_ZONE_INTO && dstType === 'object') {
+        addSuggestedPropertyAtPath(sug.key, propPath, sug.type);
+      }
+      return;
+    }
     if (isPropRowDragExemptTarget(e.target)) return;
     e.preventDefault();
     const dropZone = detectRowDropZone(row, e);
@@ -2273,7 +2393,10 @@ function initPropTreeSearch() {
   const inp = document.getElementById('propTreeSearch');
   if (!inp || inp.dataset.bound) return;
   inp.dataset.bound = '1';
-  inp.addEventListener('input', () => filterPropTree(inp.value.trim().toLowerCase()));
+  inp.addEventListener('input', () => {
+    filterPropTree(inp.value.trim().toLowerCase());
+    syncPropTreeSelectionClasses();
+  });
 }
 
 /** Right-click empty area in the property panel (not on a row) — root-level actions. */
@@ -2428,7 +2551,59 @@ function getPropertyBrowserSuggestions() {
   const d = docManager.activeDoc;
   if (!d || !d.root || typeof d.root !== 'object') return [];
   if (!window.VDataSuggestions || typeof window.VDataSuggestions.getSuggestions !== 'function') return [];
-  return window.VDataSuggestions.getSuggestions(d.fileName || '', '');
+  return window.VDataSuggestions.getSuggestions(d.fileName || '', '', { includeExistingSiblings: true });
+}
+
+function inferTypeForKeyAtParent(key, parentObjectPath) {
+  const d = docManager.activeDoc;
+  if (!d || !window.VDataSuggestions || typeof VDataSuggestions.getSuggestions !== 'function') return 'string';
+  const list = VDataSuggestions.getSuggestions(d.fileName || '', parentObjectPath || '');
+  const match = list.find((s) => s.key === key);
+  return inferPropertyTypeFromSuggestion(match);
+}
+
+function addSuggestedPropertyAtPath(keyRaw, parentObjectPath, editorTypeOverride) {
+  const d = docManager.activeDoc;
+  if (!d || !d.root || typeof d.root !== 'object') return false;
+  const key = String(keyRaw || '').trim();
+  if (!key) {
+    setStatus('Select a property first', 'error');
+    return false;
+  }
+  const parentPath = parentObjectPath != null && typeof parentObjectPath === 'string' ? parentObjectPath : '';
+  const parentObj = parentPath ? getValueAtPath(d.root, parentPath) : d.root;
+  if (parentObj == null || typeof parentObj !== 'object' || Array.isArray(parentObj)) {
+    setStatus('Cannot add property here', 'error');
+    return false;
+  }
+  if (Object.prototype.hasOwnProperty.call(parentObj, key)) {
+    setStatus(`Key "${key}" already exists`, 'error');
+    return false;
+  }
+  const type =
+    editorTypeOverride && typeof editorTypeOverride === 'string'
+      ? editorTypeOverride
+      : inferTypeForKeyAtParent(key, parentPath);
+  withDocUndo(() => {
+    parentObj[key] = defaultValueForPropertyType(type);
+  }, 'Add key');
+  const focusPath = parentPath ? `${parentPath}/${key}` : key;
+  requestAnimationFrame(() => {
+    const rows = document.querySelectorAll('#propTreeRoot .prop-row');
+    let row = null;
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i].dataset.propPath === focusPath) {
+        row = rows[i];
+        break;
+      }
+    }
+    const target = row?.querySelector('.prop-input, .prop-input-bool');
+    if (target && typeof target.focus === 'function') {
+      target.focus();
+      if (typeof target.select === 'function') target.select();
+    }
+  });
+  return true;
 }
 
 function buildPropertyBrowserPropertyList() {
@@ -2442,17 +2617,32 @@ function buildPropertyBrowserPropertyList() {
     const key = s.key || '';
     const type = inferPropertyTypeFromSuggestion(s);
     if (q && key.toLowerCase().indexOf(q) < 0 && type.toLowerCase().indexOf(q) < 0) continue;
-    const row = document.createElement('button');
-    row.type = 'button';
+    const row = document.createElement('div');
+    row.setAttribute('role', 'button');
+    row.tabIndex = 0;
     row.className = 'property-browser-item property-browser-prop-item' + (_propertyBrowserSelectedProperty === key ? ' is-selected' : '');
+    row.draggable = true;
     row.innerHTML = '<span class="property-browser-prop-key"></span><span class="property-browser-prop-type"></span>';
     row.querySelector('.property-browser-prop-key').textContent = key;
     const typeCell = row.querySelector('.property-browser-prop-type');
     typeCell.textContent = '';
     paintTypeBadgeCircle(typeCell, type, null, key);
+    row.addEventListener('dragstart', (e) => {
+      e.dataTransfer.effectAllowed = 'copy';
+      e.dataTransfer.setData(
+        PROP_SUGGESTION_MIME,
+        JSON.stringify({ kind: 'vdata-property-suggestion', key, type })
+      );
+    });
     row.addEventListener('click', () => {
       _propertyBrowserSelectedProperty = key;
       buildPropertyBrowserPropertyList();
+    });
+    row.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        row.click();
+      }
     });
     row.addEventListener('dblclick', (e) => {
       e.preventDefault();
@@ -2475,38 +2665,8 @@ function refreshPropertyBrowserPropertyList() {
 window.refreshPropertyBrowserPropertyList = refreshPropertyBrowserPropertyList;
 
 function addPropertyFromBrowser(overrideKey) {
-  const d = docManager.activeDoc;
-  if (!d || !d.root || typeof d.root !== 'object') return;
   const key = (overrideKey != null ? String(overrideKey) : _propertyBrowserSelectedProperty || '').trim();
-  if (!key) {
-    setStatus('Select a property first', 'error');
-    return;
-  }
-  if (Object.prototype.hasOwnProperty.call(d.root, key)) {
-    setStatus(`Key "${key}" already exists`, 'error');
-    return;
-  }
-  const suggestions = getPropertyBrowserSuggestions();
-  const match = suggestions.find((s) => s.key === key);
-  const type = inferPropertyTypeFromSuggestion(match);
-  withDocUndo(() => {
-    d.root[key] = defaultValueForPropertyType(type);
-  }, 'Add key');
-  requestAnimationFrame(() => {
-    const rows = document.querySelectorAll('#propTreeRoot .prop-row');
-    let row = null;
-    for (let i = 0; i < rows.length; i++) {
-      if (rows[i].dataset.propPath === key) {
-        row = rows[i];
-        break;
-      }
-    }
-    const target = row?.querySelector('.prop-input, .prop-input-bool');
-    if (target && typeof target.focus === 'function') {
-      target.focus();
-      if (typeof target.select === 'function') target.select();
-    }
-  });
+  addSuggestedPropertyAtPath(key, '');
 }
 
 function initPropertyBrowser() {
@@ -2572,4 +2732,98 @@ function initPropertyBrowser() {
   }
 }
 window.initPropertyBrowser = initPropertyBrowser;
+
+function initPropTreeMultiSelect() {
+  if (typeof document === 'undefined') return;
+  if (document.documentElement.dataset.vdataPropTreeSelectInit) return;
+  document.documentElement.dataset.vdataPropTreeSelectInit = '1';
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (!_propTreeSelection.size) return;
+    _propTreeSelection.clear();
+    _propTreeSelectionAnchorPath = '';
+    syncPropTreeSelectionClasses();
+  });
+
+  if (typeof docManager !== 'undefined' && docManager && !docManager._propTreeMultiSelectDocBound) {
+    docManager._propTreeMultiSelectDocBound = true;
+    docManager.addEventListener('active-changed', () => {
+      _propTreeSelection.clear();
+      _propTreeSelectionAnchorPath = '';
+      syncPropTreeSelectionClasses();
+    });
+  }
+
+  const treeRoot = document.getElementById('propTreeRoot');
+  if (treeRoot && !treeRoot.dataset.selectionBgBound) {
+    treeRoot.dataset.selectionBgBound = '1';
+    treeRoot.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      if (e.target !== treeRoot) return;
+      _propTreeSelection.clear();
+      _propTreeSelectionAnchorPath = '';
+      syncPropTreeSelectionClasses();
+    });
+  }
+}
+
+function initPropTreeRootSuggestionDrop() {
+  const treeRoot = document.getElementById('propTreeRoot');
+  if (!treeRoot || treeRoot.dataset.suggestionDropInit) return;
+  treeRoot.dataset.suggestionDropInit = '1';
+
+  treeRoot.addEventListener('dragenter', (e) => {
+    if (!dataTransferIsBrowserSuggestion(e.dataTransfer)) return;
+    e.preventDefault();
+  });
+  treeRoot.addEventListener('dragover', (e) => {
+    if (!dataTransferIsBrowserSuggestion(e.dataTransfer)) return;
+    if (e.target.closest && e.target.closest('.prop-row')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  });
+  treeRoot.addEventListener('drop', (e) => {
+    const sug = parseBrowserDragPayload(e.dataTransfer);
+    if (!sug) return;
+    if (e.target.closest && e.target.closest('.prop-row')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    addSuggestedPropertyAtPath(sug.key, '', sug.type);
+  });
+}
+
+function initPropsContainerSuggestionDragAffordance() {
+  const panel = document.getElementById('propsContainer');
+  if (!panel || panel.dataset.suggestionAffordanceInit) return;
+  panel.dataset.suggestionAffordanceInit = '1';
+
+  panel.addEventListener('dragenter', (e) => {
+    if (!dataTransferIsBrowserSuggestion(e.dataTransfer)) return;
+    e.preventDefault();
+    panel.classList.add('prop-tree-panel-suggestion-drag-over');
+  });
+  panel.addEventListener('dragover', (e) => {
+    if (!dataTransferIsBrowserSuggestion(e.dataTransfer)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    panel.classList.add('prop-tree-panel-suggestion-drag-over');
+  });
+  panel.addEventListener('dragleave', (e) => {
+    if (!panel.contains(e.relatedTarget)) panel.classList.remove('prop-tree-panel-suggestion-drag-over');
+  });
+  panel.addEventListener('drop', () => {
+    panel.classList.remove('prop-tree-panel-suggestion-drag-over');
+  });
+  document.addEventListener('dragend', () => {
+    panel.classList.remove('prop-tree-panel-suggestion-drag-over');
+  });
+}
+
+function initPropTreeSelectionAndSuggestionDnD() {
+  initPropTreeMultiSelect();
+  initPropTreeRootSuggestionDrop();
+  initPropsContainerSuggestionDragAffordance();
+}
+window.initPropTreeSelectionAndSuggestionDnD = initPropTreeSelectionAndSuggestionDnD;
 

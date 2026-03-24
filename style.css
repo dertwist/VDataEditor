@@ -412,6 +412,13 @@ input,select,textarea,button{font-family:inherit;font-size:inherit;color:inherit
 .prop-row.prop-row-even{background:var(--prop-row-even-bg)}
 .prop-row.prop-row-odd{background:var(--prop-row-odd-bg)}
 .prop-row:hover{background:var(--bg-hover)!important}
+.prop-row.is-selected{
+  outline:1px solid var(--accent);
+  outline-offset:-1px;
+  background:rgba(100,149,237,.12)!important;
+}
+.prop-tree-panel.prop-tree-panel-suggestion-drag-over{box-shadow:inset 0 0 0 1px var(--accent)}
+.property-browser-item:focus-visible{outline:1px solid var(--accent);outline-offset:1px}
 .prop-row[data-depth="1"]{--row-indent-tint:var(--prop-row-depth-1)}
 .prop-row[data-depth="2"]{--row-indent-tint:var(--prop-row-depth-2)}
 .prop-row[data-depth="3"]{--row-indent-tint:var(--prop-row-depth-3)}

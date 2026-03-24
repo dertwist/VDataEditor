@@ -757,6 +757,7 @@ docManager.newDoc(); // fires active-changed → renderAll() syncs manual editor
 initPropTreeSearch();
 if (typeof initPropTreeColumnResize === 'function') initPropTreeColumnResize();
 if (typeof initPropTreePanelContextMenu === 'function') initPropTreePanelContextMenu();
+if (typeof initPropTreeSelectionAndSuggestionDnD === 'function') initPropTreeSelectionAndSuggestionDnD();
 if (typeof initPropertyBrowser === 'function') initPropertyBrowser();
 initHistoryDock();
 initEditorModeSelect();
