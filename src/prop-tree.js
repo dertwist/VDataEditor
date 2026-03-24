@@ -181,27 +181,25 @@ const TYPE_CAST_OPTIONS = {
 const STATIC_TYPE_SUMMARY = new Set(['object', 'array', 'null', 'unknown']);
 const ALL_CAST_TARGETS = ['string', 'int', 'float', 'bool', 'resource', 'soundevent', 'vec2', 'vec3', 'vec4', 'array', 'object'];
 
-function buildTypeBadge(currentType, onCast) {
-  const wrap = document.createElement('span');
-  wrap.className = 'prop-type-icon-badge prop-type-badge-interactive';
-  wrap.title = `Type: ${currentType} (click to change)`;
-  paintTypeBadgeCircle(wrap, currentType, null, '');
-
-  const options = TYPE_CAST_OPTIONS[currentType];
-  if (!options || options.length === 0) {
-    wrap.classList.remove('prop-type-badge-interactive');
-    wrap.removeAttribute('title');
-    wrap.title = currentType;
-    return wrap;
+/** Opens on the key-column type badge; object/array/null/unknown get the full cast list. */
+function attachPropTreeTypeCastToBadge(badgeEl, currentType, onCast) {
+  if (!badgeEl) return;
+  let options;
+  if (STATIC_TYPE_SUMMARY.has(currentType)) {
+    options = ALL_CAST_TARGETS;
+  } else {
+    options = TYPE_CAST_OPTIONS[currentType];
+    if (!options || options.length === 0) return;
   }
-
-  wrap.addEventListener('click', (e) => {
+  badgeEl.classList.add('prop-type-badge-interactive');
+  badgeEl.title = `Type: ${currentType} (click to change)`;
+  badgeEl.addEventListener('click', (e) => {
     e.stopPropagation();
     document.querySelectorAll('.prop-type-dropdown').forEach((el) => el.remove());
 
     const dropdown = document.createElement('div');
     dropdown.className = 'prop-type-dropdown';
-    const rect = wrap.getBoundingClientRect();
+    const rect = badgeEl.getBoundingClientRect();
     dropdown.style.top = rect.bottom + 2 + 'px';
     dropdown.style.left = rect.left + 'px';
 
@@ -221,62 +219,13 @@ function buildTypeBadge(currentType, onCast) {
     document.body.appendChild(dropdown);
 
     const close = (ev) => {
-      if (!dropdown.contains(ev.target) && ev.target !== wrap) {
+      if (!dropdown.contains(ev.target) && ev.target !== badgeEl) {
         dropdown.remove();
         document.removeEventListener('mousedown', close, true);
       }
     };
     setTimeout(() => document.addEventListener('mousedown', close, true), 0);
   });
-
-  return wrap;
-}
-
-function buildForceTypeBadge(currentType, onCast) {
-  // For normal types: keep the existing limited cast dropdown behavior.
-  if (!STATIC_TYPE_SUMMARY.has(currentType)) return buildTypeBadge(currentType, onCast);
-
-  const wrap = document.createElement('span');
-  wrap.className = 'prop-force-type-btn prop-type-badge-interactive';
-  wrap.title = `Type: ${currentType} (click to change)`;
-  wrap.textContent = '⊞';
-
-  wrap.addEventListener('click', (e) => {
-    e.stopPropagation();
-    document.querySelectorAll('.prop-type-dropdown').forEach((el) => el.remove());
-
-    const options = ALL_CAST_TARGETS;
-    const dropdown = document.createElement('div');
-    dropdown.className = 'prop-type-dropdown';
-    const rect = wrap.getBoundingClientRect();
-    dropdown.style.top = rect.bottom + 2 + 'px';
-    dropdown.style.left = rect.left + 'px';
-
-    options.forEach((opt) => {
-      const item = document.createElement('div');
-      item.className = 'prop-type-dropdown-item';
-      item.textContent = opt;
-      item.addEventListener('mousedown', (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        dropdown.remove();
-        onCast(opt);
-      });
-      dropdown.appendChild(item);
-    });
-
-    document.body.appendChild(dropdown);
-
-    const close = (ev) => {
-      if (!dropdown.contains(ev.target) && ev.target !== wrap) {
-        dropdown.remove();
-        document.removeEventListener('mousedown', close, true);
-      }
-    };
-    setTimeout(() => document.addEventListener('mousedown', close, true), 0);
-  });
-
-  return wrap;
 }
 
 function castPropertyType(parentRef, key, value, fromType, toType, arrayIdx) {
@@ -648,6 +597,11 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
   keyIcon.className = 'prop-type-icon-badge';
   keyIcon.title = type;
   paintTypeBadgeCircle(keyIcon, type, value, key);
+  if (type !== 'commented_value' && type !== 'comment_label') {
+    attachPropTreeTypeCastToBadge(keyIcon, type, (newType) => {
+      castPropertyType(parentRef, key, value, type, newType, arrayIdx);
+    });
+  }
 
   const treeNodeIcon = document.createElement('span');
   treeNodeIcon.className = 'prop-tree-node-icon';
@@ -713,14 +667,6 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
     else sum.textContent = type;
     valEl.appendChild(sum);
   }
-  if (type !== 'comment_label' && type !== 'commented_value') {
-    valEl.appendChild(
-      buildForceTypeBadge(type, (newType) => {
-        castPropertyType(parentRef, key, value, type, newType, arrayIdx);
-      })
-    );
-  }
-
   // Slider scrubs update the document live but only push ONE undo entry for the whole drag.
   let sliderScrubActive = false;
   let sliderScrubDidChange = false;
