@@ -25,6 +25,45 @@
 
   var _loadInflight = new Map();
 
+  /** Shared Web Worker for gzip → JSON (schema bundles). */
+  var _schemaWorker = null;
+  var _schemaWorkerSeq = 0;
+  var _schemaWorkerPending = new Map();
+
+  function dispatchSchemaProgress(game, stage) {
+    if (typeof document === 'undefined' || typeof document.dispatchEvent !== 'function') return;
+    try {
+      document.dispatchEvent(new CustomEvent('vdata-schema-progress', { detail: { game: game, stage: stage } }));
+    } catch (_) {}
+  }
+
+  function getSchemaDecompressWorker() {
+    if (_schemaWorker) return _schemaWorker;
+    try {
+      _schemaWorker = new Worker('src/schema/schema-worker.js');
+    } catch (e) {
+      return null;
+    }
+    _schemaWorker.onmessage = function (ev) {
+      var d = ev.data;
+      var cb = _schemaWorkerPending.get(d.id);
+      if (!cb) return;
+      _schemaWorkerPending.delete(d.id);
+      if (d.ok) cb.resolve(d);
+      else cb.reject(new Error(d.error || 'schema worker error'));
+    };
+    _schemaWorker.onerror = function () {
+      _schemaWorkerPending.forEach(function (c) {
+        try {
+          c.reject(new Error('schema worker crashed'));
+        } catch (_) {}
+      });
+      _schemaWorkerPending.clear();
+      _schemaWorker = null;
+    };
+    return _schemaWorker;
+  }
+
   /** Intrinsic / declared_class names → editor widget id */
   const INTRINSIC_WIDGET = new Map([
     ['Vector', 'vec3'],
@@ -185,7 +224,7 @@
    * @param {ArrayBuffer} arrayBuffer
    * @param {{ recordPerf?: boolean }} [perfOpts] recordPerf false for background prefetch (avoid skewing VDataPerf)
    */
-  async function gunzipToJson(arrayBuffer, perfOpts) {
+  async function gunzipToJsonMainThread(arrayBuffer, perfOpts) {
     const recordPerf = !perfOpts || perfOpts.recordPerf !== false;
     const t0 = typeof performance !== 'undefined' && performance.now ? performance.now() : 0;
     const ds = new DecompressionStream('gzip');
@@ -205,6 +244,58 @@
       window.VDataPerf.recordSchemaSteps({ gunzipDecompressMs: decompressMs, gunzipParseMs: parseMs });
     }
     return data;
+  }
+
+  /**
+   * @param {ArrayBuffer} arrayBuffer
+   * @param {{ recordPerf?: boolean }} [perfOpts]
+   */
+  async function gunzipToJsonViaWorker(arrayBuffer, perfOpts) {
+    const recordPerf = !perfOpts || perfOpts.recordPerf !== false;
+    const w = getSchemaDecompressWorker();
+    if (!w) throw new Error('no worker');
+
+    const id = ++_schemaWorkerSeq;
+    return new Promise(function (resolve, reject) {
+      _schemaWorkerPending.set(id, {
+        resolve: function (d) {
+          if (recordPerf && typeof window !== 'undefined' && window.VDataPerf) {
+            window.VDataPerf.mark('schema-decompress-end');
+            window.VDataPerf.mark('schema-parse-end');
+          }
+          if (recordPerf && typeof window !== 'undefined' && window.VDataPerf && d.timing) {
+            window.VDataPerf.recordSchemaSteps({
+              gunzipDecompressMs: d.timing.decompressMs,
+              gunzipParseMs: d.timing.parseMs
+            });
+          }
+          resolve(d.schema);
+        },
+        reject: reject
+      });
+      try {
+        w.postMessage({ id: id, buffer: arrayBuffer }, [arrayBuffer]);
+      } catch (postErr) {
+        _schemaWorkerPending.delete(id);
+        reject(postErr);
+      }
+    });
+  }
+
+  /**
+   * Prefer off-thread decompress + parse; fall back to main thread if Worker unavailable or fails.
+   * @param {ArrayBuffer} arrayBuffer
+   * @param {{ recordPerf?: boolean }} [perfOpts]
+   */
+  async function gunzipToJson(arrayBuffer, perfOpts) {
+    try {
+      return await gunzipToJsonViaWorker(arrayBuffer, perfOpts);
+    } catch (e) {
+      if (typeof console !== 'undefined' && console.debug) {
+        console.debug('[schema-db] gzip worker unavailable or failed, using main thread', e);
+      }
+      return gunzipToJsonMainThread(arrayBuffer, perfOpts);
+    }
   }
 
   async function applyAndMaybeCache(data, game) {
@@ -275,11 +366,14 @@
     const url = SCHEMA_URLS[g];
     if (!url) throw new Error('Unknown game: ' + game);
 
+    dispatchSchemaProgress(g, 'fetch-start');
+
     // Track schema network fetch phase
     if (typeof window !== 'undefined' && window.StartupProfiler) {
       window.StartupProfiler.startPhase('schema-network-' + g, { game: g, forceRefresh: !!forceRefresh });
     }
 
+    dispatchSchemaProgress(g, 'fetching');
     const res = await fetch(url, { cache: forceRefresh ? 'no-cache' : 'default' });
     if (!res.ok) throw new Error('Schema fetch failed: ' + res.status);
 
@@ -288,10 +382,13 @@
     }
 
     const buf = await res.arrayBuffer();
+    dispatchSchemaProgress(g, 'decompressing');
     const data = await gunzipToJson(buf);
+    dispatchSchemaProgress(g, 'applying');
 
     var netRev = await applyAndMaybeCache(data, g);
     recordLoad(g, 'network-gzip');
+    dispatchSchemaProgress(g, 'ready');
 
     if (typeof window !== 'undefined' && window.StartupProfiler) {
       window.StartupProfiler.endPhase();
@@ -344,6 +441,7 @@
       try {
         const cached = await window.VDataSchemaCache.getParsed(g);
         if (cached && typeof cached === 'object' && Array.isArray(cached.classes)) {
+          dispatchSchemaProgress(g, 'cache-hit');
           if (typeof window !== 'undefined' && window.VDataPerf) {
             window.VDataPerf.mark('schema-parse-end');
           }
@@ -432,6 +530,22 @@
   }
 
   /**
+   * Prefetch non-active games in parallel (IndexedDB only; does not change in-memory SchemaDB).
+   * @param {string} activeGame
+   */
+  async function prefetchOtherGamesParallel(activeGame) {
+    var ag = activeGame === 'dota2' || activeGame === 'deadlock' ? activeGame : 'cs2';
+    var others = ['cs2', 'dota2', 'deadlock'].filter(function (id) {
+      return id !== ag;
+    });
+    await Promise.all(
+      others.map(function (g) {
+        return prefetchToCache(g).catch(function () {});
+      })
+    );
+  }
+
+  /**
    * Warm IndexedDB for another game without changing in-memory SchemaDB (for faster game switching).
    * No-op when IndexedDB is unavailable (e.g. some test environments).
    * @param {string} game
@@ -449,30 +563,50 @@
     }
     try {
       const existing = await window.VDataSchemaCache.getParsed(g);
-      if (existing && typeof existing === 'object' && Array.isArray(existing.classes)) return;
+      if (existing && typeof existing === 'object' && Array.isArray(existing.classes)) {
+        dispatchSchemaProgress(g, 'cache-hit');
+        return;
+      }
     } catch (_) {}
 
     if (g === 'deadlock') {
       try {
+        dispatchSchemaProgress(g, 'fetching');
         const res2 = await fetch('schemas/' + g + '.json', { cache: 'default' });
-        if (!res2.ok) return;
+        if (!res2.ok) {
+          dispatchSchemaProgress(g, 'error');
+          return;
+        }
+        dispatchSchemaProgress(g, 'applying');
         const data = await res2.json();
         validateSchemaPayload(data, g);
         await window.VDataSchemaCache.setParsed(g, data);
-      } catch (_) {}
+        dispatchSchemaProgress(g, 'ready');
+      } catch (_) {
+        dispatchSchemaProgress(g, 'error');
+      }
       return;
     }
 
     const url = SCHEMA_URLS[g];
     if (!url) return;
     try {
+      dispatchSchemaProgress(g, 'fetch-start');
+      dispatchSchemaProgress(g, 'fetching');
       const res = await fetch(url, { cache: 'default' });
-      if (!res.ok) return;
+      if (!res.ok) {
+        dispatchSchemaProgress(g, 'error');
+        return;
+      }
       const buf = await res.arrayBuffer();
+      dispatchSchemaProgress(g, 'decompressing');
       const data = await gunzipToJson(buf, { recordPerf: false });
+      dispatchSchemaProgress(g, 'applying');
       validateSchemaPayload(data, g);
       await window.VDataSchemaCache.setParsed(g, data);
+      dispatchSchemaProgress(g, 'ready');
     } catch (e) {
+      dispatchSchemaProgress(g, 'error');
       if (typeof console !== 'undefined' && console.debug) {
         console.debug('[schema-db] prefetchToCache', g, e);
       }
@@ -554,7 +688,8 @@
     listClassNames: listClassNames,
     getRaw: getRaw,
     readCachedMeta: readCachedMeta,
-    prefetchToCache: prefetchToCache
+    prefetchToCache: prefetchToCache,
+    prefetchOtherGamesParallel: prefetchOtherGamesParallel
   };
 
   if (typeof window !== 'undefined') window.SchemaDB = api;

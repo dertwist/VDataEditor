@@ -758,14 +758,11 @@ initMenuBar();
 initTabBar();
 if (typeof window !== 'undefined' && window.StartupProfiler) window.StartupProfiler.endPhase();
 
-if (typeof VDataSuggestions?.initSchemas === 'function') {
-  VDataSuggestions.initSchemas(window.reportSchemaDownloadProgress)
-    .catch(function () {
-      /* offline / fetch errors logged in initSchemas */
-    })
-    .finally(function () {
-      if (typeof setSchemaProgress === 'function') setSchemaProgress(false);
-    });
+if (typeof initSchemaProgressUI === 'function') {
+  initSchemaProgressUI(['cs2', 'dota2', 'deadlock']);
+}
+if (window.VDataPropTreePerf && typeof window.VDataPropTreePerf.initPropTreeLazy === 'function') {
+  window.VDataPropTreePerf.initPropTreeLazy('propTreeRoot');
 }
 
 // Register active-changed BEFORE newDoc() so the first event is caught.
@@ -795,16 +792,6 @@ initPropTreeSearch();
 if (typeof initPropTreeColumnResize === 'function') initPropTreeColumnResize();
 if (typeof initPropTreePanelContextMenu === 'function') initPropTreePanelContextMenu();
 if (typeof initPropTreeSelectionAndSuggestionDnD === 'function') initPropTreeSelectionAndSuggestionDnD();
-(function scheduleInitPropertyBrowser() {
-  function run() {
-    if (typeof initPropertyBrowser === 'function') initPropertyBrowser();
-  }
-  if (typeof requestIdleCallback === 'function') {
-    requestIdleCallback(run, { timeout: 1500 });
-  } else {
-    setTimeout(run, 0);
-  }
-})();
 initHistoryDock();
 initEditorModeSelect();
 initPropertySchemaGameSelect();
@@ -821,6 +808,24 @@ renderAll({ immediateManualSync: true });
 
 if (typeof window !== 'undefined' && window.StartupProfiler) {
   window.StartupProfiler.endPhase();
+}
+
+if (typeof runEditorDeferredInit === 'function') {
+  runEditorDeferredInit({
+    initPropertyBrowser: function () {
+      if (typeof initPropertyBrowser === 'function') initPropertyBrowser();
+    },
+    initSchemas: function () {
+      if (typeof VDataSuggestions?.initSchemas !== 'function') return;
+      VDataSuggestions.initSchemas(window.reportSchemaDownloadProgress)
+        .catch(function () {
+          /* offline / fetch errors logged in initSchemas */
+        })
+        .finally(function () {
+          if (typeof setSchemaProgress === 'function') setSchemaProgress(false);
+        });
+    }
+  });
 }
 
 if (window.electronAPI?.getVersion) {

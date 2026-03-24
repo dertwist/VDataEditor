@@ -1,6 +1,30 @@
 /** Above this UTF-16 length (~byte size for ASCII), first paint skips immediate CodeMirror full-doc sync (still happens debounced). */
 const LARGE_DOCUMENT_UTF16_UNITS = 350_000;
 
+/** Prefer Web Worker parse at or above this size (avoids main-thread stalls on large KV3). */
+const WORKER_PARSE_MIN_UTF16 = 50_000;
+
+async function parseContentMaybeWorker(filePath, content, fileName) {
+  if (
+    typeof window.parseFileContentInWorker === 'function' &&
+    typeof content === 'string' &&
+    content.length >= WORKER_PARSE_MIN_UTF16
+  ) {
+    try {
+      const wr = await window.parseFileContentInWorker(filePath, content);
+      if (typeof console !== 'undefined' && console.debug) {
+        console.debug('[doc-manager] Parsed ' + filePath + ' in ' + wr.parseMs.toFixed(1) + 'ms (worker)');
+      }
+      return wr.parsed;
+    } catch (e) {
+      if (typeof console !== 'undefined' && console.debug) {
+        console.debug('[doc-manager] Worker parse failed, using main thread', e);
+      }
+    }
+  }
+  return parseDocumentContent(content, fileName);
+}
+
 async function yieldToUiForPaint() {
   if (typeof flushStatusToDom === 'function') {
     await flushStatusToDom();
@@ -40,7 +64,11 @@ class DocumentManager extends EventTarget {
   async openFromContent(content, fileName, filePath = null) {
     if (typeof setStatus === 'function') setStatus('Parsing ' + fileName + '…', 'info');
     await yieldToUiForPaint();
-    const { root, format, kv3Header = '' } = parseDocumentContent(content, fileName);
+    const { root, format, kv3Header = '' } = await parseContentMaybeWorker(
+      filePath || fileName,
+      content,
+      fileName
+    );
     if (typeof setStatus === 'function') setStatus('Preparing document…', 'info');
     await yieldToUiForPaint();
     const doc = new VDataDocument({ root, format, filePath, fileName, kv3Header });
@@ -68,7 +96,7 @@ class DocumentManager extends EventTarget {
     const content = await window.electronAPI.readFile(filePath);
     if (typeof setStatus === 'function') setStatus('Parsing ' + fileName + '…', 'info');
     await yieldToUiForPaint();
-    const { root, format, kv3Header = '' } = parseDocumentContent(content, fileName);
+    const { root, format, kv3Header = '' } = await parseContentMaybeWorker(filePath, content, fileName);
     if (typeof setStatus === 'function') setStatus('Preparing document…', 'info');
     await yieldToUiForPaint();
     const doc = new VDataDocument({ root, format, filePath, fileName, kv3Header });

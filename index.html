@@ -170,7 +170,7 @@
       </div>
     </div>
   </div>
-  <div id="schemaProgressWrap" class="schema-progress-wrap" hidden>
+  <div id="schemaProgressWrap" class="schema-progress-wrap" hidden aria-hidden="true">
     <div class="schema-progress-track">
       <div id="schemaProgressBar" class="schema-progress-bar"></div>
     </div>
@@ -185,6 +185,7 @@
     <span id="versionLabel">VDataEditor</span>
   </div>
 </div>
+<div id="schema-progress-root" class="schema-progress-root hidden" aria-live="polite"></div>
 <input type="file" id="fileInput" accept=".json,.vdata,.vsmart,.vpcf,.kv3,.vsurf,.vsndstck,.vsndevts,.vpulse,.vmdl,.vmat,.vmt,.txt" style="display:none">
 <script src="format/kv3.js" defer></script>
 <script src="format/keyvalue.js" defer></script>
@@ -200,6 +201,7 @@
 <script src="vendor/cm.js" defer></script>
 <script src="src/parse-utils.js" defer></script>
 <script src="src/document.js" defer></script>
+<script src="src/file-load-worker-client.js" defer></script>
 <script src="src/document-manager.js" defer></script>
 <script src="src/file-ops.js" defer></script>
 <script src="src/status-bar.js" defer></script>
@@ -212,10 +214,13 @@
   <script src="src/startup-profiler.js" defer></script>
   <script src="src/schema/schema-cache.js" defer></script>
   <script src="src/schema/schema-db.js" defer></script>
+  <script src="src/schema/schema-loader.js" defer></script>
+  <script src="src/schema-progress-ui.js" defer></script>
   <script src="src/modes/runtime-schema-fetcher.js" defer></script>
   <script src="src/modes/suggestions.js" defer></script>
   <script src="src/modes/schema-progress-dialog.js" defer></script>
 <script src="src/prop-tree.js" defer></script>
+<script src="src/prop-tree-perf.js" defer></script>
 <script src="src/manual-editor.js" defer></script>
 <script src="src/menu-bar.js" defer></script>
 <script src="src/tab-bar.js" defer></script>
@@ -246,6 +251,7 @@ document.addEventListener('DOMContentLoaded', function() {
   setIcon('historyClearBtn', ICONS.x);
 });
 </script>
+<script src="src/editor-init-perf.js" defer></script>
 <script src="editor.js" defer></script>
 </body>
 </html>

@@ -8,6 +8,11 @@ const STATUS_STATES = {
 
 /** Thin progress row for long-running tasks (e.g. schema download). */
 function setSchemaProgress(visible, percent, label) {
+  if (document.getElementById('schema-progress-root')) {
+    const wrap = document.getElementById('schemaProgressWrap');
+    if (wrap) wrap.hidden = true;
+    return;
+  }
   const wrap = document.getElementById('schemaProgressWrap');
   const bar = document.getElementById('schemaProgressBar');
   const lbl = document.getElementById('schemaProgressLabel');

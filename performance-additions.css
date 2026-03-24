@@ -1,0 +1,117 @@
+/* Performance-related layout hints (imported from style.css). */
+
+#propTreeRoot.prop-tree,
+.history-dock,
+.property-browser-panel {
+  contain: layout style paint;
+  overflow: auto;
+  will-change: scroll-position;
+}
+
+.menu-bar,
+.tab-bar {
+  contain: layout style;
+}
+
+/*
+  ROW_HEIGHT_PX in src/prop-tree-perf.js is 28px.
+  Optional fixed height when using VDataPropTreePerf virtual rows.
+*/
+.prop-tree-row {
+  height: 28px;
+  line-height: 28px;
+  box-sizing: border-box;
+  contain: layout style;
+}
+
+#propTreeRoot.prop-tree {
+  box-sizing: border-box;
+  position: relative;
+}
+
+.prop-tree-empty {
+  padding: 12px;
+  opacity: 0.5;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.schema-progress-root {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 9999;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.schema-progress-root.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.schema-progress-game {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--popup-bg, #1e1e1e);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-family: var(--ui-font, system-ui, sans-serif);
+  color: var(--text-secondary, #aaa);
+  min-width: 220px;
+}
+
+.schema-progress-label {
+  font-weight: 600;
+  width: 54px;
+  flex-shrink: 0;
+  color: var(--text-primary, #eee);
+}
+
+.schema-progress-track {
+  flex: 1;
+  height: 4px;
+  background: var(--track-bg, #333);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.schema-progress-fill {
+  height: 100%;
+  background: var(--accent-color, #4a9eff);
+  border-radius: 2px;
+  transition: width 0.2s ease;
+  will-change: width;
+}
+
+.schema-progress-fill.schema-progress-done {
+  background: var(--success-color, #4caf50);
+}
+
+.schema-progress-fill.schema-progress-error {
+  background: var(--error-color, #f44336);
+}
+
+.schema-progress-stage {
+  width: 90px;
+  flex-shrink: 0;
+  text-align: right;
+  font-size: 10px;
+  opacity: 0.75;
+}
+
+.prop-tree-chevron {
+  display: inline-block;
+  transition: transform 0.15s ease;
+  will-change: transform;
+}
+
+.prop-tree-row[aria-expanded="true"] .prop-tree-chevron {
+  transform: rotate(90deg);
+}
