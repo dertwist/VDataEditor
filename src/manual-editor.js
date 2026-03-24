@@ -14,6 +14,8 @@
   let _suppressSync = false; // true while CM is being written from model
   let _liveSyncTimer = null;
   let _debounceTimer = null;
+  let _manualEditorModelDirty = false;
+  let _suppressManualDirtyMark = false;
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -313,6 +315,40 @@
       }
     } catch (e) {
       _setStatus('Parse error: ' + e.message, 'error');
+      return;
+    }
+
+    const label =
+      _meFormat === 'json' ? 'Apply JSON' : d.format === 'keyvalue' ? 'Apply KeyValues' : 'Apply KV3';
+
+    withDocUndo(() => {
+      if (_meFormat === 'json') d.format = 'json';
+      d.root = parsed;
+      if (typeof ensureSmartPropRootArrays === 'function') ensureSmartPropRootArrays(d);
+      d.recalcElementIds();
+    }, label);
+
+    _setStatus(label + ' — OK', 'edited');
+  }
+
+  // ── Search / replace ───────────────────────────────────────────────────────
+
+  function toggleMeSearchBar(forceOpen) {
+    const bar = document.getElementById('meSearchBar');
+    if (!bar) return;
+    const open = forceOpen ?? (bar.style.display === 'none');
+    bar.style.display = open ? 'flex' : 'none';
+    if (open) document.getElementById('meSearchInput')?.focus();
+  }
+
+  function _initSearchBridge() {
+    const searchInput = document.getElementById('meSearchInput');
+    const replaceInput = document.getElementById('meReplaceInput');
+    const matchCount = document.getElementById('meMatchCount');
+
+    let _matches = [];
+    let _matchIdx = 0;
+
     function _scan() {
       _matches = [];
       const needle = searchInput?.value ?? '';
@@ -381,6 +417,8 @@
 
   window.resetManualEditor = () => {};
 
+  attachEditorsPanelResizeSync();
+
   window.syncManualEditorTheme = function syncManualEditorTheme() {
     if (!_cmView || !_themeComp) return;
     try {
@@ -392,10 +430,6 @@
   window.syncManualEditor = syncManualEditor;
   window.syncManualEditorDebounced = syncManualEditorDebounced;
   window.applyManualEdit = applyManualEdit;
-  window.toggleMeSearchBar = toggleMeSearchBar;
-  window.initManualEditPanel = () => true;
-})();
-
   window.toggleMeSearchBar = toggleMeSearchBar;
   window.initManualEditPanel = () => true;
 })();
