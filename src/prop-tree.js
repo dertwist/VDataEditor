@@ -178,12 +178,14 @@ function inferType(key, value) {
   if (typeof value === 'string') {
     if (value.startsWith('resource_name:')) return 'resource';
     if (value.startsWith('soundevent:')) return 'soundevent';
+    if (value.startsWith('panorama:')) return 'panorama';
     return 'string';
   }
   if (typeof value === 'object' && !Array.isArray(value)) {
     const keysOk = (o) => Object.keys(o).every((k) => k === 'type' || k === 'value');
     if (value.type === 'resource_name' && typeof value.value === 'string' && keysOk(value)) return 'resource';
     if (value.type === 'soundevent' && typeof value.value === 'string' && keysOk(value)) return 'soundevent';
+    if (value.type === 'panorama' && typeof value.value === 'string' && keysOk(value)) return 'panorama';
   }
   if (Array.isArray(value)) {
     if (isVec4Array(key, value)) return 'vec4';
@@ -241,19 +243,33 @@ function resolveRowWidgetType(key, value, parentObj) {
 }
 
 const TYPE_CAST_OPTIONS = {
-  string: ['int', 'float', 'bool', 'resource', 'soundevent'],
+  string: ['int', 'float', 'bool', 'resource', 'soundevent', 'panorama'],
   int: ['float', 'string', 'bool'],
   float: ['int', 'string', 'bool'],
   bool: ['int', 'string'],
-  resource: ['string', 'soundevent'],
-  soundevent: ['string', 'resource'],
+  resource: ['string', 'soundevent', 'panorama'],
+  soundevent: ['string', 'resource', 'panorama'],
+  panorama: ['string', 'resource', 'soundevent'],
   vec2: ['vec3', 'vec4', 'array', 'string'],
   vec3: ['vec2', 'vec4', 'array', 'string'],
   vec4: ['vec2', 'vec3', 'array', 'string']
 };
 
 const STATIC_TYPE_SUMMARY = new Set(['object', 'array', 'null', 'unknown']);
-const ALL_CAST_TARGETS = ['string', 'int', 'float', 'bool', 'resource', 'soundevent', 'vec2', 'vec3', 'vec4', 'array', 'object'];
+const ALL_CAST_TARGETS = [
+  'string',
+  'int',
+  'float',
+  'bool',
+  'resource',
+  'soundevent',
+  'panorama',
+  'vec2',
+  'vec3',
+  'vec4',
+  'array',
+  'object'
+];
 
 /** Opens on the key-column type badge; object/array/null/unknown get the full cast list. */
 function attachPropTreeTypeCastToBadge(badgeEl, currentType, onCast) {
@@ -326,18 +342,42 @@ function castPropertyType(parentRef, key, value, fromType, toType, arrayIdx) {
       case 'string':
         if (fromType === 'resource') newValue = typedResourceDisplay(value, 'resource_name');
         else if (fromType === 'soundevent') newValue = typedResourceDisplay(value, 'soundevent');
+        else if (fromType === 'panorama') newValue = typedResourceDisplay(value, 'panorama');
         else newValue = String(value);
         break;
       case 'resource':
         newValue = {
           type: 'resource_name',
-          value: typeof value === 'string' ? value : typedResourceDisplay(value, 'resource_name') || ''
+          value:
+            typeof value === 'string'
+              ? value
+              : fromType === 'panorama'
+                ? typedResourceDisplay(value, 'panorama') || ''
+                : typedResourceDisplay(value, 'resource_name') || ''
         };
         break;
       case 'soundevent':
         newValue = {
           type: 'soundevent',
-          value: typeof value === 'string' ? value : typedResourceDisplay(value, 'soundevent') || ''
+          value:
+            typeof value === 'string'
+              ? value
+              : fromType === 'panorama'
+                ? typedResourceDisplay(value, 'panorama') || ''
+                : typedResourceDisplay(value, 'soundevent') || ''
+        };
+        break;
+      case 'panorama':
+        newValue = {
+          type: 'panorama',
+          value:
+            typeof value === 'string'
+              ? value
+              : fromType === 'resource'
+                ? typedResourceDisplay(value, 'resource_name') || ''
+                : fromType === 'soundevent'
+                  ? typedResourceDisplay(value, 'soundevent') || ''
+                  : typedResourceDisplay(value, 'panorama') || ''
         };
         break;
       case 'vec2': {
@@ -959,6 +999,9 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
     case 'soundevent':
       buildResourceWidget(valEl, value, 'soundevent', onScalarChange);
       break;
+    case 'panorama':
+      buildResourceWidget(valEl, value, 'panorama', onScalarChange);
+      break;
     case 'color':
       buildColorWidget(valEl, value, onScalarChange);
       break;
@@ -1247,6 +1290,7 @@ function showAddKeyDialog(parentRef, parentObjectPath) {
             <option value="color">color</option>
             <option value="resource">resource</option>
             <option value="soundevent">soundevent</option>
+            <option value="panorama">panorama</option>
           </select>
         </div>
         <div class="modal-row" style="margin-top:8px;justify-content:flex-end;gap:8px">
@@ -1300,6 +1344,8 @@ function showAddKeyDialog(parentRef, parentObjectPath) {
         return { type: 'resource_name', value: '' };
       case 'soundevent':
         return { type: 'soundevent', value: '' };
+      case 'panorama':
+        return { type: 'panorama', value: '' };
       default:
         return '';
     }
@@ -2239,7 +2285,8 @@ function buildResourceWidget(container, value, prefix, onChange) {
   btn.type = 'button';
   btn.className = 'prop-resource-btn';
   btn.textContent = prefix === 'soundevent' ? '🔊' : '📁';
-  btn.title = prefix === 'soundevent' ? 'Pick sound asset' : 'Pick resource file';
+  btn.title =
+    prefix === 'soundevent' ? 'Pick sound asset' : prefix === 'panorama' ? 'Panorama path' : 'Pick resource file';
   btn.addEventListener('click', async () => {
     if (!window.electronAPI?.pickResourceFile) return;
     const doc = docManager.activeDoc;
@@ -2249,7 +2296,14 @@ function buildResourceWidget(container, value, prefix, onChange) {
     const filters =
       prefix === 'soundevent'
         ? [{ name: 'Sound', extensions: ['vsndevts', 'vsndstck', 'wav', 'mp3'] }]
-        : [{ name: 'Models / particles / materials', extensions: ['vmdl', 'vpcf', 'vnmskel', 'vmat', 'vmdl_c'] }];
+        : prefix === 'panorama'
+          ? [
+              {
+                name: 'Images / layouts',
+                extensions: ['png', 'jpg', 'jpeg', 'psd', 'svg', 'vgui', 'xml']
+              }
+            ]
+          : [{ name: 'Models / particles / materials', extensions: ['vmdl', 'vpcf', 'vnmskel', 'vmat', 'vmdl_c'] }];
     const rel = await window.electronAPI.pickResourceFile({
       defaultPath: baseDir,
       relativeTo: baseDir,
@@ -2683,6 +2737,8 @@ function defaultValueForPropertyType(t) {
       return { type: 'resource_name', value: '' };
     case 'soundevent':
       return { type: 'soundevent', value: '' };
+    case 'panorama':
+      return { type: 'panorama', value: '' };
     default:
       return '';
   }
@@ -2691,7 +2747,21 @@ function defaultValueForPropertyType(t) {
 function inferPropertyTypeFromSuggestion(suggestion) {
   if (!suggestion) return 'string';
   const st = suggestion.type;
-  if (st === 'bool' || st === 'int' || st === 'float' || st === 'vec2' || st === 'vec3' || st === 'vec4' || st === 'color' || st === 'resource' || st === 'soundevent' || st === 'array' || st === 'object') return st;
+  if (
+    st === 'bool' ||
+    st === 'int' ||
+    st === 'float' ||
+    st === 'vec2' ||
+    st === 'vec3' ||
+    st === 'vec4' ||
+    st === 'color' ||
+    st === 'resource' ||
+    st === 'soundevent' ||
+    st === 'panorama' ||
+    st === 'array' ||
+    st === 'object'
+  )
+    return st;
   return 'string';
 }
 

@@ -1,0 +1,5 @@
+<!-- kv3 encoding:text -->
+{
+	m_strAbilityImage = panorama:"file://{images}/hud/abilities/weapon_damage.psd"
+	m_note = "brace } inside quoted string still works"
+}

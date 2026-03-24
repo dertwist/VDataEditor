@@ -16,7 +16,9 @@ describe('KV3 fixture corpus round-trip', () => {
     'toolscenelightrigs.kv3',
     'weapons.kv3',
     'particle.vpcf',
-    'light_styles.kv3'
+    'light_styles.kv3',
+    'panorama_typed.kv3',
+    'block_comment.kv3'
   ];
 
   for (const name of fixtures) {

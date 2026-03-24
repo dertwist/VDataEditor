@@ -1,0 +1,14 @@
+// THIS FILE IS AUTO-GENERATED
+
+Layer0
+{
+	shader "sky.vfx"
+
+	//---- Format ----
+	F_TEXTURE_FORMAT2 2 // HDR (float16)
+
+	//---- Texture ----
+	g_flBrightnessExposureBias "0.000"
+	g_flRenderOnlyExposureBias "0.000"
+	SkyTexture "materials/sky/qwantani_dusk_2_puresky_4k.exr"
+}

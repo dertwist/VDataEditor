@@ -1,0 +1,128 @@
+// THIS FILE IS AUTO-GENERATED
+
+Layer0
+{
+	shader "csgo_environment_blend.vfx"
+
+	//---- Color ----
+	g_flBlendSoftnessDistanceModifierStrength "1.000"
+	g_flModelTintAmount "1.000"
+	g_nScaleTexCoord2UByModelScaleAxis "0" // None
+	g_nScaleTexCoord2VByModelScaleAxis "0" // None
+	g_nScaleTexCoordUByModelScaleAxis "0" // None
+	g_nScaleTexCoordVByModelScaleAxis "0" // None
+	g_vColorTint "[1.000000 1.000000 1.000000 1.000000]"
+
+	//---- Fog ----
+	g_bFogEnabled "1"
+
+	//---- Layer 1 ----
+	// [inherited from layer] g_bMetalness1 "1.000000"
+	// [inherited from layer] g_bModelTint1 "1.000000"
+	// [inherited from layer] g_flHeightMapScale1 "1.000000"
+	// [inherited from layer] g_flHeightMapZeroPoint1 "0.500000"
+	// [inherited from layer] g_flTexCoordRotation1 "0.000031"
+	g_fTextureColorBrightness1 "0.256"
+	g_fTextureColorContrast1 "1.288"
+	g_fTextureColorSaturation1 "1.305"
+	// [inherited from layer] g_fTextureNormalContrast1 "1.000000"
+	// [inherited from layer] g_fTextureRoughnessBrightness1 "1.000000"
+	// [inherited from layer] g_fTextureRoughnessContrast1 "1.000000"
+	// [inherited from layer] g_fTintMaskBrightness1 "1.000000"
+	// [inherited from layer] g_fTintMaskContrast1 "1.000000"
+	// [inherited from layer] g_nColorCorrectionMode1 "0.000000"
+	// [inherited from layer] g_nUVSet1 "1.000000"
+	// [inherited from layer] g_nVertexColorMode1 "0.000000"
+	// [inherited from layer] g_vAmbientOcclusionLevels1 "[0.000000 0.500000 1.000000]"
+	// [inherited from layer] g_vTexCoordCenter1 "[0.500000 0.500000]"
+	// [inherited from layer] g_vTexCoordOffset1 "[0.000000 0.000000]"
+	// [inherited from layer] g_vTexCoordScale1 "[1.000000 1.000000]"
+	g_vTextureColorTint1 "[0.047059 0.121569 0.039216 0.000000]"
+
+	//---- Layer 2 ----
+	// [inherited from layer] g_bMetalness2 "1.000000"
+	// [inherited from layer] g_bModelTint2 "1.000000"
+	// [inherited from layer] g_flAOCombine2 "0.000000"
+	// [inherited from layer] g_flAOReplace2 "1.000000"
+	// [inherited from layer] g_flBlendSoftness2 "0.010000"
+	// [inherited from layer] g_flColorOverlay2 "0.000000"
+	// [inherited from layer] g_flColorReplace2 "1.000000"
+	// [inherited from layer] g_flHeightMapScale2 "1.000000"
+	// [inherited from layer] g_flHeightMapZeroPoint2 "0.500000"
+	// [inherited from layer] g_flMaskWithHeight2 "0.000000"
+	// [inherited from layer] g_flMetalnessCombine2 "0.000000"
+	// [inherited from layer] g_flMetalnessReplace2 "1.000000"
+	// [inherited from layer] g_flNormalCombine2 "0.000000"
+	// [inherited from layer] g_flNormalReplace2 "1.000000"
+	// [inherited from layer] g_flRoughnessCombine2 "0.000000"
+	// [inherited from layer] g_flRoughnessReplace2 "1.000000"
+	// [inherited from layer] g_flTexCoordRotation2 "0.000031"
+	g_fTextureColorBrightness2 "0.168"
+	// [inherited from layer] g_fTextureColorContrast2 "1.000000"
+	// [inherited from layer] g_fTextureColorSaturation2 "1.000000"
+	// [inherited from layer] g_fTextureNormalContrast2 "1.000000"
+	// [inherited from layer] g_fTextureRoughnessBrightness2 "1.000000"
+	// [inherited from layer] g_fTextureRoughnessContrast2 "1.000000"
+	// [inherited from layer] g_fTintMaskBrightness2 "1.000000"
+	// [inherited from layer] g_fTintMaskContrast2 "1.000000"
+	// [inherited from layer] g_nColorCorrectionMode2 "0.000000"
+	// [inherited from layer] g_nUVSet2 "1.000000"
+	// [inherited from layer] g_nVertexColorMode2 "0.000000"
+	// [inherited from layer] g_vAmbientOcclusionLevels2 "[0.000000 0.500000 1.000000]"
+	// [inherited from layer] g_vTexCoordCenter2 "[0.500000 0.500000]"
+	// [inherited from layer] g_vTexCoordOffset2 "[0.000000 0.000000]"
+	// [inherited from layer] g_vTexCoordScale2 "[1.000000 1.000000]"
+	g_vTextureColorTint2 "[0.227451 0.172549 0.117647 0.000000]"
+
+	//---- Texture Address Mode ----
+	g_nTextureAddressModeU "0" // Wrap
+	g_nTextureAddressModeV "0" // Wrap
+
+	// Material Layer References
+	MaterialLayers
+	{
+		MaterialLayerReference_1 "materials/dev/gray_grid.vmat"
+		MaterialLayerReference_2 "materials/dev/gray_grid.vmat"
+	}
+
+	SystemAttributes
+	{
+		PhysicsSurfaceProperties "concrete_block"
+		PhysicsSurfaceProperties1 "grass"
+		PhysicsSurfaceProperties2 "gravel"
+		DetailPropType_1 "grass"
+	}
+
+
+	VariableState
+	{
+		"Color"
+		{
+		}
+		"Fog"
+		{
+		}
+		"Layer 1"
+		{
+			"Tint Mask" 0
+			"Color Correction" 0
+			"Lighting" 0
+			"Height" 0
+			"Texture Coordinates" 0
+			"Texture Transform" 1
+		}
+		"Layer 2"
+		{
+			"Tint Mask" 0
+			"Color Correction" 0
+			"Lighting" 0
+			"Height" 0
+			"Texture Coordinates" 0
+			"Texture Transform" 1
+			"Selective Blending" 0
+		}
+		"Texture Address Mode"
+		{
+		}
+	}
+}

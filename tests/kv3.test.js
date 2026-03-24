@@ -81,6 +81,27 @@ describe('KV3 format', () => {
     expect(parsed).toEqual(obj);
   });
 
+  it('parses panorama: paths with {tokens} in the string (not truncated as a bare literal)', () => {
+    const text = `{ m_strAbilityImage = panorama:"file://{images}/hud/abilities/weapon_damage.psd" }`;
+    const parsed = KV3Format.kv3ToJSON(text);
+    expect(parsed.m_strAbilityImage).toEqual({
+      type: 'panorama',
+      value: 'file://{images}/hud/abilities/weapon_damage.psd'
+    });
+  });
+
+  it('round-trips panorama typed values', () => {
+    const obj = {
+      m_strAbilityImage: {
+        type: 'panorama',
+        value: 'file://{images}/hud/abilities/weapon_damage.psd'
+      }
+    };
+    const kv3 = KV3Format.jsonToKV3(obj);
+    expect(kv3).toContain('m_strAbilityImage = panorama:"file://{images}/hud/abilities/weapon_damage.psd"');
+    expect(KV3Format.kv3ToJSON(kv3)).toEqual(obj);
+  });
+
   it('serializes numeric arrays inline', () => {
     const obj = {
       position: [1, 2, 3]
@@ -184,6 +205,52 @@ describe('KV3 format', () => {
     const out = KV3Format.jsonToKV3(parsed);
     expect(out).toContain('// head');
     expect(out).toContain('// middle');
+  });
+
+  it('skips block comments (commas and colons inside must not hang)', () => {
+    const text = `<!-- kv3 encoding:text -->
+{
+  a = 1
+  /*
+   foo , bar
+   x: y, z
+  */
+  b = 2
+}`;
+    const parsed = KV3Format.kv3ToJSON(text);
+    expect(parsed.a).toBe(1);
+    expect(parsed.b).toBe(2);
+  });
+
+  it('skips block comments inside nested objects and parses keys after', () => {
+    const text = `<!-- kv3 encoding:text -->
+{
+  outer = {
+    _class = "modifier_base"
+    /*
+      prose, with commas: and colons
+      TestValue2
+    */
+    m_strParticleEffect = resource_name:"particles/test.vpcf"
+    m_strConfig = "normal"
+  }
+}`;
+    const parsed = KV3Format.kv3ToJSON(text);
+    expect(parsed.outer._class).toBe('modifier_base');
+    expect(parsed.outer.m_strParticleEffect).toEqual({ type: 'resource_name', value: 'particles/test.vpcf' });
+    expect(parsed.outer.m_strConfig).toBe('normal');
+  });
+
+  it('skips block comments between array elements', () => {
+    const text = `{
+  list = [
+    "a"
+    /* , junk */
+    "b"
+  ]
+}`;
+    const parsed = KV3Format.kv3ToJSON(text);
+    expect(parsed.list).toEqual(['a', 'b']);
   });
 });
 

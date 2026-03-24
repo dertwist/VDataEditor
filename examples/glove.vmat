@@ -1,0 +1,310 @@
+// THIS FILE IS AUTO-GENERATED
+
+Layer0
+{
+	shader "csgo_customglove_preview.vfx"
+
+	//---- Composite Inputs ----
+	g_fDamageTexCoordRotation "0.000"
+	g_fGrimeTexCoordRotation "0.000"
+	g_flSheenScale "0.667"
+	g_fWearProgress "0.000"
+	g_vDamageTexCoordOffset "[0.000 0.000]"
+	g_vGrimeTexCoordOffset "[0.000 0.000]"
+	g_vId1Color "[1.000000 1.000000 1.000000 1.000000]"
+	g_vId2Color "[1.000000 1.000000 1.000000 1.000000]"
+	g_vId3Color "[1.000000 1.000000 1.000000 1.000000]"
+	g_vId4Color "[1.000000 1.000000 1.000000 1.000000]"
+	g_vId5Color "[1.000000 1.000000 1.000000 1.000000]"
+	g_vId6Color "[1.000000 1.000000 1.000000 1.000000]"
+	g_vId7Color "[1.000000 1.000000 1.000000 1.000000]"
+	g_vId8Color "[1.000000 1.000000 1.000000 1.000000]"
+	TextureObjectAmbientOcclusion "characters/models/shared/arms/glove_sporty/materials/sporty_glove_ao.psd"
+	TextureObjectCurvature "materials/default/default.tga"
+	TextureObjectHighTouchMask "materials/default/default_mask.tga"
+	TextureObjectMaterialId "materials/default/default.tga"
+	TextureObjectNormal "characters/models/shared/arms/glove_sporty/materials/sporty_glove_normal.tga"
+	TextureObjectTintId "materials/default/default.tga"
+
+	//---- Fog ----
+	g_bFogEnabled "1"
+
+	//---- Layer 1 ----
+	// [inherited from layer] g_bDamageBevelUseTintMask1 "0.000000"
+	// [inherited from layer] g_fBurnishingCloth1 "0.000000"
+	// [inherited from layer] g_fBurnishingColorBrightness1 "1.000000"
+	// [inherited from layer] g_fBurnishingColorContrast1 "1.000000"
+	// [inherited from layer] g_fBurnishingColorSaturation1 "1.000000"
+	// [inherited from layer] g_fBurnishingMetalness1 "0.000000"
+	// [inherited from layer] g_fBurnishingNormalScale1 "1.000000"
+	// [inherited from layer] g_fBurnishingRoughnessBrightness1 "1.000000"
+	// [inherited from layer] g_fDamageBevelAnisotropy1 "0.000000"
+	// [inherited from layer] g_fDamageBevelBlendSoftness1 "0.500000"
+	// [inherited from layer] g_fDamageBevelCloth1 "0.000000"
+	// [inherited from layer] g_fDamageBevelColorBrightness1 "1.000000"
+	// [inherited from layer] g_fDamageBevelColorContrast1 "1.000000"
+	// [inherited from layer] g_fDamageBevelColorSaturation1 "1.000000"
+	// [inherited from layer] g_fDamageBevelEmboss1 "1.000000"
+	// [inherited from layer] g_fDamageBevelMetalness1 "0.000000"
+	// [inherited from layer] g_fDamageBevelRoughnessBrightness1 "1.000000"
+	// [inherited from layer] g_fDamageHeightBlendSoftness1 "0.010000"
+	// [inherited from layer] g_fDamageUvScale1 "4.000001"
+	// [inherited from layer] g_fGrimeRoughnessBrightness1 "1.000000"
+	// [inherited from layer] g_fGrimeTranslucency1 "0.500000"
+	// [inherited from layer] g_fGrimeUvScale1 "4.000001"
+	// [inherited from layer] g_fSubstrateColorBrightness1 "1.000000"
+	// [inherited from layer] g_fSubstrateColorContrast1 "1.000000"
+	// [inherited from layer] g_fSubstrateColorSaturation1 "1.000000"
+	// [inherited from layer] g_fSubstrateCompositeColorTranslucency1 "0.500000"
+	// [inherited from layer] g_fSurfaceColorBrightness1 "1.000000"
+	// [inherited from layer] g_fSurfaceColorContrast1 "1.000000"
+	// [inherited from layer] g_fSurfaceColorSaturation1 "1.000000"
+	// [inherited from layer] g_fUvScale1 "4.000001"
+	// [inherited from layer] g_vBurnishingColorTint1 "[1.000000 1.000000 1.000000 0.000000]"
+	// [inherited from layer] g_vDamageBevelColorTint1 "[1.000000 1.000000 1.000000 0.000000]"
+	// [inherited from layer] g_vDamageMinMax1 "[0.000000 1.000000]"
+	// [inherited from layer] g_vSubstrateBurnishingMinMax1 "[0.000000 1.000000]"
+	// [inherited from layer] g_vSubstrateColorTint1 "[1.000000 1.000000 1.000000 0.000000]"
+	// [inherited from layer] g_vSubstrateGrimeMinMax1 "[0.000000 1.000000]"
+	// [inherited from layer] g_vSurfaceBurnishingMinMax1 "[0.000000 1.000000]"
+	// [inherited from layer] g_vSurfaceColorTint1 "[1.000000 1.000000 1.000000 0.000000]"
+	// [inherited from layer] g_vSurfaceGrimeMinMax1 "[0.000000 1.000000]"
+	// [inherited from layer] g_vUvOffset1 "[0.000000 0.000000]"
+	// [inherited from layer] TextureDamageHeight1 "materials\default\default_height.tga"
+	// [inherited from layer] TextureGrime1 "materials\default\default_color.tga"
+	// [inherited from layer] TextureSubstrateAlbedo1 "materials\default\default_color.tga"
+	// [inherited from layer] TextureSubstrateAmbientOcclusion1 "materials\default\default_ao.tga"
+	// [inherited from layer] TextureSubstrateClothMask1 "materials\default\default_black_mask.tga"
+	// [inherited from layer] TextureSubstrateHeight1 "materials\default\default_height.tga"
+	// [inherited from layer] TextureSubstrateMetalness1 "materials\default\default_metal.tga"
+	// [inherited from layer] TextureSubstrateNormal1 "materials\default\default_normal.tga"
+	// [inherited from layer] TextureSubstrateRoughness1 "materials\default\default_rough.tga"
+	// [inherited from layer] TextureSubstrateTintMask1 "materials\default\default_mask.tga"
+	// [inherited from layer] TextureSurfaceAlbedo1 "materials\default\default_color.tga"
+	// [inherited from layer] TextureSurfaceAmbientOcclusion1 "materials\default\default_ao.tga"
+	// [inherited from layer] TextureSurfaceClothMask1 "materials\default\default_black_mask.tga"
+	// [inherited from layer] TextureSurfaceHeight1 "materials\default\default_height.tga"
+	// [inherited from layer] TextureSurfaceMetalness1 "materials\default\default_metal.tga"
+	// [inherited from layer] TextureSurfaceNormal1 "materials\default\default_normal.tga"
+	// [inherited from layer] TextureSurfaceRoughness1 "materials\default\default_rough.tga"
+	// [inherited from layer] TextureSurfaceTintMask1 "materials\default\default_mask.tga"
+
+	//---- Layer 2 ----
+	// [inherited from layer] g_fBurnishingCloth2 "0.000000"
+	// [inherited from layer] g_fBurnishingColorBrightness2 "1.000000"
+	// [inherited from layer] g_fBurnishingColorContrast2 "1.000000"
+	// [inherited from layer] g_fBurnishingColorSaturation2 "1.000000"
+	// [inherited from layer] g_fBurnishingMetalness2 "0.000000"
+	// [inherited from layer] g_fDamageBevelAnisotropy2 "0.000000"
+	// [inherited from layer] g_fDamageBevelCloth2 "0.000000"
+	// [inherited from layer] g_fDamageBevelColorBrightness2 "1.000000"
+	// [inherited from layer] g_fDamageBevelColorContrast2 "1.000000"
+	// [inherited from layer] g_fDamageBevelColorSaturation2 "1.000000"
+	// [inherited from layer] g_fDamageBevelMetalness2 "0.000000"
+	// [inherited from layer] g_fDamageBevelRoughnessBrightness2 "1.000000"
+	// [inherited from layer] g_fDamageUvScale2 "4.000001"
+	// [inherited from layer] g_fGrimeRoughnessBrightness2 "1.000000"
+	// [inherited from layer] g_fGrimeTranslucency2 "0.500000"
+	// [inherited from layer] g_fGrimeUvScale2 "4.000001"
+	// [inherited from layer] g_fSubstrateColorBrightness2 "1.000000"
+	// [inherited from layer] g_fSubstrateColorContrast2 "1.000000"
+	// [inherited from layer] g_fSubstrateColorSaturation2 "1.000000"
+	// [inherited from layer] g_fSubstrateCompositeColorTranslucency2 "0.500000"
+	// [inherited from layer] g_fSurfaceColorBrightness2 "1.000000"
+	// [inherited from layer] g_fSurfaceColorContrast2 "1.000000"
+	// [inherited from layer] g_fSurfaceColorSaturation2 "1.000000"
+	// [inherited from layer] g_fUvScale2 "4.000001"
+	// [inherited from layer] g_vBurnishingColorTint2 "[1.000000 1.000000 1.000000 0.000000]"
+	// [inherited from layer] g_vDamageBevelColorTint2 "[1.000000 1.000000 1.000000 0.000000]"
+	// [inherited from layer] g_vDamageMinMax2 "[0.000000 1.000000]"
+	// [inherited from layer] g_vSubstrateBurnishingMinMax2 "[0.000000 1.000000]"
+	// [inherited from layer] g_vSubstrateColorTint2 "[1.000000 1.000000 1.000000 0.000000]"
+	// [inherited from layer] g_vSubstrateGrimeMinMax2 "[0.000000 1.000000]"
+	// [inherited from layer] g_vSurfaceBurnishingMinMax2 "[0.000000 1.000000]"
+	// [inherited from layer] g_vSurfaceColorTint2 "[1.000000 1.000000 1.000000 0.000000]"
+	// [inherited from layer] g_vSurfaceGrimeMinMax2 "[0.000000 1.000000]"
+	// [inherited from layer] g_vUvOffset2 "[0.000000 0.000000]"
+	// [inherited from layer] TextureDamageHeight2 "materials\default\default_height.tga"
+	// [inherited from layer] TextureGrime2 "materials\default\default_color.tga"
+	// [inherited from layer] TextureSubstrateAlbedo2 "materials\default\default_color.tga"
+	// [inherited from layer] TextureSubstrateAmbientOcclusion2 "materials\default\default_ao.tga"
+	// [inherited from layer] TextureSubstrateClothMask2 "materials\default\default_black_mask.tga"
+	// [inherited from layer] TextureSubstrateHeight2 "materials\default\default_height.tga"
+	// [inherited from layer] TextureSubstrateMetalness2 "materials\default\default_metal.tga"
+	// [inherited from layer] TextureSubstrateTintMask2 "materials\default\default_mask.tga"
+	// [inherited from layer] TextureSurfaceAlbedo2 "materials\default\default_color.tga"
+	// [inherited from layer] TextureSurfaceAmbientOcclusion2 "materials\default\default_ao.tga"
+	// [inherited from layer] TextureSurfaceClothMask2 "materials\default\default_black_mask.tga"
+	// [inherited from layer] TextureSurfaceHeight2 "materials\default\default_height.tga"
+	// [inherited from layer] TextureSurfaceMetalness2 "materials\default\default_metal.tga"
+	// [inherited from layer] TextureSurfaceNormal2 "materials\default\default_normal.tga"
+	// [inherited from layer] TextureSurfaceRoughness2 "materials\default\default_rough.tga"
+	// [inherited from layer] TextureSurfaceTintMask2 "materials\default\default_mask.tga"
+
+	//---- Layer 3 ----
+	// [inherited from layer] g_fBurnishingCloth3 "0.000000"
+	// [inherited from layer] g_fBurnishingColorBrightness3 "1.000000"
+	// [inherited from layer] g_fBurnishingColorContrast3 "1.000000"
+	// [inherited from layer] g_fBurnishingColorSaturation3 "1.000000"
+	// [inherited from layer] g_fBurnishingMetalness3 "0.000000"
+	// [inherited from layer] g_fDamageBevelAnisotropy3 "0.000000"
+	// [inherited from layer] g_fDamageBevelCloth3 "0.000000"
+	// [inherited from layer] g_fDamageBevelColorBrightness3 "1.000000"
+	// [inherited from layer] g_fDamageBevelColorContrast3 "1.000000"
+	// [inherited from layer] g_fDamageBevelColorSaturation3 "1.000000"
+	// [inherited from layer] g_fDamageBevelMetalness3 "0.000000"
+	// [inherited from layer] g_fDamageBevelRoughnessBrightness3 "1.000000"
+	// [inherited from layer] g_fDamageUvScale3 "4.000001"
+	// [inherited from layer] g_fGrimeRoughnessBrightness3 "1.000000"
+	// [inherited from layer] g_fGrimeTranslucency3 "0.500000"
+	// [inherited from layer] g_fGrimeUvScale3 "4.000001"
+	// [inherited from layer] g_fSubstrateColorBrightness3 "1.000000"
+	// [inherited from layer] g_fSubstrateColorContrast3 "1.000000"
+	// [inherited from layer] g_fSubstrateColorSaturation3 "1.000000"
+	// [inherited from layer] g_fSubstrateCompositeColorTranslucency3 "0.500000"
+	// [inherited from layer] g_fUvScale3 "4.000001"
+	// [inherited from layer] g_vBurnishingColorTint3 "[1.000000 1.000000 1.000000 0.000000]"
+	// [inherited from layer] g_vDamageBevelColorTint3 "[1.000000 1.000000 1.000000 0.000000]"
+	// [inherited from layer] g_vDamageMinMax3 "[0.000000 1.000000]"
+	// [inherited from layer] g_vSubstrateBurnishingMinMax3 "[0.000000 1.000000]"
+	// [inherited from layer] g_vSubstrateColorTint3 "[1.000000 1.000000 1.000000 0.000000]"
+	// [inherited from layer] g_vSubstrateGrimeMinMax3 "[0.000000 1.000000]"
+	// [inherited from layer] g_vSurfaceBurnishingMinMax3 "[0.000000 1.000000]"
+	// [inherited from layer] g_vSurfaceGrimeMinMax3 "[0.000000 1.000000]"
+	// [inherited from layer] g_vUvOffset3 "[0.000000 0.000000]"
+	// [inherited from layer] TextureDamageHeight3 "materials\default\default_height.tga"
+	// [inherited from layer] TextureGrime3 "materials\default\default_color.tga"
+	// [inherited from layer] TextureSubstrateAlbedo3 "materials\default\default_color.tga"
+	// [inherited from layer] TextureSubstrateAmbientOcclusion3 "materials\default\default_ao.tga"
+	// [inherited from layer] TextureSubstrateClothMask3 "materials\default\default_black_mask.tga"
+	// [inherited from layer] TextureSubstrateHeight3 "materials\default\default_height.tga"
+	// [inherited from layer] TextureSubstrateMetalness3 "materials\default\default_metal.tga"
+	// [inherited from layer] TextureSubstrateTintMask3 "materials\default\default_mask.tga"
+	// [inherited from layer] TextureSurfaceAlbedo3 "materials\default\default_color.tga"
+	// [inherited from layer] TextureSurfaceAmbientOcclusion3 "materials\default\default_ao.tga"
+	// [inherited from layer] TextureSurfaceClothMask3 "materials\default\default_black_mask.tga"
+	// [inherited from layer] TextureSurfaceHeight3 "materials\default\default_height.tga"
+	// [inherited from layer] TextureSurfaceMetalness3 "materials\default\default_metal.tga"
+	// [inherited from layer] TextureSurfaceNormal3 "materials\default\default_normal.tga"
+	// [inherited from layer] TextureSurfaceRoughness3 "materials\default\default_rough.tga"
+	// [inherited from layer] TextureSurfaceTintMask3 "materials\default\default_mask.tga"
+
+	//---- Layer 4 ----
+	// [inherited from layer] g_fBurnishingCloth4 "0.000000"
+	// [inherited from layer] g_fBurnishingColorBrightness4 "1.000000"
+	// [inherited from layer] g_fBurnishingColorContrast4 "1.000000"
+	// [inherited from layer] g_fBurnishingColorSaturation4 "1.000000"
+	// [inherited from layer] g_fBurnishingMetalness4 "0.000000"
+	// [inherited from layer] g_fDamageBevelAnisotropy4 "0.000000"
+	// [inherited from layer] g_fDamageBevelCloth4 "0.000000"
+	// [inherited from layer] g_fDamageBevelColorBrightness4 "1.000000"
+	// [inherited from layer] g_fDamageBevelColorContrast4 "1.000000"
+	// [inherited from layer] g_fDamageBevelColorSaturation4 "1.000000"
+	// [inherited from layer] g_fDamageBevelMetalness4 "0.000000"
+	// [inherited from layer] g_fDamageBevelRoughnessBrightness4 "1.000000"
+	// [inherited from layer] g_fDamageUvScale4 "4.000001"
+	// [inherited from layer] g_fGrimeRoughnessBrightness4 "1.000000"
+	// [inherited from layer] g_fGrimeTranslucency4 "0.500000"
+	// [inherited from layer] g_fGrimeUvScale4 "4.000001"
+	// [inherited from layer] g_fSubstrateColorBrightness4 "1.000000"
+	// [inherited from layer] g_fSubstrateColorContrast4 "1.000000"
+	// [inherited from layer] g_fSubstrateColorSaturation4 "1.000000"
+	// [inherited from layer] g_fSubstrateCompositeColorTranslucency4 "0.500000"
+	// [inherited from layer] g_fSurfaceColorBrightness4 "1.000000"
+	// [inherited from layer] g_fSurfaceColorContrast4 "1.000000"
+	// [inherited from layer] g_fSurfaceColorSaturation4 "1.000000"
+	// [inherited from layer] g_fUvScale4 "4.000001"
+	// [inherited from layer] g_vBurnishingColorTint4 "[1.000000 1.000000 1.000000 0.000000]"
+	// [inherited from layer] g_vDamageBevelColorTint4 "[1.000000 1.000000 1.000000 0.000000]"
+	// [inherited from layer] g_vDamageMinMax4 "[0.000000 1.000000]"
+	// [inherited from layer] g_vSubstrateBurnishingMinMax4 "[0.000000 1.000000]"
+	// [inherited from layer] g_vSubstrateColorTint4 "[1.000000 1.000000 1.000000 0.000000]"
+	// [inherited from layer] g_vSubstrateGrimeMinMax4 "[0.000000 1.000000]"
+	// [inherited from layer] g_vSurfaceBurnishingMinMax4 "[0.000000 1.000000]"
+	// [inherited from layer] g_vSurfaceColorTint4 "[1.000000 1.000000 1.000000 0.000000]"
+	// [inherited from layer] g_vSurfaceGrimeMinMax4 "[0.000000 1.000000]"
+	// [inherited from layer] g_vUvOffset4 "[0.000000 0.000000]"
+	// [inherited from layer] TextureDamageHeight4 "materials\default\default_height.tga"
+	// [inherited from layer] TextureGrime4 "materials\default\default_color.tga"
+	// [inherited from layer] TextureSubstrateAlbedo4 "materials\default\default_color.tga"
+	// [inherited from layer] TextureSubstrateAmbientOcclusion4 "materials\default\default_ao.tga"
+	// [inherited from layer] TextureSubstrateClothMask4 "materials\default\default_black_mask.tga"
+	// [inherited from layer] TextureSubstrateHeight4 "materials\default\default_height.tga"
+	// [inherited from layer] TextureSubstrateMetalness4 "materials\default\default_metal.tga"
+	// [inherited from layer] TextureSubstrateTintMask4 "materials\default\default_mask.tga"
+	// [inherited from layer] TextureSurfaceAlbedo4 "materials\default\default_color.tga"
+	// [inherited from layer] TextureSurfaceAmbientOcclusion4 "materials\default\default_ao.tga"
+	// [inherited from layer] TextureSurfaceClothMask4 "materials\default\default_black_mask.tga"
+	// [inherited from layer] TextureSurfaceHeight4 "materials\default\default_height.tga"
+	// [inherited from layer] TextureSurfaceMetalness4 "materials\default\default_metal.tga"
+	// [inherited from layer] TextureSurfaceNormal4 "materials\default\default_normal.tga"
+	// [inherited from layer] TextureSurfaceRoughness4 "materials\default\default_rough.tga"
+	// [inherited from layer] TextureSurfaceTintMask4 "materials\default\default_mask.tga"
+
+	//---- Texture Address Mode ----
+	g_nTextureAddressModeU "0" // Wrap
+	g_nTextureAddressModeV "0" // Wrap
+
+	Attributes
+	{
+		PreviewModel "characters/models/shared/arms/glove_sporty/glove_sporty_ag2.vmdl"
+	}
+
+
+	VariableState
+	{
+		"Composite Inputs"
+		{
+			"Object Textures" 0
+			"Tint by ID" 0
+			"Lighting" 0
+			"Wear" 0
+		}
+		"Fog"
+		{
+		}
+		"Layer 1"
+		{
+			"Texcoord Transform" 0
+			"Surface Layer" 0
+			"Substrate Layer" 0
+			"Damage Height" 0
+			"Damage Bevel" 0
+			"Burnishing" 0
+			"Grime" 0
+		}
+		"Layer 2"
+		{
+			"Texcoord Transform" 0
+			"Surface Layer" 0
+			"Substrate Layer" 0
+			"Damage Height" 0
+			"Damage Bevel" 0
+			"Burnishing" 0
+			"Grime" 0
+		}
+		"Layer 3"
+		{
+			"Texcoord Transform" 0
+			"Surface Layer" 0
+			"Substrate Layer" 0
+			"Damage Height" 0
+			"Damage Bevel" 0
+			"Burnishing" 0
+			"Grime" 0
+		}
+		"Layer 4"
+		{
+			"Texcoord Transform" 0
+			"Substrate Layer" 0
+			"Damage Height" 0
+			"Damage Bevel" 0
+			"Burnishing" 0
+			"Grime" 0
+			"Surface Layer" 0
+		}
+		"Texture Address Mode"
+		{
+		}
+	}
+}

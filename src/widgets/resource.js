@@ -21,7 +21,8 @@ function buildResourceWidget(container, value, prefix, onChange) {
   btn.type = 'button';
   btn.className = 'prop-resource-btn';
   btn.textContent = prefix === 'soundevent' ? '🔊' : '📁';
-  btn.title = prefix === 'soundevent' ? 'Sound event' : 'Resource path';
+  btn.title =
+    prefix === 'soundevent' ? 'Sound event' : prefix === 'panorama' ? 'Panorama path' : 'Resource path';
   btn.addEventListener('click', async () => {
     if (!window.electronAPI?.pickResourceFile) return;
     const doc = typeof docManager !== 'undefined' ? docManager.activeDoc : null;
@@ -31,7 +32,14 @@ function buildResourceWidget(container, value, prefix, onChange) {
     const filters =
       prefix === 'soundevent'
         ? [{ name: 'Sound', extensions: ['vsndevts', 'vsndstck', 'wav', 'mp3'] }]
-        : [{ name: 'Models / particles / materials', extensions: ['vmdl', 'vpcf', 'vnmskel', 'vmat'] }];
+        : prefix === 'panorama'
+          ? [
+              {
+                name: 'Images / layouts',
+                extensions: ['png', 'jpg', 'jpeg', 'psd', 'svg', 'vgui', 'xml']
+              }
+            ]
+          : [{ name: 'Models / particles / materials', extensions: ['vmdl', 'vpcf', 'vnmskel', 'vmat'] }];
     const rel = await window.electronAPI.pickResourceFile({
       defaultPath: baseDir,
       relativeTo: baseDir,

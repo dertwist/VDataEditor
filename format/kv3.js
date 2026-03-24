@@ -123,6 +123,13 @@
       ) {
         return `soundevent:"${escapeKV3String(val.value)}"`;
       }
+      if (
+        val.type === 'panorama' &&
+        typeof val.value === 'string' &&
+        Object.keys(val).every((k) => k === 'type' || k === 'value')
+      ) {
+        return `panorama:"${escapeKV3String(val.value)}"`;
+      }
       const keys = Object.keys(val);
       if (keys.length === 0) return '{}';
       const parts = [];
@@ -171,6 +178,11 @@
     }
     skipWhitespace() {
       while (this.pos < this.text.length && /[\s]/.test(this.text[this.pos])) this.pos++;
+      if (this.startsWithBlockComment()) {
+        this.skipBlockComment();
+        this.skipWhitespace();
+        return;
+      }
       // Skip // comments
       if (
         this.pos < this.text.length - 1 &&
@@ -197,6 +209,25 @@
       while (this.pos < this.text.length && this.text[this.pos] !== '\n') this.pos++;
       return createKV3LineComment(this.text.slice(start, this.pos));
     }
+    startsWithBlockComment() {
+      return (
+        this.pos < this.text.length - 1 &&
+        this.text[this.pos] === '/' &&
+        this.text[this.pos + 1] === '*'
+      );
+    }
+    /** Discards contents; nested block comments are not supported. */
+    skipBlockComment() {
+      if (!this.startsWithBlockComment()) return;
+      this.pos += 2;
+      while (this.pos < this.text.length) {
+        if (this.text[this.pos] === '*' && this.pos + 1 < this.text.length && this.text[this.pos + 1] === '/') {
+          this.pos += 2;
+          return;
+        }
+        this.pos++;
+      }
+    }
     peek() {
       this.skipWhitespace();
       return this.text[this.pos];
@@ -221,6 +252,10 @@
         this.pos += 11;
         return { type: 'soundevent', value: this.parseString() };
       }
+      if (this.text.substring(this.pos, this.pos + 9) === 'panorama:') {
+        this.pos += 9;
+        return { type: 'panorama', value: this.parseString() };
+      }
       return this.parseLiteral();
     }
 
@@ -229,12 +264,20 @@
       const obj = {};
       while (true) {
         this.skipWhitespaceNoComments();
+        while (this.startsWithBlockComment()) {
+          this.skipBlockComment();
+          this.skipWhitespaceNoComments();
+        }
         if (this.pos >= this.text.length || this.text[this.pos] === '}') break;
         if (this.startsWithLineComment()) {
           obj[KV3_OBJECT_COMMENT_KEY_PREFIX + ++this.objectCommentSeq] = this.parseLineCommentNode();
           continue;
         }
         const key = this.parseKey();
+        if (key === '' && this.text[this.pos] === ',') {
+          this.pos++;
+          continue;
+        }
         this.skipWhitespace();
         this.consume('=');
         obj[key] = this.parseValue();
@@ -248,6 +291,10 @@
       const arr = [];
       while (true) {
         this.skipWhitespaceNoComments();
+        while (this.startsWithBlockComment()) {
+          this.skipBlockComment();
+          this.skipWhitespaceNoComments();
+        }
         if (this.pos >= this.text.length || this.text[this.pos] === ']') break;
         if (this.startsWithLineComment()) {
           arr.push(this.parseLineCommentNode());
