@@ -745,9 +745,18 @@ function showSchemaCacheAdvancedDialog() {
 }
 window.showSchemaCacheAdvancedDialog = showSchemaCacheAdvancedDialog;
 
+if (typeof window !== 'undefined' && window.StartupProfiler) {
+  window.StartupProfiler.startPhase('editor-theme-init', { description: 'Initialize app theme' });
+}
 if (typeof initAppTheme === 'function') initAppTheme();
+if (typeof window !== 'undefined' && window.StartupProfiler) window.StartupProfiler.endPhase();
+
+if (typeof window !== 'undefined' && window.StartupProfiler) {
+  window.StartupProfiler.startPhase('editor-menu-tab-init', { description: 'Initialize menu and tab bar' });
+}
 initMenuBar();
 initTabBar();
+if (typeof window !== 'undefined' && window.StartupProfiler) window.StartupProfiler.endPhase();
 
 if (typeof VDataSuggestions?.initSchemas === 'function') {
   VDataSuggestions.initSchemas(window.reportSchemaDownloadProgress)
@@ -776,6 +785,10 @@ docManager.addEventListener('active-changed', () => {
   }
 });
 
+if (typeof window !== 'undefined' && window.StartupProfiler) {
+  window.StartupProfiler.startPhase('editor-ui-init', { description: 'Initialize UI panels and property tree' });
+}
+
 docManager.newDoc(); // fires active-changed → renderAll() syncs manual editor when shell is ready
 
 initPropTreeSearch();
@@ -790,7 +803,16 @@ initRecentFilesMenu();
 initPropDockToolbar();
 
 _editorShellReady = true;
+if (typeof window !== 'undefined' && window.StartupProfiler) {
+  window.StartupProfiler.endPhase();
+  window.StartupProfiler.startPhase('editor-render', { description: 'First render and finalization' });
+}
+
 renderAll({ immediateManualSync: true });
+
+if (typeof window !== 'undefined' && window.StartupProfiler) {
+  window.StartupProfiler.endPhase();
+}
 
 if (window.electronAPI?.getVersion) {
   window.electronAPI.getVersion().then((v) => {

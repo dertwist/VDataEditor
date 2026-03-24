@@ -270,14 +270,28 @@
     const url = SCHEMA_URLS[g];
     if (!url) throw new Error('Unknown game: ' + game);
 
+    // Track schema network fetch phase
+    if (typeof window !== 'undefined' && window.StartupProfiler) {
+      window.StartupProfiler.startPhase('schema-network-' + g, { game: g, forceRefresh: !!forceRefresh });
+    }
+
     const res = await fetch(url, { cache: forceRefresh ? 'no-cache' : 'default' });
     if (!res.ok) throw new Error('Schema fetch failed: ' + res.status);
+
+    if (typeof window !== 'undefined' && window.StartupProfiler) {
+      window.StartupProfiler.recordMilestone('fetch-complete', { game: g, status: res.status });
+    }
 
     const buf = await res.arrayBuffer();
     const data = await gunzipToJson(buf);
 
     var netRev = await applyAndMaybeCache(data, g);
     recordLoad(g, 'network-gzip');
+
+    if (typeof window !== 'undefined' && window.StartupProfiler) {
+      window.StartupProfiler.endPhase();
+    }
+
     return netRev;
   }
 
