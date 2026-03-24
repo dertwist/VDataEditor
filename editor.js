@@ -795,7 +795,16 @@ initPropTreeSearch();
 if (typeof initPropTreeColumnResize === 'function') initPropTreeColumnResize();
 if (typeof initPropTreePanelContextMenu === 'function') initPropTreePanelContextMenu();
 if (typeof initPropTreeSelectionAndSuggestionDnD === 'function') initPropTreeSelectionAndSuggestionDnD();
-if (typeof initPropertyBrowser === 'function') initPropertyBrowser();
+(function scheduleInitPropertyBrowser() {
+  function run() {
+    if (typeof initPropertyBrowser === 'function') initPropertyBrowser();
+  }
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(run, { timeout: 1500 });
+  } else {
+    setTimeout(run, 0);
+  }
+})();
 initHistoryDock();
 initEditorModeSelect();
 initPropertySchemaGameSelect();

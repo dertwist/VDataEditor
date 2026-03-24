@@ -1,6 +1,6 @@
 /**
- * IndexedDB cache for parsed SchemaExplorer bundles (one active game per store).
- * Speeds up repeat loads; clears other games on set to limit storage.
+ * IndexedDB cache for parsed SchemaExplorer bundles (multiple games per store).
+ * Speeds up repeat loads and game switches; keeps one entry per game key.
  * @global VDataSchemaCache
  */
 (function () {
@@ -117,18 +117,7 @@
     return openDb().then(function (db) {
       return new Promise(function (resolve, reject) {
         var tx = db.transaction(STORE, 'readwrite');
-        var store = tx.objectStore(STORE);
-        var rkeys = store.getAllKeys();
-        rkeys.onsuccess = function () {
-          var keys = rkeys.result || [];
-          for (var i = 0; i < keys.length; i++) {
-            if (keys[i] !== game) store.delete(keys[i]);
-          }
-          store.put(data, game);
-        };
-        rkeys.onerror = function () {
-          reject(rkeys.error);
-        };
+        tx.objectStore(STORE).put(data, game);
         tx.oncomplete = function () {
           resolve();
         };

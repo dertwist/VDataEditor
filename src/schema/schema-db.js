@@ -181,22 +181,27 @@
     } catch (_) {}
   }
 
-  async function gunzipToJson(arrayBuffer) {
+  /**
+   * @param {ArrayBuffer} arrayBuffer
+   * @param {{ recordPerf?: boolean }} [perfOpts] recordPerf false for background prefetch (avoid skewing VDataPerf)
+   */
+  async function gunzipToJson(arrayBuffer, perfOpts) {
+    const recordPerf = !perfOpts || perfOpts.recordPerf !== false;
     const t0 = typeof performance !== 'undefined' && performance.now ? performance.now() : 0;
     const ds = new DecompressionStream('gzip');
     const stream = new Blob([arrayBuffer]).stream().pipeThrough(ds);
     const text = await new Response(stream).text();
-    if (typeof window !== 'undefined' && window.VDataPerf) {
+    if (recordPerf && typeof window !== 'undefined' && window.VDataPerf) {
       window.VDataPerf.mark('schema-decompress-end');
     }
     const decompressMs = typeof performance !== 'undefined' && performance.now ? performance.now() - t0 : 0;
     const t1 = typeof performance !== 'undefined' && performance.now ? performance.now() : 0;
     const data = JSON.parse(text);
-    if (typeof window !== 'undefined' && window.VDataPerf) {
+    if (recordPerf && typeof window !== 'undefined' && window.VDataPerf) {
       window.VDataPerf.mark('schema-parse-end');
     }
     const parseMs = typeof performance !== 'undefined' && performance.now ? performance.now() - t1 : 0;
-    if (typeof window !== 'undefined' && window.VDataPerf) {
+    if (recordPerf && typeof window !== 'undefined' && window.VDataPerf) {
       window.VDataPerf.recordSchemaSteps({ gunzipDecompressMs: decompressMs, gunzipParseMs: parseMs });
     }
     return data;
@@ -399,7 +404,7 @@
 
     if (g !== 'deadlock') {
       try {
-        var netOut = await loadFromNetwork(g, true);
+        var netOut = await loadFromNetwork(g, forceRemote);
         return netOut;
       } catch (e) {
         console.warn('[schema-db] network gzip failed, trying relative schemas/' + g + '.json', e);
@@ -424,6 +429,54 @@
     var relRev = await applyAndMaybeCache(data, g);
     recordLoad(g, 'relative-fetch');
     return relRev;
+  }
+
+  /**
+   * Warm IndexedDB for another game without changing in-memory SchemaDB (for faster game switching).
+   * No-op when IndexedDB is unavailable (e.g. some test environments).
+   * @param {string} game
+   */
+  async function prefetchToCache(game) {
+    if (typeof indexedDB === 'undefined') return;
+    const g = game === 'dota2' || game === 'deadlock' ? game : 'cs2';
+    if (
+      typeof window === 'undefined' ||
+      !window.VDataSchemaCache ||
+      typeof window.VDataSchemaCache.getParsed !== 'function' ||
+      typeof window.VDataSchemaCache.setParsed !== 'function'
+    ) {
+      return;
+    }
+    try {
+      const existing = await window.VDataSchemaCache.getParsed(g);
+      if (existing && typeof existing === 'object' && Array.isArray(existing.classes)) return;
+    } catch (_) {}
+
+    if (g === 'deadlock') {
+      try {
+        const res2 = await fetch('schemas/' + g + '.json', { cache: 'default' });
+        if (!res2.ok) return;
+        const data = await res2.json();
+        validateSchemaPayload(data, g);
+        await window.VDataSchemaCache.setParsed(g, data);
+      } catch (_) {}
+      return;
+    }
+
+    const url = SCHEMA_URLS[g];
+    if (!url) return;
+    try {
+      const res = await fetch(url, { cache: 'default' });
+      if (!res.ok) return;
+      const buf = await res.arrayBuffer();
+      const data = await gunzipToJson(buf, { recordPerf: false });
+      validateSchemaPayload(data, g);
+      await window.VDataSchemaCache.setParsed(g, data);
+    } catch (e) {
+      if (typeof console !== 'undefined' && console.debug) {
+        console.debug('[schema-db] prefetchToCache', g, e);
+      }
+    }
   }
 
   function isLoaded() {
@@ -500,7 +553,8 @@
     getEnumValuesForWidgetId: getEnumValuesForWidgetId,
     listClassNames: listClassNames,
     getRaw: getRaw,
-    readCachedMeta: readCachedMeta
+    readCachedMeta: readCachedMeta,
+    prefetchToCache: prefetchToCache
   };
 
   if (typeof window !== 'undefined') window.SchemaDB = api;

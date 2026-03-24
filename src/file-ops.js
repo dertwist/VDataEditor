@@ -45,18 +45,23 @@ function importKV3() {
   input.onchange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const opened = docManager.openFromContent(ev.target.result, file.name, file.path || null);
-        Promise.resolve(opened).then(() => {
-          if (typeof setStatus === 'function') setStatus('Opened: ' + file.name, 'info');
-        });
-      } catch (err) {
-        if (typeof setStatus === 'function') setStatus('Open error: ' + err.message, 'error');
-      }
-    };
-    reader.readAsText(file);
+    (async function () {
+      if (typeof setStatus === 'function') setStatus('Reading ' + file.name + '…', 'info');
+      if (typeof flushStatusToDom === 'function') await flushStatusToDom();
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const opened = docManager.openFromContent(ev.target.result, file.name, file.path || null);
+          Promise.resolve(opened).then(() => {
+            if (typeof updateStatusBar === 'function') updateStatusBar();
+            else if (typeof setStatus === 'function') setStatus('Opened: ' + file.name, 'info');
+          });
+        } catch (err) {
+          if (typeof setStatus === 'function') setStatus('Open error: ' + err.message, 'error');
+        }
+      };
+      reader.readAsText(file);
+    })();
     input.value = '';
   };
   input.click();
@@ -74,8 +79,11 @@ async function openFileByPath(filePath) {
   if (!filePath || !window.electronAPI?.readFile) return;
   try {
     await docManager.openFile(filePath);
-    const d = docManager.activeDoc;
-    if (typeof setStatus === 'function') setStatus('Opened: ' + (d ? d.fileName : ''), 'info');
+    if (typeof updateStatusBar === 'function') updateStatusBar();
+    else if (typeof setStatus === 'function') {
+      const d = docManager.activeDoc;
+      setStatus('Opened: ' + (d ? d.fileName : ''), 'info');
+    }
   } catch (err) {
     if (typeof setStatus === 'function') setStatus('Open error: ' + err.message, 'error');
   }

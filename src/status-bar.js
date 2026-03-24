@@ -41,6 +41,23 @@ function setStatus(msg, state = 'info') {
   }
 }
 
+/**
+ * Wait until status text has had a chance to paint (double rAF + microtask).
+ * Use after setStatus() before long synchronous work (e.g. parsing a large file).
+ */
+function flushStatusToDom() {
+  return new Promise(function (resolve) {
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        queueMicrotask(resolve);
+      });
+    });
+  });
+}
+if (typeof window !== 'undefined') {
+  window.flushStatusToDom = flushStatusToDom;
+}
+
 function updateStatusBar() {
   const d = docManager.activeDoc;
   if (!d || !d.root) {

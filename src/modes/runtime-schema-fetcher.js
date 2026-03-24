@@ -139,6 +139,28 @@
     return 'cs2';
   }
 
+  function scheduleBackgroundSchemaPrefetch(activeGame, forceRefresh) {
+    if (forceRefresh) return;
+    if (typeof indexedDB === 'undefined') return;
+    var others = ['cs2', 'dota2', 'deadlock'].filter(function (id) {
+      return id !== activeGame;
+    });
+    if (!others.length) return;
+
+    var run = function () {
+      if (!window.SchemaDB || typeof window.SchemaDB.prefetchToCache !== 'function') return;
+      for (var i = 0; i < others.length; i++) {
+        window.SchemaDB.prefetchToCache(others[i]).catch(function () {});
+      }
+    };
+
+    if (typeof requestIdleCallback === 'function') {
+      requestIdleCallback(run, { timeout: 5000 });
+    } else {
+      setTimeout(run, 400);
+    }
+  }
+
   /**
    * @param {{ onProgress?: function(string, number): void, forceRefresh?: boolean }} [opts]
    */
@@ -166,6 +188,8 @@
     const buckets = await buildRuntimeBuckets(onProgress);
 
     if (onProgress) onProgress('Schema ready', 100);
+
+    scheduleBackgroundSchemaPrefetch(game, forceRefresh);
 
     return buckets;
   }
