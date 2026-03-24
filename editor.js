@@ -338,6 +338,35 @@ function initEditorModeSelect() {
   syncEditorModeSelect();
 }
 
+function initPropertySchemaGameSelect() {
+  const sel = document.getElementById('propSchemaGameSelect');
+  if (!sel || sel.dataset.bound) return;
+  sel.dataset.bound = '1';
+
+  const runtime = window.VDataSchemaRuntime;
+  const current = runtime && typeof runtime.getSchemaGame === 'function' ? runtime.getSchemaGame() : 'cs2';
+  sel.value = current === 'dota2' || current === 'deadlock' || current === 'cs2' ? current : 'cs2';
+
+  sel.addEventListener('change', async () => {
+    const game = sel.value;
+    if (!runtime || typeof runtime.setSchemaGame !== 'function') return;
+    const ok = runtime.setSchemaGame(game);
+    if (!ok) return;
+    try {
+      if (typeof setSchemaProgress === 'function') setSchemaProgress(true, 0, 'Switching schema game…');
+      if (typeof VDataSuggestions?.initSchemas === 'function') {
+        await VDataSuggestions.initSchemas(window.reportSchemaDownloadProgress);
+      }
+      if (typeof setStatus === 'function') setStatus('Schema game: ' + game, 'info');
+      renderAll();
+    } catch (e) {
+      if (typeof setStatus === 'function') setStatus('Schema switch failed: ' + (e && e.message ? e.message : e), 'error');
+    } finally {
+      if (typeof setSchemaProgress === 'function') setSchemaProgress(false);
+    }
+  });
+}
+
 window.addEventListener('vdata-schema-modes-updated', () => {
   rebuildEditorModeSelect();
 });
@@ -730,6 +759,7 @@ if (typeof initPropTreePanelContextMenu === 'function') initPropTreePanelContext
 if (typeof initPropertyBrowser === 'function') initPropertyBrowser();
 initHistoryDock();
 initEditorModeSelect();
+initPropertySchemaGameSelect();
 initRecentFilesMenu();
 initPropDockToolbar();
 

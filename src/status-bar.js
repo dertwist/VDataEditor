@@ -47,19 +47,51 @@ function updateStatusBar() {
     setStatus('No document', 'info');
     return;
   }
-  const elCount = countNodes(d.root.m_Children);
-  const varCount = (d.root.m_Variables && d.root.m_Variables.length) || 0;
-  setStatus(`Elements: ${elCount} | Variables: ${varCount}`, 'info');
+  const stats = collectDocStats(d.root);
+  const bytes = computeDocSizeBytes(d);
+  setStatus(
+    `Properties: ${stats.properties} | Sets: ${stats.sets} | Objects: ${stats.objects} | Size: ${formatBytes(bytes)}`,
+    'info'
+  );
 }
 
-function countNodes(arr) {
-  let c = 0;
-  if (!arr) return 0;
-  arr.forEach((n) => {
-    c++;
-    if (n.m_Children) c += countNodes(n.m_Children);
-    if (n.m_Modifiers) c += n.m_Modifiers.length;
-    if (n.m_SelectionCriteria) c += n.m_SelectionCriteria.length;
-  });
-  return c;
+function collectDocStats(root) {
+  const seen = new WeakSet();
+  const stats = { properties: 0, sets: 0, objects: 0 };
+
+  function walk(node) {
+    if (!node || typeof node !== 'object') return;
+    if (seen.has(node)) return;
+    seen.add(node);
+
+    if (Array.isArray(node)) {
+      stats.sets++;
+      for (let i = 0; i < node.length; i++) walk(node[i]);
+      return;
+    }
+
+    stats.objects++;
+    const keys = Object.keys(node);
+    stats.properties += keys.length;
+    for (let i = 0; i < keys.length; i++) walk(node[keys[i]]);
+  }
+
+  walk(root);
+  return stats;
+}
+
+function computeDocSizeBytes(doc) {
+  try {
+    const serialized = typeof doc.serialize === 'function' ? doc.serialize() : JSON.stringify(doc.root || {});
+    return new TextEncoder().encode(serialized || '').length;
+  } catch (_) {
+    return 0;
+  }
+}
+
+function formatBytes(bytes) {
+  const b = Number(bytes) || 0;
+  if (b < 1024) return b + ' B';
+  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+  return (b / (1024 * 1024)).toFixed(2) + ' MB';
 }
