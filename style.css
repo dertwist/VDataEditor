@@ -471,7 +471,7 @@ input,select,textarea,button{font-family:inherit;font-size:inherit;color:inherit
 .property-browser-item.is-selected{background:var(--bg-selected);color:var(--text-primary)}
 .property-browser-prop-item{font-family:var(--font-mono),monospace}
 .property-browser-prop-key{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.property-browser-prop-type{font-size:10px;color:var(--text-muted);flex-shrink:0}
+.property-browser-prop-type{display:inline-flex;align-items:center;justify-content:flex-end;flex-shrink:0;min-width:16px}
 .property-browser-actions{margin-top:auto;display:flex;justify-content:flex-end}
 /* Manual editor (CodeMirror) line striping — fallback when theme not loaded */
 #cmEditor .cm-line:nth-child(even){
@@ -774,15 +774,28 @@ html[data-theme="light"] #cmEditor .cm-content:focus *::selection{
 .wc-type{flex-shrink:0}
 .wc-readonly-list{opacity:.55;pointer-events:none}
 .wc-sys-row{margin-bottom:3px}
-/* ── Property type icon (key column) ────────────── */
+/* ── Property type icon (key column, Vsmart-style 16×16 badge) ─ */
 .prop-type-icon-badge{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex-shrink:0;opacity:.95}
-.prop-type-circle{
-  width:12px;
-  height:12px;
+.vsmart-icon-badge{
+  width:16px;
+  height:16px;
   border-radius:50%;
-  background:var(--type-circle-fill,#AAAAAA);
-  border:1px solid transparent;
+  background:var(--vsmart-badge-fill,#CCCCCC);
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  flex-shrink:0;
   box-sizing:border-box;
+}
+.vsmart-icon-badge-fallback{background:#CCCCCC}
+.vsmart-icon-badge-text{
+  font-weight:700;
+  font-size:var(--vsmart-badge-font-size,7px);
+  line-height:1;
+  color:#000000;
+  letter-spacing:-0.02em;
+  user-select:none;
+  pointer-events:none;
 }
 .prop-type-badge-interactive.prop-type-icon-badge{
   cursor:pointer;
@@ -794,7 +807,7 @@ html[data-theme="light"] #cmEditor .cm-content:focus *::selection{
   background:var(--bg-hover);
   opacity:1;
 }
-.prop-type-badge-interactive.prop-type-icon-badge:hover .prop-type-circle{
-  border-color:var(--type-circle-border,#888888);
+.prop-type-badge-interactive.prop-type-icon-badge:hover .vsmart-icon-badge{
+  box-shadow:0 0 0 1px rgba(0,0,0,.22);
 }
 .prop-value-summary{font-size:10px;color:var(--text-muted);font-family:var(--font-mono),monospace;flex-shrink:0}

@@ -140,41 +140,13 @@ function makeCommentedValueNode(value) {
   return { __kv3LineComment: true, text: t };
 }
 
-const TYPE_ICON_COLORS = {
-  int: '#4A90D9',
-  float: '#7EC8E3',
-  string: '#E8943A',
-  bool: '#5CB85C',
-  color: '#9B59B6',
-  vec2: '#9B59B6',
-  vec3: '#9B59B6',
-  vec4: '#9B59B6',
-  array: '#F0C040',
-  object: '#E05555',
-  components: '#9B59B6',
-  readonly_string: '#E8943A',
-  float_slider_01: '#7EC8E3'
-};
-const TYPE_ICON_FALLBACK_COLOR = '#AAAAAA';
-
-function darkenHexColor(hex, amount = 28) {
-  if (typeof hex !== 'string') return TYPE_ICON_FALLBACK_COLOR;
-  const clean = hex.replace('#', '');
-  if (!/^[0-9a-fA-F]{6}$/.test(clean)) return TYPE_ICON_FALLBACK_COLOR;
-  const clamp = (n) => Math.max(0, Math.min(255, n));
-  const r = clamp(parseInt(clean.slice(0, 2), 16) - amount);
-  const g = clamp(parseInt(clean.slice(2, 4), 16) - amount);
-  const b = clamp(parseInt(clean.slice(4, 6), 16) - amount);
-  return '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('');
-}
-
-function paintTypeBadgeCircle(el, type) {
+function paintTypeBadgeCircle(el, type, value, keyName) {
   if (!el) return;
-  const fill = TYPE_ICON_COLORS[type] || TYPE_ICON_FALLBACK_COLOR;
-  const border = darkenHexColor(fill, 24);
-  el.innerHTML = '<span class="prop-type-circle" aria-hidden="true"></span>';
-  el.style.setProperty('--type-circle-fill', fill);
-  el.style.setProperty('--type-circle-border', border);
+  if (window.VsmartIconCache && typeof window.VsmartIconCache.paintKeyColumnBadge === 'function') {
+    window.VsmartIconCache.paintKeyColumnBadge(el, type, value === undefined ? null : value, keyName === undefined ? '' : keyName);
+    return;
+  }
+  el.innerHTML = '<span class="vsmart-icon-badge vsmart-icon-badge-fallback" role="presentation"><span class="vsmart-icon-badge-text">?</span></span>';
 }
 
 function getActiveMode() {
@@ -213,7 +185,7 @@ function buildTypeBadge(currentType, onCast) {
   const wrap = document.createElement('span');
   wrap.className = 'prop-type-icon-badge prop-type-badge-interactive';
   wrap.title = `Type: ${currentType} (click to change)`;
-  paintTypeBadgeCircle(wrap, currentType);
+  paintTypeBadgeCircle(wrap, currentType, null, '');
 
   const options = TYPE_CAST_OPTIONS[currentType];
   if (!options || options.length === 0) {
@@ -675,7 +647,7 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
   const keyIcon = document.createElement('span');
   keyIcon.className = 'prop-type-icon-badge';
   keyIcon.title = type;
-  paintTypeBadgeCircle(keyIcon, type);
+  paintTypeBadgeCircle(keyIcon, type, value, key);
 
   const treeNodeIcon = document.createElement('span');
   treeNodeIcon.className = 'prop-tree-node-icon';
@@ -2460,7 +2432,9 @@ function buildPropertyBrowserPropertyList() {
     row.className = 'property-browser-item property-browser-prop-item' + (_propertyBrowserSelectedProperty === key ? ' is-selected' : '');
     row.innerHTML = '<span class="property-browser-prop-key"></span><span class="property-browser-prop-type"></span>';
     row.querySelector('.property-browser-prop-key').textContent = key;
-    row.querySelector('.property-browser-prop-type').textContent = type;
+    const typeCell = row.querySelector('.property-browser-prop-type');
+    typeCell.textContent = '';
+    paintTypeBadgeCircle(typeCell, type, null, key);
     row.addEventListener('click', () => {
       _propertyBrowserSelectedProperty = key;
       buildPropertyBrowserPropertyList();
