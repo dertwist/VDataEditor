@@ -17,6 +17,7 @@
       { match: '/[Dd]ir$/', type: 'vec3' },
       { match: '/[Vv]ec3$/', type: 'vec3' },
       { match: '/[Oo]ffset$/', type: 'vec3' },
+      { match: 'import_scale', type: 'float', comment: 'import scale is scalar' },
       { match: '/[Ss]cale$/', type: 'vec3' },
       { match: '/[Uu][Vv]$/', type: 'vec2' },
       { match: '/[Qq]uat$/', type: 'vec4' },

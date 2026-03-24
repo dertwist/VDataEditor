@@ -422,10 +422,33 @@ function updatePropRowValues(container) {
   for (const row of container.querySelectorAll(':scope > .prop-row')) {
     const path = row.dataset.propPath;
     const value = getValueAtPath(docManager.activeDoc.root, path);
-    const inp = row.querySelector('.prop-input:not([readonly])');
-    if (inp && inp !== document.activeElement) {
-      const newStr = value == null ? '' : String(value);
-      if (inp.value !== newStr) inp.value = newStr;
+    const vecWidget = row.querySelector('.vec-widget');
+    if (vecWidget && Array.isArray(value)) {
+      const axisRows = row.querySelectorAll('.vec-axis-row');
+      axisRows.forEach((axisRow, i) => {
+        const axisVal = Number(value[i]);
+        if (!Number.isFinite(axisVal)) return;
+        const numInput = axisRow.querySelector('.slider-input');
+        const slider = axisRow.querySelector('.slider-range');
+        const newStr = parseFloat(axisVal.toFixed(6)).toString();
+        if (numInput && numInput !== document.activeElement && numInput.value !== newStr) {
+          numInput.value = newStr;
+        }
+        if (slider && slider !== document.activeElement) {
+          const min = Number(slider.min);
+          const max = Number(slider.max);
+          if (Number.isFinite(min) && Number.isFinite(max) && axisVal >= min && axisVal <= max) {
+            const sliderStr = String(axisVal);
+            if (slider.value !== sliderStr) slider.value = sliderStr;
+          }
+        }
+      });
+    } else {
+      const inp = row.querySelector('.prop-input:not([readonly])');
+      if (inp && inp !== document.activeElement) {
+        const newStr = value == null ? '' : String(value);
+        if (inp.value !== newStr) inp.value = newStr;
+      }
     }
     const cb = row.querySelector('.prop-input-bool');
     if (cb && cb !== document.activeElement) {
@@ -822,13 +845,13 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
       buildColorWidget(valEl, value, onScalarChange);
       break;
     case 'vec2':
-      buildVec2Widget(valEl, value, onScalarChange);
+      buildVec2Widget(valEl, value, onScalarChange, sliderOpts);
       break;
     case 'vec3':
       buildVec3Widget(valEl, value, onScalarChange, sliderOpts);
       break;
     case 'vec4':
-      buildVec4Widget(valEl, value, onScalarChange);
+      buildVec4Widget(valEl, value, onScalarChange, sliderOpts);
       break;
     case 'object':
     case 'array':
@@ -2037,63 +2060,68 @@ function buildColorWidget(container, value, onChange) {
 
 function buildVec3Widget(container, value, onChange, sliderOpts) {
   const v = Array.isArray(value) ? [...value] : [0, 0, 0];
+  const wrapAll = document.createElement('div');
+  wrapAll.className = 'vec-widget vec-widget-3d';
   ['X', 'Y', 'Z'].forEach((axis, i) => {
+    const row = document.createElement('div');
+    row.className = 'vec-axis-row vec3-axis-row';
     const lbl = document.createElement('span');
-    lbl.className = 'prop-type-badge';
+    lbl.className = 'prop-type-badge vec-axis-label';
     lbl.textContent = axis;
     const wrap = buildSliderInput(v[i], 'float', (nv) => {
       v[i] = nv;
       onChange([...v]);
     }, sliderOpts);
-    wrap.style.flex = '1';
-    wrap.style.minWidth = '48px';
-    container.appendChild(lbl);
-    container.appendChild(wrap);
+    wrap.classList.add('vec-axis-control');
+    row.appendChild(lbl);
+    row.appendChild(wrap);
+    wrapAll.appendChild(row);
   });
+  container.appendChild(wrapAll);
 }
 
-function buildVec2Widget(container, value, onChange) {
+function buildVec2Widget(container, value, onChange, sliderOpts) {
   const v = Array.isArray(value) ? [...value] : [0, 0];
+  const wrapAll = document.createElement('div');
+  wrapAll.className = 'vec-widget vec-widget-2d';
   ['X', 'Y'].forEach((axis, i) => {
+    const row = document.createElement('div');
+    row.className = 'vec-axis-row vec2-axis-row';
     const lbl = document.createElement('span');
-    lbl.className = 'prop-type-badge';
+    lbl.className = 'prop-type-badge vec-axis-label';
     lbl.textContent = axis;
-    const inp = document.createElement('input');
-    inp.type = 'number';
-    inp.className = 'prop-input';
-    inp.style.width = '62px';
-    inp.style.flex = 'none';
-    inp.step = 'any';
-    inp.value = String(v[i]);
-    inp.addEventListener('change', () => {
-      v[i] = parseFloat(inp.value) || 0;
+    const wrap = buildSliderInput(v[i], 'float', (nv) => {
+      v[i] = nv;
       onChange([...v]);
-    });
-    container.appendChild(lbl);
-    container.appendChild(inp);
+    }, sliderOpts);
+    wrap.classList.add('vec-axis-control');
+    row.appendChild(lbl);
+    row.appendChild(wrap);
+    wrapAll.appendChild(row);
   });
+  container.appendChild(wrapAll);
 }
 
-function buildVec4Widget(container, value, onChange) {
+function buildVec4Widget(container, value, onChange, sliderOpts) {
   const v = Array.isArray(value) ? [...value] : [0, 0, 0, 0];
+  const wrapAll = document.createElement('div');
+  wrapAll.className = 'vec-widget vec-widget-4d';
   ['X', 'Y', 'Z', 'W'].forEach((axis, i) => {
+    const row = document.createElement('div');
+    row.className = 'vec-axis-row vec4-axis-row';
     const lbl = document.createElement('span');
-    lbl.className = 'prop-type-badge';
+    lbl.className = 'prop-type-badge vec-axis-label';
     lbl.textContent = axis;
-    const inp = document.createElement('input');
-    inp.type = 'number';
-    inp.className = 'prop-input';
-    inp.style.width = '55px';
-    inp.style.flex = 'none';
-    inp.step = 'any';
-    inp.value = String(v[i]);
-    inp.addEventListener('change', () => {
-      v[i] = parseFloat(inp.value) || 0;
+    const wrap = buildSliderInput(v[i], 'float', (nv) => {
+      v[i] = nv;
       onChange([...v]);
-    });
-    container.appendChild(lbl);
-    container.appendChild(inp);
+    }, sliderOpts);
+    wrap.classList.add('vec-axis-control');
+    row.appendChild(lbl);
+    row.appendChild(wrap);
+    wrapAll.appendChild(row);
   });
+  container.appendChild(wrapAll);
 }
 
 function commitValue(parentRef, key, newValue, arrayIdx, isStructural = false) {

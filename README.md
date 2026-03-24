@@ -2,8 +2,14 @@
 
 > Desktop editor for Source 2 KV3 files (`.vsmart`, `.vdata`, `.vpcf`, `.kv3`).
 
+VDataEditor is a lightweight desktop tool for viewing, editing, and saving Source 2 data files with both raw text editing and structured property widgets. It is designed for fast iteration when working with Valve resource data and related KV3-based content.
+
 [![GitHub release](https://img.shields.io/github/v/release/dertwist/VDataEditor?label=latest&style=flat-square)](https://github.com/dertwist/VDataEditor/releases/latest)
 [![Build & Package](https://img.shields.io/github/actions/workflow/status/dertwist/VDataEditor/build.yml?branch=main&style=flat-square)](https://github.com/dertwist/VDataEditor/actions)
+
+## Screenshot
+
+![VDataEditor program screenshot](readme/screenshot.png)
 
 ## Download
 

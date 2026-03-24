@@ -22,14 +22,15 @@ class DocumentManager extends EventTarget {
     return doc;
   }
 
-  openFromContent(content, fileName) {
+  async openFromContent(content, fileName, filePath = null) {
     const { root, format } = parseDocumentContent(content, fileName);
-    const doc = new VDataDocument({ root, format, filePath: null, fileName });
+    const doc = new VDataDocument({ root, format, filePath, fileName });
     ensureSmartPropRootArrays(doc);
     doc.recalcElementIds();
     doc.dirty = false;
     this._docs.push(doc);
     this._activate(this._docs.length - 1);
+    if (filePath && window.electronAPI?.addRecentFile) await window.electronAPI.addRecentFile(filePath);
     return doc;
   }
 

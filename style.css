@@ -485,44 +485,46 @@ html[data-theme="light"] #cmEditor .cm-content:focus *::selection{
 }
 /* Slider scrub inputs */
 .slider-input-wrap{
-  position:relative;
   flex:1;
   min-width:0;
   display:flex;
   align-items:center;
-  cursor:ew-resize;
+  gap:6px;
 }
-.slider-input-wrap:focus-within{
-  cursor:text;
-}
-.slider-track{
-  position:absolute;
-  left:0;
-  top:0;
-  bottom:0;
-  width:0;
-  background:rgba(var(--accent-rgb), 0.18);
-  pointer-events:none;
-  transition:width 40ms linear;
-  border-radius:3px 0 0 3px;
-}
+.slider-range{flex:1;min-width:72px;height:16px;accent-color:var(--accent);order:2}
 .slider-input{
-  position:relative;
-  z-index:1;
-  background:transparent !important;
-  cursor:inherit;
+  width:84px;
+  flex:0 0 84px;
+  text-align:right;
+  order:1;
 }
-.slider-input:focus{
-  background:var(--bg-surface) !important;
+.vec-widget{
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+  width:100%;
+  min-width:0;
 }
-.slider-input-wrap:hover .slider-track{background:rgba(var(--accent-rgb), 0.24)}
-.float-slider-01 .slider-track{
-  background:rgba(var(--accent-rgb), 0.22);
+.vec-axis-row{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  width:100%;
+  min-width:0;
 }
-.slider-scrub-tooltip{
-  user-select:none;
-  transition:none;
+.vec-axis-label{
+  width:18px;
+  min-width:18px;
+  text-align:center;
+  padding:1px 4px;
 }
+.vec-axis-control{
+  flex:1;
+  min-width:0;
+}
+.vec-widget-2d .vec-axis-label{background:rgba(123,177,255,.10)}
+.vec-widget-3d .vec-axis-label{background:rgba(92,184,92,.12)}
+.vec-widget-4d .vec-axis-label{background:rgba(155,89,182,.12)}
 /* m_Components (vsmart) */
 .components-widget{
   display:flex;

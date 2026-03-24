@@ -48,8 +48,10 @@ function importKV3() {
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
-        docManager.openFromContent(ev.target.result, file.name);
-        if (typeof setStatus === 'function') setStatus('Opened: ' + file.name, 'info');
+        const opened = docManager.openFromContent(ev.target.result, file.name, file.path || null);
+        Promise.resolve(opened).then(() => {
+          if (typeof setStatus === 'function') setStatus('Opened: ' + file.name, 'info');
+        });
       } catch (err) {
         if (typeof setStatus === 'function') setStatus('Open error: ' + err.message, 'error');
       }
