@@ -73,40 +73,24 @@ function initMenuBar() {
       } else if (action === 'minimize' && window.electronAPI?.minimize) window.electronAPI.minimize();
       else if (action === 'zoom' && window.electronAPI?.zoom) window.electronAPI.zoom();
       else if (action === 'fullscreen' && window.electronAPI?.toggleFullScreen) window.electronAPI.toggleFullScreen();
-      else if (action === 'refreshSchemas') {
-        if (typeof window.showSchemaUpdateDialog === 'function') {
-          window.showSchemaUpdateDialog({ forceRefresh: true });
+      else if (action === 'schemaManage') {
+        if (typeof window.showSchemaCacheAdvancedDialog === 'function') {
+          window.showSchemaCacheAdvancedDialog();
         } else if (typeof VDataSuggestions?.refreshSchemasAdvanced === 'function') {
+          // Fallback for environments where the schema dialog is not available.
           const rep =
             typeof window.reportSchemaDownloadProgress === 'function'
               ? window.reportSchemaDownloadProgress
               : function (msg, pct) {
                   setStatus(pct != null ? msg + ' (' + pct + '%)' : msg, 'info');
                 };
-          VDataSuggestions.refreshSchemasAdvanced(rep, { forceRefresh: true }).finally(function () {
+          VDataSuggestions.refreshSchemasAdvanced(rep, { forceRefresh: false }).finally(function () {
             if (typeof setSchemaProgress === 'function') setSchemaProgress(false);
             setStatus('Schemas updated', 'info');
           });
         } else {
-          setStatus('Schema refresh unavailable', 'error');
+          setStatus('Schema tools unavailable', 'error');
         }
-      } else if (action === 'schemaStatus') {
-        const s = window.VDataSchemaRuntime?.getSchemaCacheStatus?.();
-        if (!s || !s.hasData) {
-          alert('No schema cache. Use Refresh Schemas first.');
-        } else {
-          const ageH = Math.round(s.ageMs / 3600000);
-          alert(
-            'Schema cache\nBuckets: ' +
-              s.schemaKeyCount +
-              '\nAge: ~' +
-              ageH +
-              ' h\nStatus: ' +
-              (s.isStale ? 'Stale (past TTL)' : 'Fresh')
-          );
-        }
-      } else if (action === 'schemaCacheAdvanced') {
-        if (typeof window.showSchemaCacheAdvancedDialog === 'function') window.showSchemaCacheAdvancedDialog();
       } else if (action === 'about') {
         if (window.electronAPI?.getVersion) {
           window.electronAPI.getVersion().then((v) => setStatus(`VDataEditor v${v}`, 'info'));

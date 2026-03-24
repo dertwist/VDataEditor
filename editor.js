@@ -618,9 +618,7 @@ function refreshSchemaDialogStatus(overlay) {
   const countEl = overlay.querySelector('#scd-count');
   const ttlEl = overlay.querySelector('#scd-ttl');
   if (ageEl) ageEl.textContent = st.hasData && st.ageMs != null ? formatSchemaAgeMs(st.ageMs) + ' ago' : '—';
-  if (staleEl) {
-    staleEl.textContent = !st.hasData ? 'No cache' : st.isStale ? 'Yes — refresh recommended' : 'No';
-  }
+  if (staleEl) staleEl.textContent = !st.hasData ? 'No cache' : st.isStale ? 'Update available' : 'Up to date';
   if (fetchedEl) {
     fetchedEl.textContent = st.hasData && st.fetchedAt ? new Date(st.fetchedAt).toLocaleString() : '—';
   }
@@ -642,26 +640,23 @@ function showSchemaCacheAdvancedDialog() {
   overlay.innerHTML = `
     <div class="modal-dialog" style="width:440px">
       <div class="modal-header">
-        <span class="modal-title">Schema cache</span>
+        <span class="modal-title">Manage schemas</span>
         <button type="button" class="modal-close" id="scd-close">✕</button>
       </div>
       <div class="modal-body">
         <p style="margin:0 0 12px;font-size:12px;color:var(--text-muted);line-height:1.45">
-          Class and enum data comes from
-          <a href="https://github.com/ValveResourceFormat/SchemaExplorer" target="_blank" rel="noopener noreferrer">SchemaExplorer</a>
-          (DumpSource2 / GameTracking). The app loads bundled <code>schemas/&lt;game&gt;.json</code> in Electron, or downloads the official
-          <code>.json.gz</code> when refreshing. When the cache is older than the TTL, a refresh pulls the latest gzip from GitHub.
+          Check schema cache status and update when needed.
         </p>
         <table style="width:100%;font-size:12px;border-collapse:collapse">
           <tr><td style="padding:4px 10px 4px 0;color:var(--text-muted);vertical-align:top">Cache age</td><td id="scd-age">—</td></tr>
-          <tr><td style="padding:4px 10px 4px 0;color:var(--text-muted)">Outdated (TTL)</td><td id="scd-stale">—</td></tr>
-          <tr><td style="padding:4px 10px 4px 0;color:var(--text-muted)">Last saved</td><td id="scd-fetched">—</td></tr>
-          <tr><td style="padding:4px 10px 4px 0;color:var(--text-muted)">Schema buckets</td><td id="scd-count">0</td></tr>
-          <tr><td style="padding:4px 10px 4px 0;color:var(--text-muted)">TTL</td><td id="scd-ttl">—</td></tr>
+          <tr><td style="padding:4px 10px 4px 0;color:var(--text-muted)">Status</td><td id="scd-stale">—</td></tr>
+          <tr><td style="padding:4px 10px 4px 0;color:var(--text-muted)">Last updated</td><td id="scd-fetched">—</td></tr>
+          <tr><td style="padding:4px 10px 4px 0;color:var(--text-muted)">Schema entries</td><td id="scd-count">0</td></tr>
+          <tr><td style="padding:4px 10px 4px 0;color:var(--text-muted)">Refresh window</td><td id="scd-ttl">—</td></tr>
         </table>
         <div class="modal-row" style="margin-top:16px;flex-wrap:wrap;gap:8px;justify-content:flex-start">
-          <button type="button" class="btn btn-sm" id="scd-update-if-stale">Update if outdated</button>
-          <button type="button" class="btn btn-sm btn-accent" id="scd-force">Force re-download all</button>
+          <button type="button" class="btn btn-sm" id="scd-update-if-stale">Update if needed</button>
+          <button type="button" class="btn btn-sm btn-accent" id="scd-force">Download fresh copy</button>
         </div>
       </div>
     </div>`;
@@ -676,7 +671,7 @@ function showSchemaCacheAdvancedDialog() {
   overlay.querySelector('#scd-update-if-stale')?.addEventListener('click', async () => {
     const st = R.getSchemaCacheStatus();
     if (st.hasData && !st.isStale) {
-      if (typeof setStatus === 'function') setStatus('Schema cache is already within TTL.', 'info');
+      if (typeof setStatus === 'function') setStatus('Schemas are already up to date.', 'info');
       refreshSchemaDialogStatus(overlay);
       return;
     }
@@ -695,7 +690,7 @@ function showSchemaCacheAdvancedDialog() {
     } finally {
       if (typeof setSchemaProgress === 'function') setSchemaProgress(false);
       refreshSchemaDialogStatus(overlay);
-      if (typeof setStatus === 'function') setStatus('All schemas re-downloaded', 'info');
+      if (typeof setStatus === 'function') setStatus('Downloaded fresh schemas', 'info');
     }
   });
 }
