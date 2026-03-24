@@ -48,6 +48,73 @@ function parentPathFromRowPath(p) {
   return idx < 0 ? '' : p.slice(0, idx);
 }
 
+/** Last path segment as object key, or null for array index rows (`/[n]` ). */
+function objectKeyFromPropPath(pathStr) {
+  if (!pathStr) return null;
+  const parentPath = parentPathFromRowPath(pathStr);
+  const last = parentPath ? pathStr.slice(parentPath.length + 1) : pathStr;
+  if (/^\[\d+\]$/.test(last)) return null;
+  return last;
+}
+
+/** Move `movedKey` next to `refKey` in insertion order (object parent only). */
+function insertObjectKeyBesideReference(parentRef, movedKey, refKey, placeAfter) {
+  if (!parentRef || Array.isArray(parentRef) || typeof movedKey !== 'string' || typeof refKey !== 'string') return;
+  if (movedKey === refKey) return;
+  if (!Object.prototype.hasOwnProperty.call(parentRef, movedKey)) return;
+  if (!Object.prototype.hasOwnProperty.call(parentRef, refKey)) return;
+  const entries = Object.entries(parentRef);
+  const picked = entries.find(([k]) => k === movedKey);
+  if (!picked) return;
+  const without = entries.filter(([k]) => k !== movedKey);
+  const dstIdx = without.findIndex(([k]) => k === refKey);
+  if (dstIdx < 0) return;
+  const insertAt = dstIdx + (placeAfter ? 1 : 0);
+  const newEntries = [...without.slice(0, insertAt), picked, ...without.slice(insertAt)];
+  for (const k of Object.keys(parentRef)) delete parentRef[k];
+  for (const [k, v] of newEntries) parentRef[k] = v;
+}
+
+/** Reorder several object keys as a block before/after `refKey` in `parentRef`. */
+function reorderObjectKeysBlock(parentRef, movingKeys, refKey, placeAfter) {
+  if (!parentRef || Array.isArray(parentRef) || typeof refKey !== 'string' || !movingKeys.length) return false;
+  const movingSet = new Set(movingKeys);
+  if (movingSet.has(refKey)) return false;
+  const entries = Object.entries(parentRef);
+  if (!entries.some(([k]) => k === refKey)) return false;
+  const picked = entries.filter(([k]) => movingSet.has(k));
+  if (picked.length !== movingKeys.length) return false;
+  const rest = entries.filter(([k]) => !movingSet.has(k));
+  const dstIdx = rest.findIndex(([k]) => k === refKey);
+  if (dstIdx < 0) return false;
+  const insertBase = dstIdx + (placeAfter ? 1 : 0);
+  const newEntries = [...rest.slice(0, insertBase), ...picked, ...rest.slice(insertBase)];
+  for (const k of Object.keys(parentRef)) delete parentRef[k];
+  for (const [k, v] of newEntries) parentRef[k] = v;
+  return true;
+}
+
+function rowDragItemFromPath(p, parentPathForKeys) {
+  const parentPath = parentPathForKeys != null ? parentPathForKeys : parentPathFromRowPath(p);
+  const last = parentPath ? p.slice(parentPath.length + 1) : p;
+  const am = /^\[(\d+)\]$/.exec(last);
+  if (am) return { key: null, arrayIdx: parseInt(am[1], 10), propPath: p };
+  return { key: last, arrayIdx: null, propPath: p };
+}
+
+function collectSelectedRowDragItems(propPath, key, arrayIdx) {
+  const primary = { key, arrayIdx: typeof arrayIdx === 'number' ? arrayIdx : null, propPath };
+  if (typeof arrayIdx === 'number') return [primary];
+  if (!_propTreeSelection.has(propPath) || _propTreeSelection.size < 2) return [primary];
+  const primaryParent = parentPathFromRowPath(propPath);
+  const ordered = getVisiblePropRowPathsOrdered();
+  const orderIndex = (path) => ordered.indexOf(path);
+  const selectedSameParent = [..._propTreeSelection].filter((p) => parentPathFromRowPath(p) === primaryParent);
+  if (selectedSameParent.length < 2) return [primary];
+  selectedSameParent.sort((a, b) => orderIndex(a) - orderIndex(b));
+  return selectedSameParent.map((p) => rowDragItemFromPath(p, primaryParent));
+}
+
 /** After splice, indices under this array change — drop expansion state for those rows (and descendants). */
 function invalidatePropTreePathsForArrayContainer(arrayPath) {
   const re = new RegExp('^' + escapePropPathRe(arrayPath) + '/\\[\\d+\\](?:/|$)');
@@ -1512,11 +1579,7 @@ function restorePropTreeStateUnder(oldPrefix, newPrefix, snapshot) {
   });
 }
 
-/**
- * Move a property from its current parent into an object or array row's value.
- * @returns {boolean} true if handled
- */
-function movePropIntoContainer(src, dstContainerPath, dstType) {
+function isMovePropIntoContainerAllowed(src, dstContainerPath, dstType) {
   const root = docManager.activeDoc?.root;
   if (!root || !src?.propPath || !dstContainerPath) return false;
   if (src.propPath === dstContainerPath) return false;
@@ -1537,39 +1600,68 @@ function movePropIntoContainer(src, dstContainerPath, dstType) {
   } else {
     if (typeof src.key !== 'string' || !Object.prototype.hasOwnProperty.call(srcParent, src.key)) return false;
   }
+  return true;
+}
 
+/** Mutates doc root — caller must wrap in a single withDocUndo for batches. */
+function mutateMovePropIntoContainer(src, dstContainerPath, dstType) {
+  const root = docManager.activeDoc?.root;
+  if (!root) return;
+  const target = getValueAtPath(root, dstContainerPath);
+  const srcParentPath = parentPathFromRowPath(src.propPath);
+  const srcParent = getValueAtPath(root, srcParentPath);
+  const movedTreeState = collectPropTreeStateUnder(src.propPath);
+  let moved;
+  let movedNewPath = '';
+  if (typeof src.arrayIdx === 'number') {
+    moved = deepClone(srcParent[src.arrayIdx]);
+    invalidatePropTreePathsForArrayContainer(arrayContainerPathFromRowPath(src.propPath));
+    srcParent.splice(src.arrayIdx, 1);
+  } else {
+    moved = deepClone(srcParent[src.key]);
+    invalidatePropTreePathsUnderObjectKey(src.propPath);
+    delete srcParent[src.key];
+  }
+
+  if (dstType === 'array' && Array.isArray(target)) {
+    invalidatePropTreePathsForArrayContainer(dstContainerPath);
+    target.push(moved);
+    movedNewPath = `${dstContainerPath}/[${target.length - 1}]`;
+  } else {
+    let nk = movedKeyNameForObject(src);
+    const base = nk;
+    let n = 1;
+    while (Object.prototype.hasOwnProperty.call(target, nk)) nk = base + '_' + ++n;
+    invalidatePropTreePathsUnderObjectKey(dstContainerPath);
+    target[nk] = moved;
+    movedNewPath = `${dstContainerPath}/${nk}`;
+  }
+  if (movedNewPath) restorePropTreeStateUnder(src.propPath, movedNewPath, movedTreeState);
+}
+
+/**
+ * Move a property from its current parent into an object or array row's value.
+ * @returns {boolean} true if handled
+ */
+function movePropIntoContainer(src, dstContainerPath, dstType) {
+  if (!isMovePropIntoContainerAllowed(src, dstContainerPath, dstType)) return false;
   withDocUndo(() => {
-    const movedTreeState = collectPropTreeStateUnder(src.propPath);
-    let moved;
-    let movedNewPath = '';
-    if (typeof src.arrayIdx === 'number') {
-      moved = deepClone(srcParent[src.arrayIdx]);
-      invalidatePropTreePathsForArrayContainer(arrayContainerPathFromRowPath(src.propPath));
-      srcParent.splice(src.arrayIdx, 1);
-    } else {
-      moved = deepClone(srcParent[src.key]);
-      invalidatePropTreePathsUnderObjectKey(src.propPath);
-      delete srcParent[src.key];
-    }
-
-    if (dstType === 'array' && Array.isArray(target)) {
-      invalidatePropTreePathsForArrayContainer(dstContainerPath);
-      target.push(moved);
-      movedNewPath = `${dstContainerPath}/[${target.length - 1}]`;
-    } else {
-      let nk = movedKeyNameForObject(src);
-      const base = nk;
-      let n = 1;
-      while (Object.prototype.hasOwnProperty.call(target, nk)) nk = base + '_' + ++n;
-      invalidatePropTreePathsUnderObjectKey(dstContainerPath);
-      target[nk] = moved;
-      movedNewPath = `${dstContainerPath}/${nk}`;
-    }
-
-    // Keep expanded/collapsed state of the moved branch at its new path.
-    if (movedNewPath) restorePropTreeStateUnder(src.propPath, movedNewPath, movedTreeState);
+    mutateMovePropIntoContainer(src, dstContainerPath, dstType);
   }, 'Move into');
+  return true;
+}
 
+function batchMovePropIntoContainers(items, dstContainerPath, dstType) {
+  if (!items || !items.length) return false;
+  for (let i = 0; i < items.length; i++) {
+    if (!isMovePropIntoContainerAllowed(items[i], dstContainerPath, dstType)) return false;
+  }
+  const sorted = [...items].sort((a, b) => b.propPath.length - a.propPath.length);
+  withDocUndo(() => {
+    for (let j = 0; j < sorted.length; j++) {
+      mutateMovePropIntoContainer(sorted[j], dstContainerPath, dstType);
+    }
+  }, 'Move into');
   return true;
 }
 
@@ -1577,10 +1669,13 @@ function parseRowDragPayload(dt) {
   const raw = dt.getData('application/x-vdata-row') || dt.getData('text/plain');
   if (!raw) return null;
   try {
-    return JSON.parse(raw);
+    const o = JSON.parse(raw);
+    if (o && o.kind === 'vdata-row-multi' && Array.isArray(o.items) && o.items.length) return o;
+    if (o && o.propPath) return o;
   } catch (_) {
     return null;
   }
+  return null;
 }
 
 function dataTransferIsBrowserSuggestion(dt) {
@@ -1638,27 +1733,61 @@ function autoScrollPropTreeOnDrag(evt) {
   else if (evt.clientY > rect.bottom - threshold) root.scrollTop += speed;
 }
 
+function batchReorderPropSameParent(parentRef, items, dst, dropZone) {
+  if (!items || items.length < 2) return false;
+  if (Array.isArray(parentRef)) return false;
+  const keys = items.map((i) => i.key);
+  if (keys.some((k) => typeof k !== 'string')) return false;
+  if (typeof dst.key !== 'string') return false;
+  withDocUndo(() => {
+    reorderObjectKeysBlock(parentRef, keys, dst.key, dropZone === PROP_DROP_ZONE_AFTER);
+  }, 'Reorder');
+  return true;
+}
+
 function initRowDragDrop(row, dragHandle, key, parentRef, arrayIdx, propPath) {
   dragHandle.addEventListener('dragstart', (e) => {
-    const payload = JSON.stringify({
-      key,
-      arrayIdx: typeof arrayIdx === 'number' ? arrayIdx : null,
-      propPath
-    });
+    const items = collectSelectedRowDragItems(propPath, key, arrayIdx);
+    const payload =
+      items.length > 1
+        ? JSON.stringify({ kind: 'vdata-row-multi', items })
+        : JSON.stringify({
+            key,
+            arrayIdx: typeof arrayIdx === 'number' ? arrayIdx : null,
+            propPath
+          });
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('application/x-vdata-row', payload);
     e.dataTransfer.setData('text/plain', payload);
-    row.classList.add('drag-source');
+    document.querySelectorAll('#propTreeRoot .prop-row').forEach((r) => {
+      if (items.some((it) => it.propPath === r.dataset.propPath)) r.classList.add('drag-source');
+    });
   });
   dragHandle.addEventListener('dragend', () => {
     clearPropDropZoneClasses(row);
-    row.classList.remove('drag-source');
+    document.querySelectorAll('#propTreeRoot .prop-row.drag-source').forEach((r) => r.classList.remove('drag-source'));
   });
   row.addEventListener('dragover', (e) => {
     if (dataTransferIsBrowserSuggestion(e.dataTransfer)) {
-      if (row.dataset.type === 'object') {
-        const zone = detectRowDropZone(row, e);
-        if (zone === PROP_DROP_ZONE_INTO) {
+      const zone = detectRowDropZone(row, e);
+      const d = docManager.activeDoc;
+      const rowPath = row.dataset.propPath;
+      if (zone === PROP_DROP_ZONE_INTO && row.dataset.type === 'object') {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        autoScrollPropTreeOnDrag(e);
+        setPropDropZoneClass(row, zone);
+        return;
+      }
+      if (
+        (zone === PROP_DROP_ZONE_BEFORE || zone === PROP_DROP_ZONE_AFTER) &&
+        objectKeyFromPropPath(rowPath) != null &&
+        d &&
+        d.root
+      ) {
+        const pp = parentPathFromRowPath(rowPath);
+        const po = pp ? getValueAtPath(d.root, pp) : d.root;
+        if (po && typeof po === 'object' && !Array.isArray(po)) {
           e.preventDefault();
           e.dataTransfer.dropEffect = 'copy';
           autoScrollPropTreeOnDrag(e);
@@ -1688,8 +1817,28 @@ function initRowDragDrop(row, dragHandle, key, parentRef, arrayIdx, propPath) {
       const dropZone = detectRowDropZone(row, e);
       clearPropDropZoneClasses(row);
       const dstType = row.dataset.type;
+      const d = docManager.activeDoc;
+      const rowPath = row.dataset.propPath;
       if (dropZone === PROP_DROP_ZONE_INTO && dstType === 'object') {
         addSuggestedPropertyAtPath(sug.key, propPath, sug.type);
+        return;
+      }
+      if ((dropZone === PROP_DROP_ZONE_BEFORE || dropZone === PROP_DROP_ZONE_AFTER) && d && d.root) {
+        const refKey = objectKeyFromPropPath(rowPath);
+        const parentPath = parentPathFromRowPath(rowPath);
+        if (refKey == null) {
+          setStatus('Cannot add property next to this row', 'error');
+          return;
+        }
+        const parentObj = parentPath ? getValueAtPath(d.root, parentPath) : d.root;
+        if (!parentObj || typeof parentObj !== 'object' || Array.isArray(parentObj)) {
+          setStatus('Cannot add property here', 'error');
+          return;
+        }
+        addSuggestedPropertyAtPath(sug.key, parentPath, sug.type, {
+          referenceKey: refKey,
+          placeAfter: dropZone === PROP_DROP_ZONE_AFTER
+        });
       }
       return;
     }
@@ -1697,7 +1846,24 @@ function initRowDragDrop(row, dragHandle, key, parentRef, arrayIdx, propPath) {
     e.preventDefault();
     const dropZone = detectRowDropZone(row, e);
     clearPropDropZoneClasses(row);
-    const src = parseRowDragPayload(e.dataTransfer);
+    const parsed = parseRowDragPayload(e.dataTransfer);
+    if (!parsed) return;
+
+    if (parsed.kind === 'vdata-row-multi') {
+      const items = parsed.items;
+      const blocked = items.some((it) => it.propPath === propPath);
+      if (blocked) return;
+      const dstType = row.dataset.type;
+      if (dropZone === PROP_DROP_ZONE_INTO && (dstType === 'object' || dstType === 'array')) {
+        batchMovePropIntoContainers(items, propPath, dstType);
+        return;
+      }
+      if (parentPathFromRowPath(items[0].propPath) !== parentPathFromRowPath(propPath)) return;
+      if (batchReorderPropSameParent(parentRef, items, { key, arrayIdx, propPath }, dropZone)) return;
+      return;
+    }
+
+    const src = parsed;
     if (!src || !src.propPath) return;
     if (src.propPath === propPath) return;
 
@@ -2562,7 +2728,13 @@ function inferTypeForKeyAtParent(key, parentObjectPath) {
   return inferPropertyTypeFromSuggestion(match);
 }
 
-function addSuggestedPropertyAtPath(keyRaw, parentObjectPath, editorTypeOverride) {
+/**
+ * @param {string} keyRaw
+ * @param {string} parentObjectPath
+ * @param {string} [editorTypeOverride]
+ * @param {{ referenceKey: string, placeAfter?: boolean }} [insertNear] Order new key next to sibling (same parent object).
+ */
+function addSuggestedPropertyAtPath(keyRaw, parentObjectPath, editorTypeOverride, insertNear) {
   const d = docManager.activeDoc;
   if (!d || !d.root || typeof d.root !== 'object') return false;
   const key = String(keyRaw || '').trim();
@@ -2584,8 +2756,17 @@ function addSuggestedPropertyAtPath(keyRaw, parentObjectPath, editorTypeOverride
     editorTypeOverride && typeof editorTypeOverride === 'string'
       ? editorTypeOverride
       : inferTypeForKeyAtParent(key, parentPath);
+  const near =
+    insertNear && typeof insertNear.referenceKey === 'string' ? insertNear.referenceKey : null;
+  if (near !== null && near === key) {
+    setStatus('Invalid insert reference', 'error');
+    return false;
+  }
   withDocUndo(() => {
     parentObj[key] = defaultValueForPropertyType(type);
+    if (near != null && Object.prototype.hasOwnProperty.call(parentObj, near)) {
+      insertObjectKeyBesideReference(parentObj, key, near, !!insertNear.placeAfter);
+    }
   }, 'Add key');
   const focusPath = parentPath ? `${parentPath}/${key}` : key;
   requestAnimationFrame(() => {

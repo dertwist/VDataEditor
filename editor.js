@@ -173,14 +173,20 @@ function withDocUndo(applyFn, label) {
   if (typeof markPropTreeStructureDirty === 'function') markPropTreeStructureDirty();
   const prev = deepClone(d.root);
   const prevFormat = d.format;
+  const prevEx = new Set(d.expandedPaths);
+  const prevCol = new Set(d.collapsedPaths);
   applyFn();
   const next = deepClone(d.root);
   const nextFormat = d.format;
+  const nextEx = new Set(d.expandedPaths);
+  const nextCol = new Set(d.collapsedPaths);
   pushUndoCommand({
     label: label ?? 'Edit',
     undo: () => {
       d.format = prevFormat;
       d.root = deepClone(prev);
+      d.expandedPaths = new Set(prevEx);
+      d.collapsedPaths = new Set(prevCol);
       d.recalcElementIds();
       d.dirty = true;
       docManager.dispatchEvent(new Event('tabs-changed'));
@@ -189,6 +195,8 @@ function withDocUndo(applyFn, label) {
     redo: () => {
       d.format = nextFormat;
       d.root = deepClone(next);
+      d.expandedPaths = new Set(nextEx);
+      d.collapsedPaths = new Set(nextCol);
       d.recalcElementIds();
       d.dirty = true;
       docManager.dispatchEvent(new Event('tabs-changed'));
