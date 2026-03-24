@@ -13,6 +13,18 @@
 
   const META_KEY = 'vdata_schema_meta';
 
+  var _loadPerfStart = 0;
+  function recordLoad(game, source) {
+    if (typeof window === 'undefined' || !window.VDataPerf) return;
+    var now = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+    window.VDataPerf.recordSchemaLoad({ game: game, source: source, msTotal: now - _loadPerfStart });
+    if (typeof window.VDataPerf.logSchemaPhaseSummary === 'function') {
+      window.VDataPerf.logSchemaPhaseSummary();
+    }
+  }
+
+  var _loadInflight = new Map();
+
   /** Intrinsic / declared_class names → editor widget id */
   const INTRINSIC_WIDGET = new Map([
     ['Vector', 'vec3'],
@@ -117,13 +129,21 @@
   }
 
   function parseClassDefaults(classObj) {
-    const meta = classObj.metadata && classObj.metadata.find(function (m) { return m.name === 'MGetKV3ClassDefaults'; });
-    if (!meta || typeof meta.value !== 'string') return {};
-    try {
-      return JSON.parse(meta.value);
-    } catch (_) {
-      return {};
+    if (classObj && Object.prototype.hasOwnProperty.call(classObj, '_vdataKv3Defaults')) {
+      return classObj._vdataKv3Defaults;
     }
+    const meta = classObj.metadata && classObj.metadata.find(function (m) { return m.name === 'MGetKV3ClassDefaults'; });
+    if (!meta || typeof meta.value !== 'string') {
+      if (classObj) classObj._vdataKv3Defaults = {};
+      return classObj ? classObj._vdataKv3Defaults : {};
+    }
+    try {
+      const parsed = JSON.parse(meta.value);
+      if (classObj) classObj._vdataKv3Defaults = parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (_) {
+      if (classObj) classObj._vdataKv3Defaults = {};
+    }
+    return classObj._vdataKv3Defaults;
   }
 
   function buildIndexes(data) {
@@ -162,10 +182,37 @@
   }
 
   async function gunzipToJson(arrayBuffer) {
+    const t0 = typeof performance !== 'undefined' && performance.now ? performance.now() : 0;
     const ds = new DecompressionStream('gzip');
-    const blob = new Blob([arrayBuffer]).stream().pipeThrough(ds);
-    const text = await new Response(blob).text();
-    return JSON.parse(text);
+    const stream = new Blob([arrayBuffer]).stream().pipeThrough(ds);
+    const text = await new Response(stream).text();
+    if (typeof window !== 'undefined' && window.VDataPerf) {
+      window.VDataPerf.mark('schema-decompress-end');
+    }
+    const decompressMs = typeof performance !== 'undefined' && performance.now ? performance.now() - t0 : 0;
+    const t1 = typeof performance !== 'undefined' && performance.now ? performance.now() : 0;
+    const data = JSON.parse(text);
+    if (typeof window !== 'undefined' && window.VDataPerf) {
+      window.VDataPerf.mark('schema-parse-end');
+    }
+    const parseMs = typeof performance !== 'undefined' && performance.now ? performance.now() - t1 : 0;
+    if (typeof window !== 'undefined' && window.VDataPerf) {
+      window.VDataPerf.recordSchemaSteps({ gunzipDecompressMs: decompressMs, gunzipParseMs: parseMs });
+    }
+    return data;
+  }
+
+  async function applyAndMaybeCache(data, game) {
+    const rev = applySchemaPayload(data, game);
+    if (typeof window !== 'undefined' && window.VDataSchemaCache && typeof window.VDataSchemaCache.setParsed === 'function') {
+      try {
+        await window.VDataSchemaCache.setParsed(game, data);
+      } catch (err) {
+        var msg = err && err.message ? err.message : String(err);
+        console.warn('[schema-db] IndexedDB cache write failed:', msg);
+      }
+    }
+    return rev;
   }
 
   function validateSchemaPayload(data, game) {
@@ -185,6 +232,9 @@
     const g = game === 'dota2' || game === 'deadlock' ? game : 'cs2';
     validateSchemaPayload(data, g);
     buildIndexes(data);
+    if (typeof window !== 'undefined' && window.VDataPerf) {
+      window.VDataPerf.mark('schema-index-end');
+    }
     _raw = null;
 
     _revisionInfo = {
@@ -208,6 +258,10 @@
       window.dispatchEvent(new CustomEvent('vdata-schema-loaded', { detail: { game: g } }));
     }
 
+    if (typeof window !== 'undefined' && window.VDataPerf) {
+      window.VDataPerf.mark('schema-apply-end');
+    }
+
     return _revisionInfo;
   }
 
@@ -222,12 +276,26 @@
     const buf = await res.arrayBuffer();
     const data = await gunzipToJson(buf);
 
-    return applySchemaPayload(data, g);
+    var netRev = await applyAndMaybeCache(data, g);
+    recordLoad(g, 'network-gzip');
+    return netRev;
   }
 
   async function load(game, options) {
     const g = game === 'dota2' || game === 'deadlock' ? game : 'cs2';
     const opts = options && typeof options === 'object' ? options : {};
+    const inflightKey = g + '|fr:' + !!opts.forceRemote + '|sc:' + !!opts.skipCache;
+    if (_loadInflight.has(inflightKey)) {
+      return _loadInflight.get(inflightKey);
+    }
+    const inflightPromise = loadBody(g, opts).finally(function () {
+      _loadInflight.delete(inflightKey);
+    });
+    _loadInflight.set(inflightKey, inflightPromise);
+    return inflightPromise;
+  }
+
+  async function loadBody(g, opts) {
     const forceRemote = !!opts.forceRemote;
     const tryElectronLocal =
       typeof window !== 'undefined' &&
@@ -235,12 +303,37 @@
       typeof window.electronAPI.readSchemaBundle === 'function' &&
       (!forceRemote || g === 'deadlock');
 
+    _loadPerfStart = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+    if (typeof window !== 'undefined' && window.VDataPerf) {
+      window.VDataPerf.mark('schema-load-start');
+    }
+
     _loaded = false;
     _game = g;
     _revisionInfo = null;
     _raw = null;
     _classesByName = new Map();
     _enumByKey = new Map();
+
+    const useCache = !forceRemote && opts.skipCache !== true;
+    if (
+      useCache &&
+      typeof window !== 'undefined' &&
+      window.VDataSchemaCache &&
+      typeof window.VDataSchemaCache.getParsed === 'function'
+    ) {
+      try {
+        const cached = await window.VDataSchemaCache.getParsed(g);
+        if (cached && typeof cached === 'object' && Array.isArray(cached.classes)) {
+          if (typeof window !== 'undefined' && window.VDataPerf) {
+            window.VDataPerf.mark('schema-parse-end');
+          }
+          var cachedRev = applySchemaPayload(cached, g);
+          recordLoad(g, 'indexeddb');
+          return cachedRev;
+        }
+      } catch (_) {}
+    }
 
     if (tryElectronLocal) {
       try {
@@ -253,8 +346,17 @@
                 setTimeout(r, 0);
               });
             }
+            var tp = typeof performance !== 'undefined' && performance.now ? performance.now() : 0;
             const data = JSON.parse(jt);
-            return applySchemaPayload(data, g);
+            if (typeof window !== 'undefined' && window.VDataPerf) {
+              window.VDataPerf.mark('schema-parse-end');
+            }
+            if (typeof window !== 'undefined' && window.VDataPerf && performance.now) {
+              window.VDataPerf.recordSchemaSteps({ localParseMs: performance.now() - tp });
+            }
+            var ipcRev = await applyAndMaybeCache(data, g);
+            recordLoad(g, 'electron-ipc');
+            return ipcRev;
           } catch (parseErr) {
             const detail = parseErr && parseErr.message ? parseErr.message : String(parseErr);
             console.warn('[schema-db] local bundle parse/validate [' + g + '] failed:', detail);
@@ -262,7 +364,9 @@
         }
         if (result && result.ok === true && result.data && typeof result.data === 'object') {
           try {
-            return applySchemaPayload(result.data, g);
+            var legacyRev = await applyAndMaybeCache(result.data, g);
+            recordLoad(g, 'electron-ipc-legacy');
+            return legacyRev;
           } catch (applyErr) {
             const detail = applyErr && applyErr.message ? applyErr.message : String(applyErr);
             console.warn('[schema-db] local bundle apply [' + g + '] failed:', detail);
@@ -281,7 +385,8 @@
 
     if (g !== 'deadlock') {
       try {
-        return await loadFromNetwork(g, true);
+        var netOut = await loadFromNetwork(g, true);
+        return netOut;
       } catch (e) {
         console.warn('[schema-db] network gzip failed, trying relative schemas/' + g + '.json', e);
       }
@@ -299,7 +404,12 @@
       );
     }
     const data = await res2.json();
-    return applySchemaPayload(data, g);
+    if (typeof window !== 'undefined' && window.VDataPerf) {
+      window.VDataPerf.mark('schema-parse-end');
+    }
+    var relRev = await applyAndMaybeCache(data, g);
+    recordLoad(g, 'relative-fetch');
+    return relRev;
   }
 
   function isLoaded() {

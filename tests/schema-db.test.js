@@ -5,11 +5,13 @@ import { dirname, join } from 'path';
 
 const dir = dirname(fileURLToPath(import.meta.url));
 
-function injectSchemaDb() {
+function injectSchemaDeps() {
   globalThis.window = globalThis;
-  const code = readFileSync(join(dir, '../src/schema/schema-db.js'), 'utf8');
-  // eslint-disable-next-line no-eval
-  eval(code);
+  for (const rel of ['../src/performance-monitor.js', '../src/schema/schema-cache.js', '../src/schema/schema-db.js']) {
+    const code = readFileSync(join(dir, rel), 'utf8');
+    // eslint-disable-next-line no-eval
+    eval(code);
+  }
 }
 
 beforeEach(() => {
@@ -25,7 +27,9 @@ beforeEach(() => {
   };
   delete globalThis.electronAPI;
   delete globalThis.SchemaDB;
-  injectSchemaDb();
+  delete globalThis.VDataPerf;
+  delete globalThis.VDataSchemaCache;
+  injectSchemaDeps();
 });
 
 describe('SchemaDB', () => {

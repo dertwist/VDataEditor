@@ -6,9 +6,9 @@ const RECENT_MAX = 10
 const recentPath = () => path.join(app.getPath('userData'), 'recent.json')
 let recentFiles = []
 
-function loadRecent() {
+async function loadRecent() {
   try {
-    const raw = fs.readFileSync(recentPath(), 'utf8')
+    const raw = await fs.promises.readFile(recentPath(), 'utf8')
     const parsed = JSON.parse(raw)
     recentFiles = Array.isArray(parsed) ? parsed : []
   } catch {
@@ -16,9 +16,9 @@ function loadRecent() {
   }
 }
 
-function saveRecent() {
+async function saveRecent() {
   try {
-    fs.writeFileSync(recentPath(), JSON.stringify(recentFiles.slice(0, RECENT_MAX)), 'utf8')
+    await fs.promises.writeFile(recentPath(), JSON.stringify(recentFiles.slice(0, RECENT_MAX)), 'utf8')
   } catch (e) {
     console.error('saveRecent', e)
   }
@@ -27,7 +27,7 @@ function saveRecent() {
 function pushRecent(filePath) {
   if (!filePath || typeof filePath !== 'string') return
   recentFiles = [filePath, ...recentFiles.filter((p) => p !== filePath)].slice(0, RECENT_MAX)
-  saveRecent()
+  void saveRecent()
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('recent-files-updated', recentFiles)
   }
@@ -99,8 +99,8 @@ if (!gotLock) {
     }
   })
 
-  app.whenReady().then(() => {
-    loadRecent()
+  app.whenReady().then(async () => {
+    await loadRecent()
     const filePath = extractFilePath(process.argv)
     createWindow(filePath)
     app.on('activate', () => {
@@ -135,10 +135,12 @@ ipcMain.handle('read-schema-bundle', async (_e, game) => {
   }
 })
 
-ipcMain.handle('read-file', async (_e, filePath) => fs.readFileSync(filePath, 'utf-8'))
+ipcMain.handle('read-file', async (_e, filePath) => {
+  return await fs.promises.readFile(filePath, 'utf-8')
+})
 
 ipcMain.handle('save-file', async (_e, filePath, content) => {
-  fs.writeFileSync(filePath, content, 'utf-8')
+  await fs.promises.writeFile(filePath, content, 'utf-8')
   pushRecent(filePath)
   return true
 })
@@ -170,9 +172,9 @@ ipcMain.handle('pick-resource-file', async (_e, opts) => {
 ipcMain.handle('get-version', () => app.getVersion())
 ipcMain.handle('get-recent-files', () => recentFiles)
 
-ipcMain.handle('clear-recent-files', () => {
+ipcMain.handle('clear-recent-files', async () => {
   recentFiles = []
-  saveRecent()
+  await saveRecent()
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('recent-files-updated', recentFiles)
   }

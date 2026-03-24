@@ -94,18 +94,19 @@
       if (val.length === 0) return style.spacedEmptyArray ? '[  ]' : '[]';
       // Simple numeric array
       if (val.every((v) => typeof v === 'number')) return `[${val.join(', ')}]`;
-      let s = '\n' + indent + '[\n';
+      const parts = [];
+      parts.push('\n' + indent + '[\n');
       val.forEach((item, i) => {
         if (isKV3LineCommentNode(item)) {
-          s += indent1 + '//' + item.text;
+          parts.push(indent1 + '//' + item.text);
         } else {
-          s += indent1 + serializeKV3Value(item, depth + 1, style, '').trimStart();
-          if (i < val.length - 1 || style.trailingArrayCommas) s += ',';
+          parts.push(indent1 + serializeKV3Value(item, depth + 1, style, '').trimStart());
+          if (i < val.length - 1 || style.trailingArrayCommas) parts.push(',');
         }
-        s += '\n';
+        parts.push('\n');
       });
-      s += indent + ']';
-      return s;
+      parts.push(indent + ']');
+      return parts.join('');
     }
     if (typeof val === 'object') {
       if (
@@ -124,27 +125,27 @@
       }
       const keys = Object.keys(val);
       if (keys.length === 0) return '{}';
-      let s = '';
-      if (depth === 0 && !style.rootLeadingNewline) s = '{\n';
-      else s = '\n' + indent + '{\n';
+      const parts = [];
+      if (depth === 0 && !style.rootLeadingNewline) parts.push('{\n');
+      else parts.push('\n' + indent + '{\n');
       keys.forEach((key) => {
         const v = val[key];
         if (v === undefined) return;
         if (isKV3LineCommentNode(v) && key.startsWith(KV3_OBJECT_COMMENT_KEY_PREFIX)) {
-          s += indent1 + '//' + v.text + '\n';
+          parts.push(indent1 + '//' + v.text + '\n');
           return;
         }
         const serialized = serializeKV3Value(v, depth + 1, style, key);
         const k = kv3ObjectKey(key);
         if (serialized.startsWith('\n')) {
-          if (style.splitContainerAssignment) s += indent1 + k + ' = ' + serialized + '\n';
-          else s += indent1 + k + ' = ' + serialized.trimStart() + '\n';
+          if (style.splitContainerAssignment) parts.push(indent1 + k + ' = ' + serialized + '\n');
+          else parts.push(indent1 + k + ' = ' + serialized.trimStart() + '\n');
         } else {
-          s += indent1 + k + ' = ' + serialized + '\n';
+          parts.push(indent1 + k + ' = ' + serialized + '\n');
         }
       });
-      s += indent + '}';
-      return s;
+      parts.push(indent + '}');
+      return parts.join('');
     }
     return String(val);
   }

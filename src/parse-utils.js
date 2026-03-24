@@ -2,6 +2,13 @@ const { parseKV3Document, detectKV3HeaderFromFileName } = KV3Format;
 const { keyValueToJSON } = KeyValueFormat;
 
 function deepClone(obj) {
+  if (typeof structuredClone === 'function') {
+    try {
+      return structuredClone(obj);
+    } catch (_) {
+      /* fall through */
+    }
+  }
   return JSON.parse(JSON.stringify(obj));
 }
 

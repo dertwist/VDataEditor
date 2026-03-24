@@ -160,6 +160,16 @@
     const flat = resolveSchema(ctx);
     const def = flat[key];
     if (def && Array.isArray(def.enum) && def.enum.length) return def.enum.slice();
+    if (
+      def &&
+      def.enumWidgetId &&
+      typeof def.enumWidgetId === 'string' &&
+      window.SchemaDB &&
+      typeof window.SchemaDB.getEnumValuesForWidgetId === 'function'
+    ) {
+      const vals = window.SchemaDB.getEnumValuesForWidgetId(def.enumWidgetId);
+      if (vals && vals.length) return vals.slice();
+    }
     return inferFromConvention(key);
   }
 

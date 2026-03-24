@@ -25,11 +25,12 @@
     if (widgetStr === 'array') return { type: 'string', widget: 'string' };
     if (widgetStr === 'object') return { type: 'string', widget: 'string' };
     if (widgetStr.indexOf('enum:') === 0) {
-      const vals =
-        window.SchemaDB && typeof window.SchemaDB.getEnumValuesForWidgetId === 'function'
-          ? window.SchemaDB.getEnumValuesForWidgetId(widgetStr)
-          : [];
-      return { type: 'string', widget: 'string', enum: vals };
+      return {
+        type: 'string',
+        widget: 'string',
+        enum: [],
+        enumWidgetId: widgetStr
+      };
     }
     return { type: 'string', widget: 'string' };
   }
@@ -47,11 +48,16 @@
     };
 
     const total = names.length;
-    const reportEvery = Math.max(1, Math.floor(total / 25));
-    const yieldEveryNClasses = 64;
+    const reportEvery = Math.max(1, Math.floor(total / 30));
+    const yieldEveryNClasses = 12;
+    const yieldEveryNFields = 180;
+    const yieldSliceMs = 18;
+    const hasNow = typeof performance !== 'undefined' && typeof performance.now === 'function';
 
     const globalFreq = {};
     const globalDef = {};
+    var fieldStepsSinceYield = 0;
+    var fieldSliceStart = hasNow ? performance.now() : Date.now();
     for (let i = 0; i < names.length; i++) {
       const className = names[i];
       const fields = S.getFields(className);
@@ -62,6 +68,18 @@
         keys[f.name] = def;
         globalFreq[f.name] = (globalFreq[f.name] || 0) + 1;
         if (!globalDef[f.name]) globalDef[f.name] = def;
+        fieldStepsSinceYield++;
+        var nowTick = hasNow ? performance.now() : Date.now();
+        if (
+          fieldStepsSinceYield >= yieldEveryNFields ||
+          nowTick - fieldSliceStart >= yieldSliceMs
+        ) {
+          fieldStepsSinceYield = 0;
+          fieldSliceStart = hasNow ? performance.now() : Date.now();
+          await new Promise(function (r) {
+            setTimeout(r, 0);
+          });
+        }
       }
       out['type:' + className] = { keys: keys, children: {}, enums: {} };
 
@@ -81,10 +99,25 @@
     const minFreq = Math.max(8, Math.floor(names.length * 0.01));
     const globalKeys = {};
     const allGlobalNames = Object.keys(globalFreq);
+    if (onProgress) {
+      onProgress('Merging global schema keys…', 62);
+    }
+    await new Promise(function (r) {
+      setTimeout(r, 0);
+    });
     for (let k = 0; k < allGlobalNames.length; k++) {
       const name = allGlobalNames[k];
       if (globalFreq[name] < minFreq) continue;
       globalKeys[name] = globalDef[name] || widgetToDef('string');
+      if (k % 72 === 71) {
+        if (onProgress) {
+          var mergePct = Math.min(99, 62 + Math.floor((37 * k) / Math.max(1, allGlobalNames.length)));
+          onProgress('Merging global schema keys…', mergePct);
+        }
+        await new Promise(function (r) {
+          setTimeout(r, 0);
+        });
+      }
     }
     out._global.keys = globalKeys;
 
