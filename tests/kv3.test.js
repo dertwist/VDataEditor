@@ -168,5 +168,22 @@ describe('KV3 format', () => {
     expect(out).toContain('// enabled');
     expect(out).toContain('//"b",');
   });
+
+  it('preserves object-level comments between keys', () => {
+    const text = `{
+  // head
+  a = 1
+  // middle
+  b = 2
+}`;
+    const parsed = KV3Format.kv3ToJSON(text);
+    expect(parsed.a).toBe(1);
+    expect(parsed.b).toBe(2);
+    const commentKeys = Object.keys(parsed).filter((k) => k.startsWith(KV3Format.KV3_OBJECT_COMMENT_KEY_PREFIX));
+    expect(commentKeys.length).toBe(2);
+    const out = KV3Format.jsonToKV3(parsed);
+    expect(out).toContain('// head');
+    expect(out).toContain('// middle');
+  });
 });
 

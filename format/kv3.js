@@ -25,6 +25,7 @@
     rootLeadingNewline: false
   };
   const KV3_LINE_COMMENT_FLAG = '__kv3LineComment';
+  const KV3_OBJECT_COMMENT_KEY_PREFIX = '__kv3_obj_comment_';
 
   function createKV3LineComment(text) {
     return { [KV3_LINE_COMMENT_FLAG]: true, text: typeof text === 'string' ? text : '' };
@@ -129,6 +130,10 @@
       keys.forEach((key) => {
         const v = val[key];
         if (v === undefined) return;
+        if (isKV3LineCommentNode(v) && key.startsWith(KV3_OBJECT_COMMENT_KEY_PREFIX)) {
+          s += indent1 + '//' + v.text + '\n';
+          return;
+        }
         const serialized = serializeKV3Value(v, depth + 1, style, key);
         const k = kv3ObjectKey(key);
         if (serialized.startsWith('\n')) {
@@ -161,6 +166,7 @@
     constructor(text) {
       this.text = text;
       this.pos = 0;
+      this.objectCommentSeq = 0;
     }
     skipWhitespace() {
       while (this.pos < this.text.length && /[\s]/.test(this.text[this.pos])) this.pos++;
@@ -221,8 +227,12 @@
       this.consume('{');
       const obj = {};
       while (true) {
-        this.skipWhitespace();
+        this.skipWhitespaceNoComments();
         if (this.pos >= this.text.length || this.text[this.pos] === '}') break;
+        if (this.startsWithLineComment()) {
+          obj[KV3_OBJECT_COMMENT_KEY_PREFIX + ++this.objectCommentSeq] = this.parseLineCommentNode();
+          continue;
+        }
         const key = this.parseKey();
         this.skipWhitespace();
         this.consume('=');
@@ -319,6 +329,7 @@
     DEFAULT_STYLE,
     MODELDOC41_STYLE,
     KV3_LINE_COMMENT_FLAG,
+    KV3_OBJECT_COMMENT_KEY_PREFIX,
     createKV3LineComment,
     isKV3LineCommentNode,
     detectKV3HeaderFromFileName,

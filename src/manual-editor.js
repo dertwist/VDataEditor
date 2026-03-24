@@ -10,7 +10,7 @@
   let _cmView = null; // CM EditorView, created once on first access
   let _cmFormatComp = null; // CM Compartment for language switching
   let _themeComp = null; // CM Compartment for light/dark base theme
-  let _meFormat = 'json'; // 'json' | 'kv3' (radio); doc.format may be 'keyvalue'
+  let _meFormat = 'kv3'; // 'json' | 'kv3' (radio); doc.format may be 'keyvalue'
   let _suppressSync = false; // true while CM is being written from model
   let _liveSyncTimer = null;
   let _debounceTimer = null;
