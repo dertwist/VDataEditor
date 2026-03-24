@@ -148,5 +148,25 @@ describe('KV3 format', () => {
     expect(kv3).toContain('exception_list = [  ]');
     expect(kv3).toContain('\n\t\t\t},\n');
   });
+
+  it('parses and preserves line comments inside arrays', () => {
+    const text = `{
+  list = [
+    // enabled
+    "a",
+    //"b",
+  ]
+}`;
+    const parsed = KV3Format.kv3ToJSON(text);
+    expect(Array.isArray(parsed.list)).toBe(true);
+    expect(parsed.list.length).toBe(3);
+    expect(KV3Format.isKV3LineCommentNode(parsed.list[0])).toBe(true);
+    expect(parsed.list[0].text).toContain(' enabled');
+    expect(KV3Format.isKV3LineCommentNode(parsed.list[2])).toBe(true);
+
+    const out = KV3Format.jsonToKV3(parsed);
+    expect(out).toContain('// enabled');
+    expect(out).toContain('//"b",');
+  });
 });
 

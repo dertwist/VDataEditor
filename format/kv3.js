@@ -24,6 +24,21 @@
     spacedEmptyArray: true,
     rootLeadingNewline: false
   };
+  const KV3_LINE_COMMENT_FLAG = '__kv3LineComment';
+
+  function createKV3LineComment(text) {
+    return { [KV3_LINE_COMMENT_FLAG]: true, text: typeof text === 'string' ? text : '' };
+  }
+
+  function isKV3LineCommentNode(value) {
+    return (
+      !!value &&
+      typeof value === 'object' &&
+      value[KV3_LINE_COMMENT_FLAG] === true &&
+      typeof value.text === 'string' &&
+      Object.keys(value).every((k) => k === KV3_LINE_COMMENT_FLAG || k === 'text')
+    );
+  }
 
   function detectKV3HeaderFromFileName(fileName) {
     const name = typeof fileName === 'string' ? fileName.toLowerCase() : '';
@@ -80,8 +95,12 @@
       if (val.every((v) => typeof v === 'number')) return `[${val.join(', ')}]`;
       let s = '\n' + indent + '[\n';
       val.forEach((item, i) => {
-        s += indent1 + serializeKV3Value(item, depth + 1, style, '').trimStart();
-        if (i < val.length - 1 || style.trailingArrayCommas) s += ',';
+        if (isKV3LineCommentNode(item)) {
+          s += indent1 + '//' + item.text;
+        } else {
+          s += indent1 + serializeKV3Value(item, depth + 1, style, '').trimStart();
+          if (i < val.length - 1 || style.trailingArrayCommas) s += ',';
+        }
         s += '\n';
       });
       s += indent + ']';
@@ -155,6 +174,22 @@
         this.skipWhitespace();
       }
     }
+    skipWhitespaceNoComments() {
+      while (this.pos < this.text.length && /[\s]/.test(this.text[this.pos])) this.pos++;
+    }
+    startsWithLineComment() {
+      return (
+        this.pos < this.text.length - 1 &&
+        this.text[this.pos] === '/' &&
+        this.text[this.pos + 1] === '/'
+      );
+    }
+    parseLineCommentNode() {
+      this.pos += 2;
+      const start = this.pos;
+      while (this.pos < this.text.length && this.text[this.pos] !== '\n') this.pos++;
+      return createKV3LineComment(this.text.slice(start, this.pos));
+    }
     peek() {
       this.skipWhitespace();
       return this.text[this.pos];
@@ -201,10 +236,14 @@
       this.consume('[');
       const arr = [];
       while (true) {
-        this.skipWhitespace();
+        this.skipWhitespaceNoComments();
         if (this.pos >= this.text.length || this.text[this.pos] === ']') break;
+        if (this.startsWithLineComment()) {
+          arr.push(this.parseLineCommentNode());
+          continue;
+        }
         arr.push(this.parseValue());
-        this.skipWhitespace();
+        this.skipWhitespaceNoComments();
         if (this.text[this.pos] === ',') this.pos++;
       }
       this.consume(']');
@@ -279,6 +318,9 @@
     MODELDOC41_KV3_HEADER,
     DEFAULT_STYLE,
     MODELDOC41_STYLE,
+    KV3_LINE_COMMENT_FLAG,
+    createKV3LineComment,
+    isKV3LineCommentNode,
     detectKV3HeaderFromFileName,
     normalizeKV3Header,
     jsonToKV3,

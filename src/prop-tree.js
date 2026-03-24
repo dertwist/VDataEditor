@@ -94,6 +94,10 @@ function isVec4Array(key, arr) {
 }
 
 function inferType(key, value) {
+  if (window.KV3Format?.isKV3LineCommentNode && window.KV3Format.isKV3LineCommentNode(value)) {
+    const parsed = parseArrayCommentNode(value);
+    return parsed.kind === 'commented_value' ? 'commented_value' : 'comment_label';
+  }
   if (value === null || value === undefined) return 'null';
   if (typeof value === 'boolean') return 'bool';
   if (typeof value === 'number') return Number.isInteger(value) ? 'int' : 'float';
@@ -116,6 +120,24 @@ function inferType(key, value) {
   }
   if (typeof value === 'object') return 'object';
   return 'unknown';
+}
+
+function escapeKV3CommentString(s) {
+  return String(s ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function parseArrayCommentNode(node) {
+  const text = typeof node?.text === 'string' ? node.text : '';
+  const m = text.match(/^\s*"((?:[^"\\]|\\.)*)"\s*,?\s*$/);
+  if (!m) return { kind: 'comment_label', text };
+  const unescaped = m[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+  return { kind: 'commented_value', value: unescaped, text };
+}
+
+function makeCommentedValueNode(value) {
+  const t = ` "${escapeKV3CommentString(value)}",`;
+  if (window.KV3Format?.createKV3LineComment) return window.KV3Format.createKV3LineComment(t);
+  return { __kv3LineComment: true, text: t };
 }
 
 const TYPE_ICON_COLORS = {
@@ -629,6 +651,8 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
   row.dataset.type = type;
   row.dataset.propPath = propPath;
   if (depth > 9) row.style.setProperty('--prop-depth', String(depth));
+  if (type === 'commented_value') row.classList.add('prop-row-commented-value');
+  if (type === 'comment_label') row.classList.add('prop-row-comment-label');
 
   const isArrayIndex = typeof arrayIdx === 'number';
 
@@ -643,6 +667,10 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
   dragHandle.title = 'Drag to reorder';
   dragHandle.setAttribute('aria-label', 'Drag to reorder');
   dragHandle.textContent = '⋮⋮';
+  if (type === 'commented_value' || type === 'comment_label') {
+    dragHandle.style.visibility = 'hidden';
+    dragHandle.draggable = false;
+  }
 
   const keyIcon = document.createElement('span');
   keyIcon.className = 'prop-type-icon-badge';
@@ -654,7 +682,7 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
 
   keyEl.appendChild(dragHandle);
   keyEl.appendChild(treeNodeIcon);
-  keyEl.appendChild(keyIcon);
+  if (type !== 'commented_value' && type !== 'comment_label') keyEl.appendChild(keyIcon);
 
   if (type === 'object' || type === 'array') {
     const childrenWillBeLazy = depth >= 1;
@@ -690,7 +718,8 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
 
   const keyText = document.createElement('span');
   keyText.className = 'prop-key-text';
-  keyText.textContent = key;
+  const parsedComment = type === 'commented_value' || type === 'comment_label' ? parseArrayCommentNode(value) : null;
+  keyText.textContent = type === 'comment_label' ? '// ' + (parsedComment?.text?.trim() || '') : key;
   if (!isArrayIndex) {
     keyText.title = 'Double-click to rename';
     keyText.addEventListener('dblclick', (e) => {
@@ -712,11 +741,13 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
     else sum.textContent = type;
     valEl.appendChild(sum);
   }
-  valEl.appendChild(
-    buildForceTypeBadge(type, (newType) => {
-      castPropertyType(parentRef, key, value, type, newType, arrayIdx);
-    })
-  );
+  if (type !== 'comment_label' && type !== 'commented_value') {
+    valEl.appendChild(
+      buildForceTypeBadge(type, (newType) => {
+        castPropertyType(parentRef, key, value, type, newType, arrayIdx);
+      })
+    );
+  }
 
   // Slider scrubs update the document live but only push ONE undo entry for the whole drag.
   let sliderScrubActive = false;
@@ -807,6 +838,21 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
   };
 
   switch (type) {
+    case 'comment_label': {
+      const label = document.createElement('span');
+      label.className = 'prop-value-summary';
+      label.textContent = '// section label';
+      valEl.appendChild(label);
+      break;
+    }
+    case 'commented_value': {
+      const disabledVal = parsedComment?.value ?? '';
+      const label = document.createElement('span');
+      label.className = 'prop-value-summary';
+      label.textContent = `"${disabledVal}"`;
+      valEl.appendChild(label);
+      break;
+    }
     case 'bool':
       buildBoolWidget(valEl, value, onScalarChange);
       break;
@@ -863,6 +909,22 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
 
   const actions = document.createElement('div');
   actions.className = 'prop-row-actions';
+  if (type === 'comment_label' || type === 'commented_value') actions.style.display = 'none';
+
+  if (isArrayIndex && type === 'string') {
+    const disableBtn = document.createElement('button');
+    disableBtn.type = 'button';
+    disableBtn.className = 'prop-action-btn';
+    disableBtn.title = 'Comment out entry';
+    disableBtn.textContent = '//';
+    disableBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      withDocUndo(() => {
+        parentRef[arrayIdx] = makeCommentedValueNode(value);
+      }, 'Disable list item');
+    });
+    actions.appendChild(disableBtn);
+  }
 
   const dupBtn = document.createElement('button');
   dupBtn.type = 'button';
