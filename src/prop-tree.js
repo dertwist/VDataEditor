@@ -826,7 +826,13 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
     if (!d) return;
     sliderScrubActive = true;
     sliderScrubDidChange = false;
-    sliderScrubTx = { prevRoot: deepClone(d.root), prevFormat: d.format, label: `Edit: ${key}` };
+    sliderScrubTx = {
+      prevRoot: deepClone(d.root),
+      prevFormat: d.format,
+      prevEx: new Set(propEx()),
+      prevCol: new Set(propCol()),
+      label: `Edit: ${key}`
+    };
   }
 
   function endSliderScrub() {
@@ -846,6 +852,8 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
 
     const nextRoot = deepClone(d.root);
     const nextFormat = d.format;
+    const nextEx = new Set(propEx());
+    const nextCol = new Set(propCol());
     sliderScrubDidChange = false;
 
     pushUndoCommand({
@@ -853,6 +861,8 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
       undo: () => {
         d.format = tx.prevFormat;
         d.root = deepClone(tx.prevRoot);
+        d.expandedPaths = new Set(tx.prevEx);
+        d.collapsedPaths = new Set(tx.prevCol);
         d.recalcElementIds();
         d.dirty = true;
         docManager.dispatchEvent(new Event('tabs-changed'));
@@ -861,6 +871,8 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
       redo: () => {
         d.format = nextFormat;
         d.root = deepClone(nextRoot);
+        d.expandedPaths = new Set(nextEx);
+        d.collapsedPaths = new Set(nextCol);
         d.recalcElementIds();
         d.dirty = true;
         docManager.dispatchEvent(new Event('tabs-changed'));
@@ -2398,12 +2410,16 @@ function commitValue(parentRef, key, newValue, arrayIdx, isStructural = false) {
 
   const prevRoot = deepClone(d.root);
   const prevFormat = d.format;
+  const prevEx = new Set(propEx());
+  const prevCol = new Set(propCol());
 
   if (useIdx) parentRef[arrayIdx] = newValue;
   else parentRef[key] = newValue;
 
   const nextRoot = deepClone(d.root);
   const nextFormat = d.format;
+  const nextEx = new Set(propEx());
+  const nextCol = new Set(propCol());
 
   if (isStructural) markPropTreeStructureDirty();
 
@@ -2412,6 +2428,8 @@ function commitValue(parentRef, key, newValue, arrayIdx, isStructural = false) {
     undo: () => {
       d.format = prevFormat;
       d.root = deepClone(prevRoot);
+      d.expandedPaths = new Set(prevEx);
+      d.collapsedPaths = new Set(prevCol);
       d.recalcElementIds();
       d.dirty = true;
       docManager.dispatchEvent(new Event('tabs-changed'));
@@ -2420,6 +2438,8 @@ function commitValue(parentRef, key, newValue, arrayIdx, isStructural = false) {
     redo: () => {
       d.format = nextFormat;
       d.root = deepClone(nextRoot);
+      d.expandedPaths = new Set(nextEx);
+      d.collapsedPaths = new Set(nextCol);
       d.recalcElementIds();
       d.dirty = true;
       docManager.dispatchEvent(new Event('tabs-changed'));

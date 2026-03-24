@@ -33,6 +33,9 @@ class VDataDocument {
   undo() {
     const cmd = this.undoStack.pop();
     if (!cmd) return null;
+    if (typeof globalThis.markPropTreeStructureDirty === 'function') {
+      globalThis.markPropTreeStructureDirty();
+    }
     cmd.undo();
     this.redoStack.push(cmd);
     return cmd;
@@ -41,6 +44,9 @@ class VDataDocument {
   redo() {
     const cmd = this.redoStack.pop();
     if (!cmd) return null;
+    if (typeof globalThis.markPropTreeStructureDirty === 'function') {
+      globalThis.markPropTreeStructureDirty();
+    }
     cmd.redo();
     this.undoStack.push(cmd);
     return cmd;

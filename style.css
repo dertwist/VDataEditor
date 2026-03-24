@@ -765,6 +765,7 @@ html[data-theme="light"] #cmEditor .cm-content:focus *::selection{
 }
 .history-entry:hover{background:var(--bg-hover);color:var(--text-primary)}
 .history-entry.is-current{color:var(--accent);font-weight:600}
+.history-entry.history-entry-empty .history-entry-label{opacity:.88}
 .history-entry.is-redo{opacity:.45}
 .history-entry-idx{
   width:24px;

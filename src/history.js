@@ -29,14 +29,48 @@ function redo() {
   refreshHistoryDock();
 }
 
-function buildHistoryEntry(cmd, idx, extraClass) {
+function buildEmptyHistoryEntry(displayIdx, isCurrent) {
+  const el = document.createElement('div');
+  el.className = `history-entry history-entry-empty${isCurrent ? ' is-current' : ''}`.trim();
+  el.innerHTML = `
+    <span class="history-entry-idx">${displayIdx + 1}</span>
+    <span class="history-entry-label"></span>
+    <span class="history-entry-time"></span>
+  `;
+  const lbl = 'Empty';
+  el.querySelector('.history-entry-label').textContent = lbl;
+  el.title = lbl;
+
+  el.addEventListener('click', () => {
+    const d = docManager.activeDoc;
+    if (!d) return;
+    const u = d.undoStack.length;
+    const currentDisplayIdx = u === 0 ? 0 : u;
+    if (displayIdx === currentDisplayIdx) return;
+
+    _historyBatchDepth++;
+    try {
+      while (d.undoStack.length) undo();
+    } finally {
+      _historyBatchDepth--;
+      if (_historyBatchDepth === 0 && _historyRefreshQueued) {
+        _historyRefreshQueued = false;
+        refreshHistoryDock();
+      }
+    }
+  });
+
+  return el;
+}
+
+function buildHistoryEntry(cmd, extraClass, displayIdx) {
   const el = document.createElement('div');
   el.className = `history-entry ${extraClass || ''}`.trim();
   const timeStr = cmd.time
     ? new Date(cmd.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     : '';
   el.innerHTML = `
-    <span class="history-entry-idx">${idx + 1}</span>
+    <span class="history-entry-idx">${displayIdx + 1}</span>
     <span class="history-entry-label"></span>
     <span class="history-entry-time">${timeStr}</span>
   `;
@@ -47,16 +81,17 @@ function buildHistoryEntry(cmd, idx, extraClass) {
   el.addEventListener('click', () => {
     const d = docManager.activeDoc;
     if (!d) return;
-    const currentTop = d.undoStack.length - 1;
-    const targetIdx = idx;
-    if (targetIdx === currentTop) return;
+    const u = d.undoStack.length;
+    const currentDisplayIdx = u === 0 ? 0 : u;
+    if (displayIdx === currentDisplayIdx) return;
 
     _historyBatchDepth++;
     try {
-      if (targetIdx < currentTop) {
-        for (let j = currentTop; j > targetIdx; j--) undo();
-      } else if (targetIdx > currentTop) {
-        for (let j = currentTop; j < targetIdx; j++) redo();
+      if (displayIdx <= u) {
+        while (d.undoStack.length > displayIdx) undo();
+        while (d.undoStack.length < displayIdx) redo();
+      } else {
+        for (let j = 0; j < displayIdx - u; j++) redo();
       }
     } finally {
       _historyBatchDepth--;
@@ -88,15 +123,19 @@ function refreshHistoryDock() {
 
   const totalUndo = d.undoStack.length;
 
+  list.appendChild(buildEmptyHistoryEntry(0, totalUndo === 0));
+
   d.undoStack.forEach((cmd, i) => {
     const extra = totalUndo > 0 && i === totalUndo - 1 ? 'is-current' : '';
-    list.appendChild(buildHistoryEntry(cmd, i, extra));
+    const disp = i + 1;
+    list.appendChild(buildHistoryEntry(cmd, extra, disp));
   });
 
   [...d.redoStack]
     .reverse()
     .forEach((cmd, i) => {
-      list.appendChild(buildHistoryEntry(cmd, totalUndo + i, 'is-redo'));
+      const disp = totalUndo + 1 + i;
+      list.appendChild(buildHistoryEntry(cmd, 'is-redo', disp));
     });
 
   list.querySelector('.is-current')?.scrollIntoView({ block: 'nearest' });
