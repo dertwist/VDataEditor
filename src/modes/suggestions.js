@@ -256,12 +256,21 @@
   }
 
   function inferTypeFromKeyName(key) {
+    if (key === 'm_name') return 'string';
+    if (key === 'generic_data_type_value') return 'string';
+
+    // Keep color keys as `color` even if they also start with `m_v`.
+    if (/color|colour/i.test(key)) return 'color';
+
     if (key.indexOf('m_b') === 0) return 'bool';
     if (key.indexOf('m_n') === 0 || key.indexOf('m_i') === 0) return 'int';
     if (key.indexOf('m_fl') === 0) return 'float';
+
+    // Explicit: treat `m_s*` as string.
+    if (key.indexOf('m_s') === 0) return 'string';
+
     if (key.indexOf('m_v') === 0 || key.indexOf('m_vec') === 0) return 'vec3';
     if (key.indexOf('m_ang') === 0) return 'vec3';
-    if (/color|colour/i.test(key)) return 'color';
     if (key.indexOf('m_sz') === 0) return 'string';
     return 'string';
   }
