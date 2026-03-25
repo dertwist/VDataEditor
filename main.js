@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, Menu, dialog } = require('electron/main')
+const { Worker } = require('node:worker_threads')
 const path = require('node:path')
 const fs = require('fs')
 
@@ -125,6 +126,88 @@ if (!gotLock) {
 
 const SCHEMA_BUNDLE_GAMES = new Set(['cs2', 'dota2', 'deadlock'])
 
+// ── KV3 native parsing worker (off main thread) ────────────────────────────
+let _kv3ParseWorker = null
+let _kv3ParseNextId = 0
+const _kv3ParsePending = new Map()
+
+function getKv3ParseWorker() {
+  if (_kv3ParseWorker) return _kv3ParseWorker
+  const workerPath = path.join(__dirname, 'src', 'kv3-native-parse-worker.js')
+  _kv3ParseWorker = new Worker(workerPath)
+  _kv3ParseWorker.on('message', (msg) => {
+    const p = _kv3ParsePending.get(msg.id)
+    if (!p) return
+    _kv3ParsePending.delete(msg.id)
+    if (msg.ok) p.resolve(msg.parsed)
+    else p.reject(new Error(msg.error || 'kv3 native parse failed'))
+  })
+  _kv3ParseWorker.on('error', (err) => {
+    _kv3ParsePending.forEach((p) => {
+      try {
+        p.reject(err)
+      } catch (_) {}
+    })
+    _kv3ParsePending.clear()
+    _kv3ParseWorker = null
+  })
+  _kv3ParseWorker.on('exit', (code) => {
+    if (code === 0) return
+    const err = new Error('kv3 native parse worker exited with code ' + code)
+    _kv3ParsePending.forEach((p) => {
+      try {
+        p.reject(err)
+      } catch (_) {}
+    })
+    _kv3ParsePending.clear()
+    _kv3ParseWorker = null
+  })
+  return _kv3ParseWorker
+}
+
+// ── Prop-tree initial plan worker (off main thread) ─────────────────────────
+let _propTreePlanWorker = null
+let _propTreePlanNextId = 0
+const _propTreePlanPending = new Map()
+
+function getPropTreePlanWorker() {
+  if (_propTreePlanWorker) return _propTreePlanWorker
+  const workerPath = path.join(__dirname, 'src', 'prop-tree-plan-worker.js')
+  _propTreePlanWorker = new Worker(workerPath)
+
+  _propTreePlanWorker.on('message', (msg) => {
+    const p = _propTreePlanPending.get(msg.id)
+    if (!p) return
+    _propTreePlanPending.delete(msg.id)
+    if (msg.ok) p.resolve(msg.plan)
+    else p.reject(new Error(msg.error || 'prop-tree initial plan failed'))
+  })
+
+  _propTreePlanWorker.on('error', (err) => {
+    _propTreePlanPending.forEach((p) => {
+      try {
+        p.reject(err)
+      } catch (_) {}
+    })
+    _propTreePlanPending.clear()
+    _propTreePlanWorker = null
+  })
+
+  _propTreePlanWorker.on('exit', (code) => {
+    if (code === 0) return
+    const err = new Error('prop-tree initial plan worker exited with code ' + code)
+    _propTreePlanPending.forEach((p) => {
+      try {
+        p.reject(err)
+      } catch (_) {}
+    })
+    _propTreePlanPending.clear()
+    _propTreePlanWorker = null
+  })
+
+  return _propTreePlanWorker
+}
+
 ipcMain.handle('read-schema-bundle', async (_e, game) => {
   const g = typeof game === 'string' ? game.toLowerCase() : 'cs2'
   if (!SCHEMA_BUNDLE_GAMES.has(g)) {
@@ -145,6 +228,46 @@ ipcMain.handle('read-schema-bundle', async (_e, game) => {
 
 ipcMain.handle('read-file', async (_e, filePath) => {
   return await fs.promises.readFile(filePath, 'utf-8')
+})
+
+ipcMain.handle('parse-kv3-native', async (_e, payload) => {
+  const p = payload && typeof payload === 'object' ? payload : {}
+  const text = p.text
+  const hintFileName = p.hintFileName
+
+  if (typeof text !== 'string') {
+    throw new Error('parse-kv3-native: text must be a string')
+  }
+
+  const worker = getKv3ParseWorker()
+  const id = _kv3ParseNextId++
+  return await new Promise((resolve, reject) => {
+    _kv3ParsePending.set(id, { resolve, reject })
+    try {
+      worker.postMessage({ id, text, hintFileName })
+    } catch (e) {
+      _kv3ParsePending.delete(id)
+      reject(e)
+    }
+  })
+})
+
+ipcMain.handle('build-prop-tree-initial-plan', async (_e, payload) => {
+  const p = payload && typeof payload === 'object' ? payload : {}
+  const root = p.root
+  const options = p.options && typeof p.options === 'object' ? p.options : {}
+
+  const worker = getPropTreePlanWorker()
+  const id = _propTreePlanNextId++
+  return await new Promise((resolve, reject) => {
+    _propTreePlanPending.set(id, { resolve, reject })
+    try {
+      worker.postMessage({ id, root, options })
+    } catch (e) {
+      _propTreePlanPending.delete(id)
+      reject(e)
+    }
+  })
 })
 
 ipcMain.handle('save-file', async (_e, filePath, content) => {

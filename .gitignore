@@ -2,3 +2,8 @@ node_modules/
 dist/
 out/
 .DS_Store
+
+# Native addon build artifacts (C++/N-API)
+native/**/build/
+native/**/prebuilds/
+native/**/*.node

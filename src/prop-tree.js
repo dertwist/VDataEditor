@@ -10,6 +10,9 @@ function propCol() {
 /** Full DOM rebuild on next `buildPropertyTree` (structural edits, manual apply, tab doc switch). */
 let _propTreeStructuralDirty = true;
 let _propTreeBuiltForDoc = null;
+// Used to defer heavy DOM rebuilds so cursor updates can paint before work blocks.
+let _propTreeRebuildPending = false;
+let _propTreeRebuildGeneration = 0;
 
 /** Internal clipboard for context-menu paste (row Copy). */
 let _clipboard = null;
@@ -1259,7 +1262,7 @@ function buildPropertyTree() {
   const scrollTop = container.scrollTop;
   const q = document.getElementById('propTreeSearch')?.value?.trim().toLowerCase() ?? '';
 
-  if (!_propTreeStructuralDirty && container.querySelector('.prop-row')) {
+  if (!_propTreeStructuralDirty && !_propTreeRebuildPending && container.querySelector('.prop-row')) {
     updatePropRowValues(container);
     if (q) filterPropTree(q);
     stripePropTree();
@@ -1270,6 +1273,8 @@ function buildPropertyTree() {
   // Defer the first heavy DOM rebuild for large docs so the UI can paint the placeholder first.
   if (d?.deferInitialPropTreeRender && !container.dataset.vdePropTreeDeferred) {
     container.dataset.vdePropTreeDeferred = '1';
+    // Mark this doc as "huge initial mode" so the next rebuild can avoid eager depth-0 subtree population.
+    container.dataset.vdePropTreeInitialCollapsedDepth0 = '1';
     d.deferInitialPropTreeRender = false;
     requestAnimationFrame(() => {
       delete container.dataset.vdePropTreeDeferred;
@@ -1279,6 +1284,15 @@ function buildPropertyTree() {
   }
 
   _propTreeStructuralDirty = false;
+  const busyApi = typeof window !== 'undefined' ? window.VDataBusyCursor : null;
+  let busyDidStart = false;
+  if (typeof busyApi?.begin === 'function') {
+    busyApi.begin();
+    busyDidStart = true;
+  }
+  const gen = ++_propTreeRebuildGeneration;
+  _propTreeRebuildPending = true;
+
   // Snapshot focus before we clear/rebuild DOM (helps keep typing position stable).
   const focusSnapshot = (() => {
     const ae = document.activeElement;
@@ -1306,46 +1320,143 @@ function buildPropertyTree() {
     };
   })();
 
-  container.innerHTML = '';
-  clearPropRowRegistry();
-  renderObjectRows(container, root, 0, '');
-  prunePropTreeSelectionFromDom();
-  syncPropTreeSelectionClasses();
-  if (q) filterPropTree(q);
-  stripePropTree();
-  syncPropTreeSelectionClasses();
+  // Defer heavy sync DOM work so cursor can update and user input doesn't feel "dead".
   requestAnimationFrame(() => {
-    container.scrollTop = scrollTop;
-    if (!focusSnapshot) return;
-    const row = _propRowRegistry.get(focusSnapshot.propPath);
-    if (!row) return;
+    if (gen !== _propTreeRebuildGeneration) {
+      if (typeof busyApi?.end === 'function' && busyDidStart) busyApi.end();
+      return;
+    }
 
-    if (focusSnapshot.kind === 'vec-axis') {
-      const axisRows = row.querySelectorAll('.vec-axis-row');
-      let target = null;
-      axisRows.forEach((ar) => {
-        if (target) return;
-        const lbl = ar.querySelector?.('.vec-axis-label')?.textContent?.trim() ?? '';
-        if (lbl === focusSnapshot.axisLabel) {
-          target = ar.querySelector?.('.slider-input');
+    (async () => {
+      try {
+      container.innerHTML = '';
+      clearPropRowRegistry();
+
+      const hugeInitialMode = container.dataset.vdePropTreeInitialCollapsedDepth0 === '1';
+
+      // Build root rows only (no eager depth-0 subtree) when huge-doc mode is enabled.
+      if (hugeInitialMode) {
+        // JS fallback plan (also used when native IPC fails).
+        function jsBuildPlan() {
+          const entries = Array.isArray(root) ? root.entries() : Object.entries(root);
+          const rows = [];
+          for (const [key, value] of entries) {
+            const isArr = Array.isArray(value);
+            const isObj = !isArr && value !== null && typeof value === 'object';
+            const isExpandable = isArr || isObj;
+            rows.push({
+              key: String(key),
+              propPath: String(key),
+              kind: isArr ? 'array' : isObj ? 'object' : 'scalar',
+              isExpandable: !!isExpandable,
+              collapsedByDefault: !!isExpandable
+            });
+          }
+          return { rows };
         }
+
+        let plan = null;
+        try {
+          plan = await window.electronAPI?.buildPropTreeInitialPlan?.(root, {
+            collapsedDefaultDepth0: true
+          });
+        } catch (e) {
+          // Native plan computation is a performance hint; fallback must be safe.
+          plan = null;
+        }
+        const planRows = plan?.rows && Array.isArray(plan.rows) ? plan.rows : jsBuildPlan().rows;
+
+        // Ensure collapsed-by-default depth-0 parents are reflected in doc state.
+        // (This keeps future rebuilds consistent with the initial UI.)
+        planRows.forEach((r) => {
+          if (!r || !r.isExpandable || !r.collapsedByDefault) return;
+          if (!propEx().has(r.propPath) && !propCol().has(r.propPath)) propCol().add(r.propPath);
+        });
+
+        const total = planRows.length;
+        const frag = document.createDocumentFragment();
+        for (let idx = 0; idx < total; idx++) {
+          const r = planRows[idx];
+          if (!r) continue;
+          const key = r.key;
+          const propPath = r.propPath;
+          const value = root?.[key];
+
+          const type = resolveRowWidgetType(key, value, root, propPath);
+          const row = buildPropRow(key, value, type, 0, root, undefined, propPath, {
+            index: idx,
+            total,
+            parentKind: 'object'
+          });
+          frag.appendChild(row);
+
+          if (type === 'object' || type === 'array') {
+            const children = document.createElement('div');
+            children.className = 'prop-row-children';
+            children.dataset.lazy = '1';
+            const shouldCollapse = !!r.collapsedByDefault;
+            children.style.display = shouldCollapse ? 'none' : '';
+            frag.appendChild(children);
+
+            // buildPropRow initializes as "expanded" for depth==0; override to collapsed state.
+            const toggle = row.querySelector?.('.prop-key-toggle');
+            if (toggle) setPropKeyToggleIcon(toggle, !shouldCollapse, false);
+          }
+        }
+
+        container.appendChild(frag);
+        delete container.dataset.vdePropTreeInitialCollapsedDepth0;
+      } else {
+        renderObjectRows(container, root, 0, '');
+      }
+
+      prunePropTreeSelectionFromDom();
+      syncPropTreeSelectionClasses();
+      if (q) filterPropTree(q);
+      stripePropTree();
+      syncPropTreeSelectionClasses();
+    } finally {
+      if (typeof busyApi?.end === 'function' && busyDidStart) busyApi.end();
+      _propTreeRebuildPending = false;
+      delete container.dataset.vdePropTreeInitialCollapsedDepth0;
+    }
+
+      requestAnimationFrame(() => {
+        container.scrollTop = scrollTop;
+        if (!focusSnapshot) return;
+        const row = _propRowRegistry.get(focusSnapshot.propPath);
+        if (!row) return;
+
+        if (focusSnapshot.kind === 'vec-axis') {
+          const axisRows = row.querySelectorAll('.vec-axis-row');
+          let target = null;
+          axisRows.forEach((ar) => {
+            if (target) return;
+            const lbl = ar.querySelector?.('.vec-axis-label')?.textContent?.trim() ?? '';
+            if (lbl === focusSnapshot.axisLabel) {
+              target = ar.querySelector?.('.slider-input');
+            }
+          });
+          if (target && typeof target.focus === 'function') target.focus();
+          return;
+        }
+
+        if (focusSnapshot.type === 'checkbox') {
+          row.querySelector?.('.prop-input-bool')?.focus?.();
+          return;
+        }
+        if (focusSnapshot.isSliderInput) {
+          row.querySelector?.('.slider-input')?.focus?.();
+          return;
+        }
+
+        // Best-effort: focus the first editable prop input in the row.
+        row.querySelector?.('.prop-input:not([readonly])')?.focus?.();
       });
-      if (target && typeof target.focus === 'function') target.focus();
-      return;
-    }
-
-    if (focusSnapshot.type === 'checkbox') {
-      row.querySelector?.('.prop-input-bool')?.focus?.();
-      return;
-    }
-    if (focusSnapshot.isSliderInput) {
-      row.querySelector?.('.slider-input')?.focus?.();
-      return;
-    }
-
-    // Best-effort: focus the first editable prop input in the row.
-    row.querySelector?.('.prop-input:not([readonly])')?.focus?.();
+    })();
   });
+
+  return;
 }
 
 function updatePropRowValues(container) {

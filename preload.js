@@ -4,6 +4,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onOpenFile: (callback) => ipcRenderer.on('open-file', (_event, path) => callback(path)),
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
   readSchemaBundle: (game) => ipcRenderer.invoke('read-schema-bundle', game),
+  parseKv3DocumentNative: (text, hintFileName) => ipcRenderer.invoke('parse-kv3-native', { text, hintFileName }),
+  buildPropTreeInitialPlan: (root, options) => ipcRenderer.invoke('build-prop-tree-initial-plan', { root, options }),
   saveFile: (filePath, content) => ipcRenderer.invoke('save-file', filePath, content),
   showSaveDialog: (opts) => ipcRenderer.invoke('show-save-dialog', opts),
   pickResourceFile: (opts) => ipcRenderer.invoke('pick-resource-file', opts),

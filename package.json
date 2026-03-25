@@ -11,6 +11,8 @@
     "test": "vitest",
     "test:examples-full": "node -e \"process.env.VDATA_FULL_EXAMPLES='1';require('node:child_process').spawnSync('npx',['vitest','run','tests/examples-corpus.test.js'],{stdio:'inherit',env:process.env, shell:true})\"",
     "build:win": "electron-builder --win --publish never",
+    "build:mac": "electron-builder --mac --universal --publish never",
+    "build:native:kv3addon": "node scripts/build-kv3-addon.js",
     "build:cm": "esbuild src/cm-bundle.js --bundle --outfile=vendor/cm.js --format=iife --global-name=CM --platform=neutral",
     "postinstall": "npm run build:cm"
   },
@@ -85,6 +87,9 @@
       ".git/**",
       "!dist/**",
       "!*.md"
+    ],
+    "asarUnpack": [
+      "**/*.node"
     ],
     "win": {
       "target": [

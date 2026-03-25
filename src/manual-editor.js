@@ -392,8 +392,19 @@
       const formatOverride =
         _meFormat === 'json' ? 'json' : d.format === 'keyvalue' ? 'keyvalue' : 'kv3';
 
-      if (typeof window.parseFileContentInWorker === 'function') {
-        const hint = d.fileName || d.filePath || 'manual.kv3';
+      const hint = d.fileName || d.filePath || 'manual.kv3';
+
+      const NATIVE_PARSE_MIN_UTF16 = 50_000;
+      const canNativeKv3 =
+        formatOverride === 'kv3' &&
+        window.electronAPI &&
+        typeof window.electronAPI.parseKv3DocumentNative === 'function' &&
+        typeof text === 'string' &&
+        text.length >= NATIVE_PARSE_MIN_UTF16;
+
+      if (canNativeKv3) {
+        parsed = await window.electronAPI.parseKv3DocumentNative(text, hint);
+      } else if (typeof window.parseFileContentInWorker === 'function') {
         const wr = await window.parseFileContentInWorker(hint, text, formatOverride);
         parsed = wr?.parsed;
       } else {

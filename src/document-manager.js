@@ -5,6 +5,38 @@ const LARGE_DOCUMENT_UTF16_UNITS = 350_000;
 const WORKER_PARSE_MIN_UTF16 = 50_000;
 
 async function parseContentMaybeWorker(filePath, content, fileName) {
+  const ext = typeof fileName === 'string' ? fileName.split('.').pop().toLowerCase() : '';
+  const isKv3Like = new Set([
+    'vdata',
+    'vsmart',
+    'vpcf',
+    'kv3',
+    'vsurf',
+    'vsndstck',
+    'vsndevts',
+    'vpulse',
+    'vmdl',
+    'txt'
+  ]).has(ext);
+
+  if (
+    isKv3Like &&
+    typeof window !== 'undefined' &&
+    window.electronAPI &&
+    typeof window.electronAPI.parseKv3DocumentNative === 'function' &&
+    typeof content === 'string' &&
+    content.length >= WORKER_PARSE_MIN_UTF16
+  ) {
+    try {
+      const hint = typeof fileName === 'string' && fileName.length ? fileName : filePath;
+      return await window.electronAPI.parseKv3DocumentNative(content, hint);
+    } catch (e) {
+      if (typeof console !== 'undefined' && console.debug) {
+        console.debug('[doc-manager] Native KV3 parse failed; using worker/JS fallback', e);
+      }
+    }
+  }
+
   if (
     typeof window.parseFileContentInWorker === 'function' &&
     typeof content === 'string' &&
@@ -37,6 +69,26 @@ async function yieldToUiForPaint() {
   });
 }
 
+// Global busy cursor (ref-counted) so multiple async operations don't fight.
+const _VDE_BUSY_CURSOR_CLASS = 'vde-cursor-busy';
+let _vdeBusyCursorRefs = 0;
+
+function beginBusyCursor() {
+  if (typeof document === 'undefined' || !document.documentElement) return;
+  _vdeBusyCursorRefs++;
+  document.documentElement.classList.add(_VDE_BUSY_CURSOR_CLASS);
+}
+
+function endBusyCursor() {
+  if (typeof document === 'undefined' || !document.documentElement) return;
+  _vdeBusyCursorRefs = Math.max(0, _vdeBusyCursorRefs - 1);
+  if (_vdeBusyCursorRefs === 0) document.documentElement.classList.remove(_VDE_BUSY_CURSOR_CLASS);
+}
+
+if (typeof window !== 'undefined') {
+  window.VDataBusyCursor = { begin: beginBusyCursor, end: endBusyCursor };
+}
+
 class DocumentManager extends EventTarget {
   constructor() {
     super();
@@ -64,28 +116,33 @@ class DocumentManager extends EventTarget {
 
   async openFromContent(content, fileName, filePath = null) {
     const gen = ++this._openFileGeneration;
-    if (typeof setStatus === 'function') setStatus('Parsing ' + fileName + '…', 'info');
-    await yieldToUiForPaint();
-    const { root, format, kv3Header = '' } = await parseContentMaybeWorker(
-      filePath || fileName,
-      content,
-      fileName
-    );
-    if (typeof setStatus === 'function') setStatus('Preparing document…', 'info');
-    await yieldToUiForPaint();
-    if (gen !== this._openFileGeneration) return null;
-    const doc = new VDataDocument({ root, format, filePath, fileName, kv3Header });
-    if (typeof content === 'string' && content.length >= LARGE_DOCUMENT_UTF16_UNITS) {
-      doc.deferInitialManualEditorSync = true;
-      doc.deferInitialPropTreeRender = true;
+    beginBusyCursor();
+    try {
+      if (typeof setStatus === 'function') setStatus('Parsing ' + fileName + '…', 'info');
+      await yieldToUiForPaint();
+      const { root, format, kv3Header = '' } = await parseContentMaybeWorker(
+        filePath || fileName,
+        content,
+        fileName
+      );
+      if (typeof setStatus === 'function') setStatus('Preparing document…', 'info');
+      await yieldToUiForPaint();
+      if (gen !== this._openFileGeneration) return null;
+      const doc = new VDataDocument({ root, format, filePath, fileName, kv3Header });
+      if (typeof content === 'string' && content.length >= LARGE_DOCUMENT_UTF16_UNITS) {
+        doc.deferInitialManualEditorSync = true;
+        doc.deferInitialPropTreeRender = true;
+      }
+      ensureSmartPropRootArrays(doc);
+      doc.recalcElementIds();
+      doc.dirty = false;
+      this._docs.push(doc);
+      this._activate(this._docs.length - 1);
+      if (filePath && window.electronAPI?.addRecentFile) await window.electronAPI.addRecentFile(filePath);
+      return doc;
+    } finally {
+      endBusyCursor();
     }
-    ensureSmartPropRootArrays(doc);
-    doc.recalcElementIds();
-    doc.dirty = false;
-    this._docs.push(doc);
-    this._activate(this._docs.length - 1);
-    if (filePath && window.electronAPI?.addRecentFile) await window.electronAPI.addRecentFile(filePath);
-    return doc;
   }
 
   async openFile(filePath) {
@@ -96,27 +153,32 @@ class DocumentManager extends EventTarget {
     }
     const gen = ++this._openFileGeneration;
     const fileName = pathBasename(filePath);
-    if (typeof setStatus === 'function') setStatus('Reading ' + fileName + '…', 'info');
-    await yieldToUiForPaint();
-    const content = await window.electronAPI.readFile(filePath);
-    if (typeof setStatus === 'function') setStatus('Parsing ' + fileName + '…', 'info');
-    await yieldToUiForPaint();
-    const { root, format, kv3Header = '' } = await parseContentMaybeWorker(filePath, content, fileName);
-    if (typeof setStatus === 'function') setStatus('Preparing document…', 'info');
-    await yieldToUiForPaint();
-    if (gen !== this._openFileGeneration) return null;
-    const doc = new VDataDocument({ root, format, filePath, fileName, kv3Header });
-    if (content.length >= LARGE_DOCUMENT_UTF16_UNITS) {
-      doc.deferInitialManualEditorSync = true;
-      doc.deferInitialPropTreeRender = true;
+    beginBusyCursor();
+    try {
+      if (typeof setStatus === 'function') setStatus('Reading ' + fileName + '…', 'info');
+      await yieldToUiForPaint();
+      const content = await window.electronAPI.readFile(filePath);
+      if (typeof setStatus === 'function') setStatus('Parsing ' + fileName + '…', 'info');
+      await yieldToUiForPaint();
+      const { root, format, kv3Header = '' } = await parseContentMaybeWorker(filePath, content, fileName);
+      if (typeof setStatus === 'function') setStatus('Preparing document…', 'info');
+      await yieldToUiForPaint();
+      if (gen !== this._openFileGeneration) return null;
+      const doc = new VDataDocument({ root, format, filePath, fileName, kv3Header });
+      if (content.length >= LARGE_DOCUMENT_UTF16_UNITS) {
+        doc.deferInitialManualEditorSync = true;
+        doc.deferInitialPropTreeRender = true;
+      }
+      ensureSmartPropRootArrays(doc);
+      doc.recalcElementIds();
+      doc.dirty = false;
+      this._docs.push(doc);
+      this._activate(this._docs.length - 1);
+      if (window.electronAPI.addRecentFile) await window.electronAPI.addRecentFile(filePath);
+      return doc;
+    } finally {
+      endBusyCursor();
     }
-    ensureSmartPropRootArrays(doc);
-    doc.recalcElementIds();
-    doc.dirty = false;
-    this._docs.push(doc);
-    this._activate(this._docs.length - 1);
-    if (window.electronAPI.addRecentFile) await window.electronAPI.addRecentFile(filePath);
-    return doc;
   }
 
   closeDoc(idx) {
