@@ -57,12 +57,20 @@ function createWindow(filePath) {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
+    show: false,
+    backgroundColor: '#000000',
     icon: path.join(__dirname, 'assets/images/vdata_editor/appicon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true
     }
   })
+
+  mainWindow.once('ready-to-show', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    mainWindow.show()
+  })
+
   mainWindow.loadFile('index.html')
   Menu.setApplicationMenu(null)
 

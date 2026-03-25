@@ -13,6 +13,9 @@
   let _meFormat = 'kv3'; // 'json' | 'kv3' (radio); doc.format may be 'keyvalue'
   let _suppressSync = false; // true while CM is being written from model
   let _liveSyncTimer = null;
+  let _lastLiveSyncKeystrokeTs = 0;
+  let _manualEditorDeferredApplyWhenPropsHidden = false;
+  let _applyManualEditGeneration = 0;
   let _debounceTimer = null;
   let _manualEditorModelDirty = false;
   let _suppressManualDirtyMark = false;
@@ -21,6 +24,23 @@
 
   function _doc() {
     return docManager?.activeDoc ?? null;
+  }
+
+  function _getAdaptiveLiveSyncDelay(docLen) {
+    const n = Number(docLen) || 0;
+    if (n < 50_000) return 200;
+    if (n < 200_000) return 400;
+    if (n < 1_000_000) return 800;
+    return 1_500;
+  }
+
+  function _isPropsPanelEffectivelyVisible() {
+    const p = document.getElementById('propsPanel');
+    if (!p) return true; // assume visible (safer than silently skipping)
+    const st = window.getComputedStyle(p);
+    if (st.display === 'none' || st.visibility === 'hidden') return false;
+    const r = p.getBoundingClientRect();
+    return r.width > 8 && r.height > 8;
   }
 
   function _serialize() {
@@ -161,7 +181,7 @@
               {
                 key: 'Mod-Enter',
                 run: () => {
-                  applyManualEdit();
+                  void applyManualEdit();
                   return true;
                 }
               }
@@ -177,8 +197,45 @@
             CM.EditorView.updateListener.of((upd) => {
               if (!upd.docChanged || _suppressSync) return;
               if (!document.getElementById('meLiveSync')?.checked) return;
+              if (!_isPropsPanelEffectivelyVisible()) {
+                _manualEditorDeferredApplyWhenPropsHidden = true;
+                clearTimeout(_liveSyncTimer);
+                _liveSyncTimer = null;
+                return;
+              }
               clearTimeout(_liveSyncTimer);
-              _liveSyncTimer = setTimeout(applyManualEdit, 800);
+              const isUndoRedo =
+                Array.isArray(upd.transactions) &&
+                upd.transactions.some((tr) => {
+                  if (!tr || typeof tr.isUserEvent !== 'function') return false;
+                  return (
+                    tr.isUserEvent('undo') ||
+                    tr.isUserEvent('redo') ||
+                    tr.isUserEvent('select.undo') ||
+                    tr.isUserEvent('select.redo')
+                  );
+                });
+
+              const delay = isUndoRedo ? 0 : _getAdaptiveLiveSyncDelay(upd.state.doc.length);
+              const typingTs = Date.now();
+              _lastLiveSyncKeystrokeTs = typingTs;
+              _liveSyncTimer = setTimeout(async () => {
+                // Typing-stopped guard (defensive; debounce already cancels older timers).
+                if (!isUndoRedo && Date.now() - typingTs < delay - 10) return;
+
+                const prevForce =
+                  typeof window !== 'undefined' ? window.__vde_forcePropTreeSyncFocusedInputs : undefined;
+                if (typeof window !== 'undefined' && isUndoRedo) {
+                  window.__vde_forcePropTreeSyncFocusedInputs = true;
+                }
+                try {
+                  await applyManualEdit();
+                } finally {
+                  if (typeof window !== 'undefined' && isUndoRedo) {
+                    window.__vde_forcePropTreeSyncFocusedInputs = prevForce;
+                  }
+                }
+              }, delay);
             })
           ]
         }),
@@ -272,6 +329,21 @@
     ro.observe(ep);
   }
 
+  function attachPropsPanelVisibilityDeferredApplySync() {
+    const pp = document.getElementById('propsPanel');
+    if (!pp || typeof ResizeObserver === 'undefined') return;
+    let lastVisible = _isPropsPanelEffectivelyVisible();
+    const ro = new ResizeObserver(() => {
+      const vis = _isPropsPanelEffectivelyVisible();
+      if (vis && !lastVisible && _manualEditorDeferredApplyWhenPropsHidden) {
+        _manualEditorDeferredApplyWhenPropsHidden = false;
+        applyManualEdit();
+      }
+      lastVisible = vis;
+    });
+    ro.observe(pp);
+  }
+
   function syncManualEditorDebounced() {
     clearTimeout(_debounceTimer);
     _debounceTimer = setTimeout(() => {
@@ -301,7 +373,8 @@
 
   // ── Sync CM → model (Apply) ────────────────────────────────────────────────
 
-  function applyManualEdit() {
+  async function applyManualEdit() {
+    const gen = ++_applyManualEditGeneration;
     if (!_cmView) return;
     const d = _doc();
     if (!d) {
@@ -310,58 +383,83 @@
     }
 
     const text = _cmView.state.doc.toString();
-    let parsed;
-
-    try {
-      if (_meFormat === 'json') {
-        parsed = JSON.parse(text);
-        if (parsed === null || typeof parsed !== 'object') {
-          throw new Error('Root must be a JSON object or array');
-        }
-      } else if (d.format === 'keyvalue') {
-        parsed = KeyValueFormat.keyValueToJSON(text);
-      } else {
-        const parsedDoc = KV3Format.parseKV3Document(text);
-        parsed = parsedDoc.root;
-        d.kv3Header = parsedDoc.header || d.kv3Header || KV3Format.detectKV3HeaderFromFileName(d.fileName);
-      }
-    } catch (e) {
-      _setStatus('Parse error: ' + e.message, 'error');
-      return;
-    }
 
     const label =
       _meFormat === 'json' ? 'Apply JSON' : d.format === 'keyvalue' ? 'Apply KeyValues' : 'Apply KV3';
 
-    const prevRoot = d.root;
-    const prevFormat = d.format;
-    const prevEx = [...d.expandedPaths];
-    const prevCol = [...d.collapsedPaths];
-    d.root = parsed;
-    if (_meFormat === 'json') d.format = 'json';
-    if (typeof ensureSmartPropRootArrays === 'function') ensureSmartPropRootArrays(d);
-    const nextRoot = d.root;
-    const nextFormat = d.format;
-    d.root = prevRoot;
-    d.format = prevFormat;
-    if (typeof withDocUndo === 'function' && typeof VDataCommands !== 'undefined') {
-      withDocUndo(
-        {
-          type: VDataCommands.CMD.DOC_REPLACE,
-          rootBefore: prevRoot,
-          rootAfter: nextRoot,
-          formatBefore: prevFormat,
-          formatAfter: nextFormat,
-          expandedBefore: prevEx,
-          expandedAfter: prevEx,
-          collapsedBefore: prevCol,
-          collapsedAfter: prevCol
-        },
-        label
-      );
+    let parsed;
+    try {
+      const formatOverride =
+        _meFormat === 'json' ? 'json' : d.format === 'keyvalue' ? 'keyvalue' : 'kv3';
+
+      if (typeof window.parseFileContentInWorker === 'function') {
+        const hint = d.fileName || d.filePath || 'manual.kv3';
+        const wr = await window.parseFileContentInWorker(hint, text, formatOverride);
+        parsed = wr?.parsed;
+      } else {
+        // Fallback (should be rare): parse on the main thread.
+        if (formatOverride === 'json') {
+          parsed = JSON.parse(text);
+          if (parsed === null || typeof parsed !== 'object') {
+            throw new Error('Root must be a JSON object or array');
+          }
+          parsed = { root: parsed, format: 'json' };
+        } else if (formatOverride === 'keyvalue') {
+          parsed = { root: KeyValueFormat.keyValueToJSON(text), format: 'keyvalue' };
+        } else {
+          const parsedDoc = KV3Format.parseKV3Document(text);
+          const kv3Header =
+            parsedDoc.header || d.kv3Header || KV3Format.detectKV3HeaderFromFileName(d.fileName);
+          parsed = { root: parsedDoc.root, format: 'kv3', kv3Header: kv3Header };
+        }
+      }
+    } catch (e) {
+      if (gen !== _applyManualEditGeneration) return; // stale parse result
+      _setStatus('Parse error: ' + (e?.message ? e.message : String(e)), 'error');
+      return;
     }
 
-    _setStatus(label + ' — OK', 'edited');
+    if (gen !== _applyManualEditGeneration) return; // stale parse result
+    if (!parsed || typeof parsed !== 'object') return;
+
+    try {
+      const prevRoot = d.root;
+      const prevFormat = d.format;
+      const prevEx = [...d.expandedPaths];
+      const prevCol = [...d.collapsedPaths];
+
+      // Keep kv3Header updates compatible with the old sync path.
+      if (parsed.format === 'kv3' && parsed.kv3Header) d.kv3Header = parsed.kv3Header;
+
+      d.root = parsed.root;
+      d.format = parsed.format;
+      if (typeof ensureSmartPropRootArrays === 'function') ensureSmartPropRootArrays(d);
+      const nextRoot = d.root;
+      const nextFormat = d.format;
+      d.root = prevRoot;
+      d.format = prevFormat;
+      if (typeof withDocUndo === 'function' && typeof VDataCommands !== 'undefined') {
+        withDocUndo(
+          {
+            type: VDataCommands.CMD.DOC_REPLACE,
+            rootBefore: prevRoot,
+            rootAfter: nextRoot,
+            formatBefore: prevFormat,
+            formatAfter: nextFormat,
+            expandedBefore: prevEx,
+            expandedAfter: prevEx,
+            collapsedBefore: prevCol,
+            collapsedAfter: prevCol
+          },
+          label
+        );
+      }
+
+      _setStatus(label + ' — OK', 'edited');
+    } catch (e) {
+      if (gen !== _applyManualEditGeneration) return;
+      _setStatus('Apply error: ' + (e?.message ? e.message : String(e)), 'error');
+    }
   }
 
   // ── Search / replace ───────────────────────────────────────────────────────
@@ -448,9 +546,25 @@
     });
   }
 
-  window.resetManualEditor = () => {};
+  window.resetManualEditor = () => {
+    try {
+      clearTimeout(_liveSyncTimer);
+    } catch (_) {}
+    _liveSyncTimer = null;
+    try {
+      clearTimeout(_debounceTimer);
+    } catch (_) {}
+    _debounceTimer = null;
+
+    _manualEditorDeferredApplyWhenPropsHidden = false;
+    _manualEditorModelDirty = false;
+
+    // Invalidate any in-flight worker parse so stale results don't apply after a tab switch/close.
+    _applyManualEditGeneration++;
+  };
 
   attachEditorsPanelResizeSync();
+  attachPropsPanelVisibilityDeferredApplySync();
 
   window.syncManualEditorTheme = function syncManualEditorTheme() {
     if (!_cmView || !_themeComp) return;

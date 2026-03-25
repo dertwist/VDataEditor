@@ -41,9 +41,10 @@
   /**
    * @param {string} filePath
    * @param {string} text
+   * @param {string} [formatOverride] One of: 'json' | 'keyvalue' | 'kv3'
    * @returns {Promise<{ parsed: object, parseMs: number }>}
    */
-  function parseFileContentInWorker(filePath, text) {
+  function parseFileContentInWorker(filePath, text, formatOverride) {
     var w = getWorker();
     if (!w) {
       return Promise.reject(new Error('file load worker unavailable'));
@@ -52,7 +53,7 @@
     return new Promise(function (resolve, reject) {
       _pending.set(id, { resolve: resolve, reject: reject });
       try {
-        w.postMessage({ id: id, filePath: filePath, text: text });
+        w.postMessage({ id: id, filePath: filePath, text: text, formatOverride: formatOverride });
       } catch (postErr) {
         _pending.delete(id);
         reject(postErr);

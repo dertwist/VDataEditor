@@ -35,8 +35,14 @@ function undo() {
   const r = d.undo();
   if (!r) return;
   docManager.dispatchEvent(new Event('tabs-changed'));
-  if (typeof patchPropertyTree === 'function') patchPropertyTree(r.appliedCmd);
-  else if (typeof renderAll === 'function') renderAll();
+  const prevForce = typeof window !== 'undefined' ? window.__vde_forcePropTreeSyncFocusedInputs : undefined;
+  if (typeof window !== 'undefined') window.__vde_forcePropTreeSyncFocusedInputs = true;
+  try {
+    if (typeof patchPropertyTree === 'function') patchPropertyTree(r.appliedCmd);
+    else if (typeof renderAll === 'function') renderAll();
+  } finally {
+    if (typeof window !== 'undefined') window.__vde_forcePropTreeSyncFocusedInputs = prevForce;
+  }
   window.scheduleManualEditorSyncFromModel?.();
   refreshHistoryDock();
 }
@@ -47,8 +53,14 @@ function redo() {
   const r = d.redo();
   if (!r) return;
   docManager.dispatchEvent(new Event('tabs-changed'));
-  if (typeof patchPropertyTree === 'function') patchPropertyTree(r.appliedCmd);
-  else if (typeof renderAll === 'function') renderAll();
+  const prevForce = typeof window !== 'undefined' ? window.__vde_forcePropTreeSyncFocusedInputs : undefined;
+  if (typeof window !== 'undefined') window.__vde_forcePropTreeSyncFocusedInputs = true;
+  try {
+    if (typeof patchPropertyTree === 'function') patchPropertyTree(r.appliedCmd);
+    else if (typeof renderAll === 'function') renderAll();
+  } finally {
+    if (typeof window !== 'undefined') window.__vde_forcePropTreeSyncFocusedInputs = prevForce;
+  }
   window.scheduleManualEditorSyncFromModel?.();
   refreshHistoryDock();
 }

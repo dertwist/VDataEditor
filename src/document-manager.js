@@ -42,6 +42,7 @@ class DocumentManager extends EventTarget {
     super();
     this._docs = [];
     this._activeIdx = -1;
+    this._openFileGeneration = 0;
   }
 
   get docs() {
@@ -62,6 +63,7 @@ class DocumentManager extends EventTarget {
   }
 
   async openFromContent(content, fileName, filePath = null) {
+    const gen = ++this._openFileGeneration;
     if (typeof setStatus === 'function') setStatus('Parsing ' + fileName + '…', 'info');
     await yieldToUiForPaint();
     const { root, format, kv3Header = '' } = await parseContentMaybeWorker(
@@ -71,9 +73,11 @@ class DocumentManager extends EventTarget {
     );
     if (typeof setStatus === 'function') setStatus('Preparing document…', 'info');
     await yieldToUiForPaint();
+    if (gen !== this._openFileGeneration) return null;
     const doc = new VDataDocument({ root, format, filePath, fileName, kv3Header });
     if (typeof content === 'string' && content.length >= LARGE_DOCUMENT_UTF16_UNITS) {
       doc.deferInitialManualEditorSync = true;
+      doc.deferInitialPropTreeRender = true;
     }
     ensureSmartPropRootArrays(doc);
     doc.recalcElementIds();
@@ -90,6 +94,7 @@ class DocumentManager extends EventTarget {
       this._activate(existing);
       return this._docs[existing];
     }
+    const gen = ++this._openFileGeneration;
     const fileName = pathBasename(filePath);
     if (typeof setStatus === 'function') setStatus('Reading ' + fileName + '…', 'info');
     await yieldToUiForPaint();
@@ -99,9 +104,11 @@ class DocumentManager extends EventTarget {
     const { root, format, kv3Header = '' } = await parseContentMaybeWorker(filePath, content, fileName);
     if (typeof setStatus === 'function') setStatus('Preparing document…', 'info');
     await yieldToUiForPaint();
+    if (gen !== this._openFileGeneration) return null;
     const doc = new VDataDocument({ root, format, filePath, fileName, kv3Header });
     if (content.length >= LARGE_DOCUMENT_UTF16_UNITS) {
       doc.deferInitialManualEditorSync = true;
+      doc.deferInitialPropTreeRender = true;
     }
     ensureSmartPropRootArrays(doc);
     doc.recalcElementIds();
@@ -141,6 +148,8 @@ class DocumentManager extends EventTarget {
       // Closed a tab to the right; the active document stays selected at the same index.
       this._activeIdx = prevActive;
     }
+    if (typeof window.resetManualEditor === 'function') window.resetManualEditor();
+    if (typeof window.terminateFileLoadWorker === 'function') window.terminateFileLoadWorker();
     this.dispatchEvent(new Event('tabs-changed'));
     this.dispatchEvent(new Event('active-changed'));
   }
@@ -149,6 +158,7 @@ class DocumentManager extends EventTarget {
     if (idx < 0 || idx >= this._docs.length) return;
     if (this._activeIdx === idx) return;
     this._activeIdx = idx;
+    if (typeof window.resetManualEditor === 'function') window.resetManualEditor();
     this.dispatchEvent(new Event('active-changed'));
     this.dispatchEvent(new Event('tabs-changed'));
   }

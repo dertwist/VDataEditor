@@ -73,11 +73,52 @@ function cloneUndoValue(v) {
 }
 
 /**
+ * Cheap-ish deep check used to decide whether DOC_REPLACE can safely avoid full DOM rebuild.
+ * We compare "shape" (arrays/objects/keys) and scalar kinds (typeof/null), but ignore scalar values.
+ */
+function rootsHaveSameStructure(a, b) {
+  if (a === b) return true;
+  if (a === null || b === null) return a === b;
+
+  const aIsArr = Array.isArray(a);
+  const bIsArr = Array.isArray(b);
+  if (aIsArr !== bIsArr) return false;
+  if (aIsArr) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!rootsHaveSameStructure(a[i], b[i])) return false;
+    return true;
+  }
+
+  const aIsObj = typeof a === 'object';
+  const bIsObj = typeof b === 'object';
+  if (aIsObj !== bIsObj) return false;
+  if (!aIsObj) {
+    // scalar kinds (string/number/boolean) must match
+    return typeof a === typeof b;
+  }
+
+  // objects: keys set and nested kinds
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  for (let i = 0; i < aKeys.length; i++) {
+    const k = aKeys[i];
+    if (!Object.prototype.hasOwnProperty.call(b, k)) return false;
+    if (!rootsHaveSameStructure(a[k], b[k])) return false;
+  }
+  return true;
+}
+
+/**
  * Update one property row's inputs from a model value (skips focused controls).
  * @returns {boolean} true if row found and basic widgets updated
  */
 function updatePropRowValueFromModel(row, value) {
   if (!row) return false;
+  const skipFocused = !(
+    typeof window !== 'undefined' &&
+    window.__vde_forcePropTreeSyncFocusedInputs === true
+  );
   const vecWidget = row.querySelector('.vec-widget');
   if (vecWidget && Array.isArray(value)) {
     const axisRows = row.querySelectorAll('.vec-axis-row');
@@ -87,10 +128,14 @@ function updatePropRowValueFromModel(row, value) {
       const numInput = axisRow.querySelector('.slider-input');
       const slider = axisRow.querySelector('.slider-range');
       const newStr = parseFloat(axisVal.toFixed(6)).toString();
-      if (numInput && numInput !== document.activeElement && numInput.value !== newStr) {
+      if (
+        numInput &&
+        (!skipFocused || numInput !== document.activeElement) &&
+        numInput.value !== newStr
+      ) {
         numInput.value = newStr;
       }
-      if (slider && slider !== document.activeElement) {
+      if (slider && (!skipFocused || slider !== document.activeElement)) {
         const min = Number(slider.min);
         const max = Number(slider.max);
         if (Number.isFinite(min) && Number.isFinite(max) && axisVal >= min && axisVal <= max) {
@@ -101,13 +146,13 @@ function updatePropRowValueFromModel(row, value) {
     });
   } else {
     const inp = row.querySelector('.prop-input:not([readonly])');
-    if (inp && inp !== document.activeElement) {
+    if (inp && (!skipFocused || inp !== document.activeElement)) {
       const newStr = value == null ? '' : String(value);
       if (inp.value !== newStr) inp.value = newStr;
     }
   }
   const cb = row.querySelector('.prop-input-bool');
-  if (cb && cb !== document.activeElement) {
+  if (cb && (!skipFocused || cb !== document.activeElement)) {
     if (cb.checked !== !!value) cb.checked = !!value;
   }
   return true;
@@ -199,6 +244,40 @@ function patchPropertyTree(cmd) {
     markPropTreeStructureDirty();
     buildPropertyTree();
     return;
+  }
+
+  if (cmd.type === VC.CMD.DOC_REPLACE) {
+    const container = document.getElementById('propTreeRoot');
+    const hasRows = !!container?.querySelector?.('.prop-row');
+    if (hasRows && rootsHaveSameStructure(cmd.rootBefore, cmd.rootAfter)) {
+      // Value-only / shape-compatible replace: update widget inputs in-place.
+      updatePropRowValues(container);
+
+      // Re-evaluate dependency-driven visibility/enabled state.
+      try {
+        const schemaCtx = schemaCtxForPropertyTree();
+        const doc = docManager.activeDoc;
+        for (const r of _propRowRegistry.values()) {
+          const depDef = _propRowDependencyDef.get(r);
+          if (!depDef) continue;
+          const p = r.dataset.propPath;
+          const parentPathOnly = parentPathFromRowPath(p);
+          const parentObj = parentPathOnly ? getValueAtPath(doc.root, parentPathOnly) : doc.root;
+          applyDependencyStateToPropRow(r, depDef, parentObj, schemaCtx);
+        }
+      } catch (_) {
+        // If dependency evaluation fails, fall back to full rebuild.
+        markPropTreeStructureDirty();
+        buildPropertyTree();
+        return;
+      }
+
+      const q = document.getElementById('propTreeSearch')?.value?.trim().toLowerCase() ?? '';
+      if (q) filterPropTree(q);
+      stripePropTree();
+      syncPropTreeSelectionClasses();
+      return;
+    }
   }
 
   if (VC.commandIsStructural(cmd) || cmd.type === VC.CMD.DOC_REPLACE || cmd.type === VC.CMD.SET_FORMAT) {
@@ -1188,7 +1267,45 @@ function buildPropertyTree() {
     return;
   }
 
+  // Defer the first heavy DOM rebuild for large docs so the UI can paint the placeholder first.
+  if (d?.deferInitialPropTreeRender && !container.dataset.vdePropTreeDeferred) {
+    container.dataset.vdePropTreeDeferred = '1';
+    d.deferInitialPropTreeRender = false;
+    requestAnimationFrame(() => {
+      delete container.dataset.vdePropTreeDeferred;
+      buildPropertyTree();
+    });
+    return;
+  }
+
   _propTreeStructuralDirty = false;
+  // Snapshot focus before we clear/rebuild DOM (helps keep typing position stable).
+  const focusSnapshot = (() => {
+    const ae = document.activeElement;
+    if (!ae || !container.contains(ae)) return null;
+    const row = ae.closest?.('#propTreeRoot .prop-row');
+    const propPath = row?.dataset?.propPath;
+    if (!propPath) return null;
+
+    const axisRow = ae.closest?.('.vec-axis-row');
+    if (axisRow) {
+      const axisLabel = axisRow.querySelector?.('.vec-axis-label')?.textContent?.trim() ?? '';
+      return { propPath, kind: 'vec-axis', axisLabel };
+    }
+
+    const tag = (ae.tagName || '').toLowerCase();
+    const type =
+      typeof HTMLInputElement !== 'undefined' && ae instanceof HTMLInputElement ? ae.type : null;
+    const isSliderInput = ae.classList?.contains?.('slider-input') ?? false;
+    return {
+      propPath,
+      kind: 'control',
+      tag,
+      type,
+      isSliderInput
+    };
+  })();
+
   container.innerHTML = '';
   clearPropRowRegistry();
   renderObjectRows(container, root, 0, '');
@@ -1199,10 +1316,43 @@ function buildPropertyTree() {
   syncPropTreeSelectionClasses();
   requestAnimationFrame(() => {
     container.scrollTop = scrollTop;
+    if (!focusSnapshot) return;
+    const row = _propRowRegistry.get(focusSnapshot.propPath);
+    if (!row) return;
+
+    if (focusSnapshot.kind === 'vec-axis') {
+      const axisRows = row.querySelectorAll('.vec-axis-row');
+      let target = null;
+      axisRows.forEach((ar) => {
+        if (target) return;
+        const lbl = ar.querySelector?.('.vec-axis-label')?.textContent?.trim() ?? '';
+        if (lbl === focusSnapshot.axisLabel) {
+          target = ar.querySelector?.('.slider-input');
+        }
+      });
+      if (target && typeof target.focus === 'function') target.focus();
+      return;
+    }
+
+    if (focusSnapshot.type === 'checkbox') {
+      row.querySelector?.('.prop-input-bool')?.focus?.();
+      return;
+    }
+    if (focusSnapshot.isSliderInput) {
+      row.querySelector?.('.slider-input')?.focus?.();
+      return;
+    }
+
+    // Best-effort: focus the first editable prop input in the row.
+    row.querySelector?.('.prop-input:not([readonly])')?.focus?.();
   });
 }
 
 function updatePropRowValues(container) {
+  const skipFocused = !(
+    typeof window !== 'undefined' &&
+    window.__vde_forcePropTreeSyncFocusedInputs === true
+  );
   for (const row of container.querySelectorAll(':scope > .prop-row')) {
     const path = row.dataset.propPath;
     const value = getValueAtPath(docManager.activeDoc.root, path);
@@ -1215,10 +1365,14 @@ function updatePropRowValues(container) {
         const numInput = axisRow.querySelector('.slider-input');
         const slider = axisRow.querySelector('.slider-range');
         const newStr = parseFloat(axisVal.toFixed(6)).toString();
-        if (numInput && numInput !== document.activeElement && numInput.value !== newStr) {
+        if (
+          numInput &&
+          (!skipFocused || numInput !== document.activeElement) &&
+          numInput.value !== newStr
+        ) {
           numInput.value = newStr;
         }
-        if (slider && slider !== document.activeElement) {
+        if (slider && (!skipFocused || slider !== document.activeElement)) {
           const min = Number(slider.min);
           const max = Number(slider.max);
           if (Number.isFinite(min) && Number.isFinite(max) && axisVal >= min && axisVal <= max) {
@@ -1229,13 +1383,13 @@ function updatePropRowValues(container) {
       });
     } else {
       const inp = row.querySelector('.prop-input:not([readonly])');
-      if (inp && inp !== document.activeElement) {
+      if (inp && (!skipFocused || inp !== document.activeElement)) {
         const newStr = value == null ? '' : String(value);
         if (inp.value !== newStr) inp.value = newStr;
       }
     }
     const cb = row.querySelector('.prop-input-bool');
-    if (cb && cb !== document.activeElement) {
+    if (cb && (!skipFocused || cb !== document.activeElement)) {
       if (cb.checked !== !!value) cb.checked = !!value;
     }
     const ch = row.nextElementSibling;
@@ -1250,6 +1404,7 @@ function renderObjectRows(container, obj, depth, parentPath) {
   if (!obj || typeof obj !== 'object') return;
   const entries = Object.entries(obj).filter(([, value]) => value !== undefined);
   const total = entries.length;
+  const frag = document.createDocumentFragment();
   for (let idx = 0; idx < total; idx++) {
     const [key, value] = entries[idx];
     if (value === undefined) continue;
@@ -1260,7 +1415,7 @@ function renderObjectRows(container, obj, depth, parentPath) {
       total,
       parentKind: 'object'
     });
-    container.appendChild(row);
+    frag.appendChild(row);
     if (type === 'object' && value !== null) {
       const children = document.createElement('div');
       children.className = 'prop-row-children';
@@ -1278,7 +1433,7 @@ function renderObjectRows(container, obj, depth, parentPath) {
           children.style.display = 'none';
         }
       }
-      container.appendChild(children);
+      frag.appendChild(children);
       const toggle = row.querySelector('.prop-key-toggle');
       if (toggle && depth >= 1) setPropKeyToggleIcon(toggle, propEx().has(rowPath));
       else if (toggle && depth === 0) setPropKeyToggleIcon(toggle, !propCol().has(rowPath), !propCol().has(rowPath));
@@ -1299,17 +1454,19 @@ function renderObjectRows(container, obj, depth, parentPath) {
           children.style.display = 'none';
         }
       }
-      container.appendChild(children);
+      frag.appendChild(children);
       const toggle = row.querySelector('.prop-key-toggle');
       if (toggle && depth >= 1) setPropKeyToggleIcon(toggle, propEx().has(rowPath));
       else if (toggle && depth === 0) setPropKeyToggleIcon(toggle, !propCol().has(rowPath), !propCol().has(rowPath));
     }
   }
+  container.appendChild(frag);
 }
 
 function renderArrayRows(container, arr, depth, parentPath) {
   if (!Array.isArray(arr)) return;
   const total = arr.length;
+  const frag = document.createDocumentFragment();
   arr.forEach((item, idx) => {
     const rowPath = `${parentPath}/[${idx}]`;
     const itemType = resolveRowWidgetType(`[${idx}]`, item, arr, rowPath);
@@ -1318,7 +1475,7 @@ function renderArrayRows(container, arr, depth, parentPath) {
       total,
       parentKind: 'array'
     });
-    container.appendChild(row);
+    frag.appendChild(row);
     if (itemType === 'object' && item !== null) {
       const children = document.createElement('div');
       children.className = 'prop-row-children';
@@ -1336,7 +1493,7 @@ function renderArrayRows(container, arr, depth, parentPath) {
           children.style.display = 'none';
         }
       }
-      container.appendChild(children);
+      frag.appendChild(children);
       const toggle = row.querySelector('.prop-key-toggle');
       if (toggle && depth >= 1) setPropKeyToggleIcon(toggle, propEx().has(rowPath));
       else if (toggle && depth === 0) setPropKeyToggleIcon(toggle, !propCol().has(rowPath), !propCol().has(rowPath));
@@ -1357,12 +1514,13 @@ function renderArrayRows(container, arr, depth, parentPath) {
           children.style.display = 'none';
         }
       }
-      container.appendChild(children);
+      frag.appendChild(children);
       const toggle = row.querySelector('.prop-key-toggle');
       if (toggle && depth >= 1) setPropKeyToggleIcon(toggle, propEx().has(rowPath));
       else if (toggle && depth === 0) setPropKeyToggleIcon(toggle, !propCol().has(rowPath), !propCol().has(rowPath));
     }
   });
+  container.appendChild(frag);
 }
 
 function resolveHierarchyIconKey(type, depth, hierarchyMeta) {
@@ -1540,6 +1698,53 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
     else sum.textContent = type;
     valEl.appendChild(sum);
   }
+  // Vector widgets need grouped undo for multi-component edits (e.g. X/Y/Z).
+  // Slider scrubs update the document live; we coalesce the resulting undo entry.
+  const isVecType = type === 'vec2' || type === 'vec3' || type === 'vec4';
+  const VEC_UNDO_COALESCE_MS = 250;
+  let vecCoalesce = null; // { propPath, prevValue, label, timer, changed }
+
+  function flushVecCoalesce() {
+    if (!isVecType || !vecCoalesce) return;
+    if (vecCoalesce.timer) clearTimeout(vecCoalesce.timer);
+
+    const d = docManager.activeDoc;
+    const pending = vecCoalesce;
+    vecCoalesce = null;
+    if (!d) return;
+
+    const nextValue = cloneUndoValue(getValueAtPath(d.root, pending.propPath));
+    try {
+      if (JSON.stringify(pending.prevValue) === JSON.stringify(nextValue)) return;
+    } catch (_) {
+      if (pending.prevValue === nextValue) return;
+    }
+
+    const cmd = VDataCommands.setValueCommand(pending.propPath, pending.prevValue, nextValue, false);
+    pushUndoCommand({ cmd, label: pending.label, time: Date.now() });
+
+    d.dirty = true;
+    docManager.dispatchEvent(new Event('tabs-changed'));
+    patchPropertyTree(cmd);
+    window.scheduleManualEditorSyncFromModel?.();
+    setStatus('Property edited', 'edited');
+  }
+
+  function scheduleVecCoalesceFlush() {
+    if (!isVecType || !vecCoalesce) return;
+    if (vecCoalesce.timer) clearTimeout(vecCoalesce.timer);
+    vecCoalesce.timer = setTimeout(flushVecCoalesce, VEC_UNDO_COALESCE_MS);
+  }
+
+  if (isVecType) {
+    // If focus leaves the vector widget entirely, commit now so undo works predictably.
+    valEl.addEventListener('focusout', (e) => {
+      const rt = e.relatedTarget;
+      if (rt && valEl.contains(rt)) return; // still inside widget
+      flushVecCoalesce();
+    });
+  }
+
   // Slider scrubs update the document live but only push ONE undo entry for the whole drag.
   let sliderScrubActive = false;
   let sliderScrubDidChange = false;
@@ -1588,6 +1793,23 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
       if (tx.prevValue === nextValue) return;
     }
 
+    if (isVecType) {
+      // Coalesce the whole drag (and possibly multiple component edits) into one undo entry.
+      if (!vecCoalesce) {
+        vecCoalesce = {
+          propPath: tx.propPath,
+          prevValue: cloneUndoValue(tx.prevValue),
+          label: tx.label,
+          timer: null,
+          changed: true
+        };
+      } else {
+        vecCoalesce.changed = true;
+      }
+      scheduleVecCoalesceFlush();
+      return;
+    }
+
     const cmd = VDataCommands.setValueCommand(tx.propPath, tx.prevValue, nextValue, false);
     pushUndoCommand({ cmd, label: tx.label, time: Date.now() });
 
@@ -1609,6 +1831,27 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
       setScalarNoUndo(v);
       return;
     }
+
+    if (isVecType) {
+      const d = docManager.activeDoc;
+      if (!d) return;
+
+      if (!vecCoalesce) {
+        vecCoalesce = {
+          propPath,
+          prevValue: cloneUndoValue(getValueAtPath(d.root, propPath)),
+          label: `Edit: ${key}`,
+          timer: null,
+          changed: false
+        };
+      }
+
+      setScalarNoUndo(v);
+      vecCoalesce.changed = true;
+      scheduleVecCoalesceFlush();
+      return;
+    }
+
     commitValue(parentRef, key, v, arrayIdx, false, propPath);
   };
 
