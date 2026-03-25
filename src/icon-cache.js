@@ -10,6 +10,9 @@
     filter: { label: 'F', color: '#FF646C' },
     operation: { label: 'O', color: '#5387DE' },
     'selection criteria': { label: 'CR', color: '#FF81ED' },
+    // Generic containers used by the property tree: make "object" and "array" distinguishable.
+    array: { label: '[]', color: '#87FFD0' },
+    object: { label: '{}', color: '#FFD186' },
     other: { label: 'OT', color: '#B1DE75' }
   };
 
@@ -150,10 +153,14 @@
         html = propertyBadgeHtml(varCat);
       } else {
         const nk = typeof cls === 'string' ? smartPropNodeCategory(cls) : 'other';
-        html = nodeBadgeHtml(nk);
+        // If we can't infer a SmartProp-specific meaning, still distinguish object containers.
+        html = nk === 'other' ? nodeBadgeHtml('object') : nodeBadgeHtml(nk);
       }
     } else if (widgetType === 'array') {
-      html = nodeBadgeHtml('other');
+      html = nodeBadgeHtml('array');
+    } else if (widgetType === 'object') {
+      // Defensive: if callers provide an "object" type but no suitable value.
+      html = nodeBadgeHtml('object');
     } else {
       const pk = widgetTypeToPropertyCategory(widgetType, keyName);
       html = pk ? propertyBadgeHtml(pk) : cacheGetOrSet(UNKNOWN_PROPERTY_CACHE_KEY, () => makeBadgeHtml('unknown', UNKNOWN_STYLE));

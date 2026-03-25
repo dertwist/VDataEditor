@@ -84,18 +84,48 @@ class VDataDocument {
   recalcElementIds() {
     this.nextElementId = 1;
     const self = this;
+    /**
+     * Iterate "node collections" that are sometimes stored as arrays and sometimes as objects.
+     * (Some parsed documents use object maps for collections.)
+     */
+    function forEachNodeLike(maybeCollection) {
+      if (!maybeCollection) return;
+      if (Array.isArray(maybeCollection)) {
+        maybeCollection.forEach(recalcMaxId);
+        return;
+      }
+      if (typeof maybeCollection !== 'object') return;
+
+      // If it's itself a node-like object, treat it as a single node.
+      const looksLikeNode =
+        maybeCollection.m_nElementID != null ||
+        maybeCollection.m_Children != null ||
+        maybeCollection.m_Modifiers != null ||
+        maybeCollection.m_SelectionCriteria != null ||
+        maybeCollection.generic_data_type != null ||
+        maybeCollection.m_sElementName != null ||
+        maybeCollection.m_sModelName != null ||
+        maybeCollection.m_sSmartProp != null;
+      if (looksLikeNode) {
+        recalcMaxId(maybeCollection);
+        return;
+      }
+
+      // Otherwise, assume it's an object map of child nodes.
+      Object.values(maybeCollection).forEach(recalcMaxId);
+    }
     function recalcMaxId(node) {
       if (!node) return;
       if (node.m_nElementID != null && node.m_nElementID >= self.nextElementId) {
         self.nextElementId = node.m_nElementID + 1;
       }
-      if (node.m_Children) node.m_Children.forEach(recalcMaxId);
-      if (node.m_Modifiers) node.m_Modifiers.forEach(recalcMaxId);
-      if (node.m_SelectionCriteria) node.m_SelectionCriteria.forEach(recalcMaxId);
+      forEachNodeLike(node.m_Children);
+      forEachNodeLike(node.m_Modifiers);
+      forEachNodeLike(node.m_SelectionCriteria);
     }
     const root = this.root;
-    if (root.m_Children) root.m_Children.forEach(recalcMaxId);
-    if (root.m_Variables) root.m_Variables.forEach(recalcMaxId);
+    forEachNodeLike(root.m_Children);
+    forEachNodeLike(root.m_Variables);
   }
 
   serialize() {

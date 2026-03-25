@@ -1852,6 +1852,16 @@ function showContextMenu(items, x, y) {
   setTimeout(() => document.addEventListener('mousedown', close, true), 0);
 }
 
+function ctxTypeBadgeHtml(type) {
+  // Reuse the same filled-circle badges as the property tree key column.
+  if (window.VsmartIconCache?.nodeBadgeHtml) {
+    if (type === 'array') return window.VsmartIconCache.nodeBadgeHtml('array');
+    if (type === 'object') return window.VsmartIconCache.nodeBadgeHtml('object');
+  }
+  // Fallback: older PNG icons (should still render something).
+  return type === 'array' ? ICONS.typeArray : ICONS.typeObject;
+}
+
 function showAddKeyDialog(parentRef, parentObjectPath) {
   document.getElementById('addKeyDialog')?.remove();
 
@@ -2132,7 +2142,7 @@ function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPa
     { sep: true },
     {
       label: 'Add object here…',
-      icon: ICONS.typeObject,
+      icon: ctxTypeBadgeHtml('object'),
       disabled: isArrayIndex,
       action: () => {
         (() => {
@@ -2147,7 +2157,7 @@ function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPa
     },
     {
       label: 'Add list here…',
-      icon: ICONS.typeArray,
+      icon: ctxTypeBadgeHtml('array'),
       disabled: isArrayIndex,
       action: () => {
         (() => {
@@ -3188,7 +3198,7 @@ function initPropTreePanelContextMenu() {
     const items = [
       {
         label: 'Add object',
-        icon: ICONS.typeObject,
+        icon: ctxTypeBadgeHtml('object'),
         action: () => {
           withDocUndoRootPair(() => {
             let nk = 'new_object';
@@ -3200,7 +3210,7 @@ function initPropTreePanelContextMenu() {
       },
       {
         label: 'Add list',
-        icon: ICONS.typeArray,
+        icon: ctxTypeBadgeHtml('array'),
         action: () => {
           withDocUndoRootPair(() => {
             let nk = 'new_list';
