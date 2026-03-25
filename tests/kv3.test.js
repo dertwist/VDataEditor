@@ -102,6 +102,62 @@ describe('KV3 format', () => {
     expect(KV3Format.kv3ToJSON(kv3)).toEqual(obj);
   });
 
+  it('round-trips subclass: typed objects', () => {
+    const text = `<!-- kv3 encoding:text -->
+{
+  m_BuffModifier = subclass:
+  {
+    _class = "modifier_unicorn_luminousstrike_buff"
+    _my_subclass_name = "luminous_strike_buff"
+    m_BuffParticle = resource_name:"particles/abilities/unicorn/unicorn_flux_buff.vpcf"
+    m_IncomingParticle = resource_name:"particles/abilities/unicorn/unicorn_flux_buff_incoming.vpcf"
+    m_strBuffReceivedSound = soundevent:"Unicorn.Luminous.Flux.Buff"
+    m_eModifierDisplayLocaiton = "MODIFIER_DISPLAY_HEALTHBAR"
+    m_eHudDisplayLocation = "DISPLAY_HUD_NONE"
+    m_strMaxBuffReceivedSound = soundevent:"Unicorn.Luminous.Flux.Buff.Max"
+    m_sAmbientLoopingSound = soundevent:"Unicorn.Luminous.Flux.Buff.Lp"
+    m_sExpiredSound = soundevent:"Unicorn.Luminous.Flux.Buff.Expire"
+  }
+}`;
+
+    const parsed = KV3Format.kv3ToJSON(text);
+    expect(parsed.m_BuffModifier).toEqual({
+      type: 'subclass',
+      value: {
+        _class: 'modifier_unicorn_luminousstrike_buff',
+        _my_subclass_name: 'luminous_strike_buff',
+        m_BuffParticle: {
+          type: 'resource_name',
+          value: 'particles/abilities/unicorn/unicorn_flux_buff.vpcf'
+        },
+        m_IncomingParticle: {
+          type: 'resource_name',
+          value: 'particles/abilities/unicorn/unicorn_flux_buff_incoming.vpcf'
+        },
+        m_strBuffReceivedSound: {
+          type: 'soundevent',
+          value: 'Unicorn.Luminous.Flux.Buff'
+        },
+        m_eModifierDisplayLocaiton: 'MODIFIER_DISPLAY_HEALTHBAR',
+        m_eHudDisplayLocation: 'DISPLAY_HUD_NONE',
+        m_strMaxBuffReceivedSound: {
+          type: 'soundevent',
+          value: 'Unicorn.Luminous.Flux.Buff.Max'
+        },
+        m_sAmbientLoopingSound: { type: 'soundevent', value: 'Unicorn.Luminous.Flux.Buff.Lp' },
+        m_sExpiredSound: { type: 'soundevent', value: 'Unicorn.Luminous.Flux.Buff.Expire' }
+      }
+    });
+
+    const kv3 = KV3Format.jsonToKV3(parsed);
+    expect(kv3).toContain('m_BuffModifier = subclass:');
+    expect(kv3).toContain(
+      'm_BuffParticle = resource_name:"particles/abilities/unicorn/unicorn_flux_buff.vpcf"'
+    );
+    expect(kv3).toContain('m_strBuffReceivedSound = soundevent:"Unicorn.Luminous.Flux.Buff"');
+    expect(KV3Format.kv3ToJSON(kv3)).toEqual(parsed);
+  });
+
   it('serializes numeric arrays inline', () => {
     const obj = {
       position: [1, 2, 3]

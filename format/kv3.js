@@ -130,6 +130,17 @@
       ) {
         return `panorama:"${escapeKV3String(val.value)}"`;
       }
+      if (
+        val.type === 'subclass' &&
+        typeof val.value === 'object' &&
+        val.value !== null &&
+        !Array.isArray(val.value)
+      ) {
+        const inner = serializeKV3Value(val.value, depth + 1, style, '');
+        // `serializeKV3Value` for objects at depth>=1 starts with `\n<indent>{...}`, so
+        // concatenating preserves the expected line break after `subclass:`.
+        return inner.startsWith('\n') ? `subclass:${inner}` : `subclass:\n${inner}`;
+      }
       const keys = Object.keys(val);
       if (keys.length === 0) return '{}';
       const parts = [];
@@ -255,6 +266,11 @@
       if (this.text.substring(this.pos, this.pos + 9) === 'panorama:') {
         this.pos += 9;
         return { type: 'panorama', value: this.parseString() };
+      }
+      if (this.text.substring(this.pos, this.pos + 9) === 'subclass:') {
+        this.pos += 9;
+        // `subclass:` is always followed by another KV3 value (almost always an object).
+        return { type: 'subclass', value: this.parseValue() };
       }
       return this.parseLiteral();
     }

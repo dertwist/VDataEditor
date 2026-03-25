@@ -28,6 +28,9 @@ jobs:
       - name: Build native KV3 addon (x64)
         run: node scripts/build-kv3-addon.js --arch=x64
 
+      - name: Build native prop-tree addon (x64)
+        run: node scripts/build-prop-tree-addon.js --arch=x64
+
       - name: Run tests
         run: npm test
 
