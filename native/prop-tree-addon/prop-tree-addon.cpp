@@ -19,8 +19,10 @@ static bool isLikelyObject(napi_env env, napi_value v) {
   if (t != napi_object) return false;
 
   // JS null is object per typeof check.
+  napi_value nullVal = nullptr;
+  napi_get_null(env, &nullVal);
   bool isNull = false;
-  napi_is_null(env, v, &isNull);
+  napi_strict_equals(env, v, nullVal, &isNull);
   if (isNull) return false;
 
   return true;
