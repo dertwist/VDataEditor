@@ -67,8 +67,55 @@
     return x && typeof x === 'object' && !Array.isArray(x);
   }
 
+  function inferEnumWidgetIdFromSmartPropsAttributeField(field) {
+    if (!field || typeof field !== 'object') return null;
+    const rawType = field.rawType;
+    if (!rawType || typeof rawType !== 'object') return null;
+    if (rawType.category !== 'declared_class') return null;
+    // SmartProp attributes live under `smartprops` module in Valve schemas.
+    if (rawType.module !== 'smartprops') return null;
+    if (!rawType.name || typeof rawType.name !== 'string') return null;
+
+    const S = window.SchemaDB;
+    if (!S || typeof S.getClassMetadata !== 'function') return null;
+
+    const metas = S.getClassMetadata(rawType.name) || [];
+    if (!Array.isArray(metas)) return null;
+
+    let customEditor = null;
+    for (let i = 0; i < metas.length; i++) {
+      const m = metas[i];
+      if (!m || typeof m !== 'object') continue;
+      if (m.name === 'MPropertyCustomEditor') {
+        customEditor = m;
+        break;
+      }
+    }
+    if (!customEditor || typeof customEditor.value !== 'string') return null;
+
+    // Schema values sometimes arrive wrapped in quotes.
+    let v = String(customEditor.value).trim();
+    if (
+      (v.startsWith('"') && v.endsWith('"')) ||
+      (v.startsWith("'") && v.endsWith("'"))
+    ) {
+      v = v.slice(1, -1);
+    }
+
+    // Expected: SmartPropAttributeEditor(enum:PickMode_t)
+    // We accept an optional `module::` prefix too.
+    const m = /enum:([A-Za-z0-9_]+(?:::[A-Za-z0-9_]+)?)/.exec(v);
+    if (!m || !m[1]) return null;
+
+    return 'enum:' + m[1];
+  }
+
   function widgetToDefFromField(field) {
-    const def = widgetToDef(field && field.type ? field.type : null);
+    let def = widgetToDef(field && field.type ? field.type : null);
+
+    const inferredEnumWidgetId = inferEnumWidgetIdFromSmartPropsAttributeField(field);
+    if (inferredEnumWidgetId) def = widgetToDef(inferredEnumWidgetId);
+
     const doc = extractDocFromMetadata(field && Array.isArray(field.metadata) ? field.metadata : []);
     if (doc) {
       def.description = doc;

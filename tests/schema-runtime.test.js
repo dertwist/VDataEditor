@@ -112,6 +112,73 @@ describe('schema runtime (SchemaDB + bucket build)', () => {
     expect(steps.some((s) => s.pct === 100 && String(s.msg).includes('Schema'))).toBe(true);
   });
 
+  it('infers enumWidgetId from SmartProp attribute custom editor metadata', async () => {
+    const payload = {
+      revision: 'test-rev',
+      classes: [
+        {
+          name: 'CParent',
+          fields: [
+            {
+              name: 'm_nPickMode',
+              // SmartProp fields are declared_class types (attribute classes),
+              // but the actual enum members are defined via MPropertyCustomEditor
+              // on the attribute class itself.
+              type: {
+                category: 'declared_class',
+                module: 'smartprops',
+                name: 'CSmartPropAttributePickMode'
+              }
+            }
+          ],
+          metadata: []
+        },
+        {
+          name: 'CSmartPropAttributePickMode',
+          module: 'smartprops',
+          fields: [],
+          metadata: [
+            {
+              name: 'MPropertyCustomEditor',
+              value: '"SmartPropAttributeEditor(enum:PickMode_t)"'
+            }
+          ]
+        }
+      ],
+      enums: [
+        {
+          name: 'PickMode_t',
+          module: 'smartprops',
+          members: [
+            { name: 'LARGEST_FIRST', value: 0 },
+            { name: 'RANDOM', value: 1 },
+            { name: 'ALL_IN_ORDER', value: 2 }
+          ]
+        }
+      ]
+    };
+
+    globalThis.localStorage.setItem('vdata_schema_bundle_game', 'deadlock');
+    globalThis.electronAPI = {
+      readSchemaBundle: vi.fn(() =>
+        Promise.resolve({ ok: true, jsonText: JSON.stringify(payload) })
+      )
+    };
+
+    const buckets = await globalThis.VDataSchemaRuntime.loadSchemasRuntime();
+    expect(buckets['type:CParent'].keys.m_nPickMode).toMatchObject({
+      type: 'string',
+      widget: 'string',
+      enum: [],
+      enumWidgetId: 'enum:PickMode_t'
+    });
+    expect(globalThis.SchemaDB.getEnumValuesForWidgetId('enum:PickMode_t')).toEqual([
+      'LARGEST_FIRST',
+      'RANDOM',
+      'ALL_IN_ORDER'
+    ]);
+  });
+
   it('reports merge phase and reaches 100% for a large synthetic schema', async () => {
     const payload = syntheticLargePayload(320, 140);
     globalThis.localStorage.setItem('vdata_schema_bundle_game', 'deadlock');

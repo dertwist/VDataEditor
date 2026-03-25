@@ -265,7 +265,113 @@
 
     _initSearchBridge();
 
+    // ── Cross-panel reveal hotkey (Ctrl+Shift+F) ───────────────────────────
+    // Property-tree side also binds a global handler; if that one exists,
+    // we skip binding here to avoid duplicate behavior.
+    if (!window.__vdeRevealHotkeyBound && !window.__vdeCtrlShiftFGlobalBound) {
+      window.__vdeRevealHotkeyBound = true;
+      document.addEventListener(
+        'keydown',
+        (e) => {
+          if (!e || !e.ctrlKey || !e.shiftKey || (e.key || '').toLowerCase() !== 'f') return;
+          // Only handle when manual editor is focused.
+          const t = e.target;
+          if (!t || !(t.closest?.('#cmEditor') || t.closest?.('.cm-editor'))) return;
+          e.preventDefault();
+          e.stopPropagation();
+          revealPropTreeFromManualCursor();
+        },
+        { capture: true }
+      );
+    }
+
     return true;
+  }
+
+  function unescapeKV3QuotedString(s) {
+    if (typeof s !== 'string') return '';
+    // s is the inner contents (without surrounding quotes).
+    return s.replace(/\\\\/g, '\\').replace(/\\"/g, '"');
+  }
+
+  function parseScalarFromKv3Text(raw) {
+    const t = String(raw ?? '').trim();
+    if (!t) return null;
+    if (t === 'true') return true;
+    if (t === 'false') return false;
+    if (t === 'null') return null;
+    if (t.startsWith('"')) {
+      const m = t.match(/^"((?:[^"\\]|\\.)*)"$/s);
+      if (!m) return null;
+      return unescapeKV3QuotedString(m[1]);
+    }
+    const num = Number(t);
+    return Number.isFinite(num) ? num : null;
+  }
+
+  function revealPropTreeFromManualCursor() {
+    try {
+      if (!_cmView) return;
+      if (!docManager?.activeDoc?.root) return;
+
+      const pos = _cmView.state.selection.main.head;
+      const line = _cmView.state.doc.lineAt(pos);
+      const text = line.text;
+
+      // KV3 assignment line:
+      //   key = <value>
+      //   "quoted.key" = <value>
+      const m = text.match(
+        /^\s*(?:"((?:[^"\\]|\\.)*)"|([A-Za-z_][A-Za-z0-9_.]*))\s*=\s*(.*?)\s*(?:(?:\/\/).*?)?$/
+      );
+      if (!m) return;
+
+      const keyName = m[2] || unescapeKV3QuotedString(m[1]);
+      if (!keyName) return;
+
+      // Parse value from the remainder of the line (best-effort).
+      const parsedValue = parseScalarFromKv3Text(m[3]);
+
+      const rootEl = document.getElementById('propTreeRoot');
+      if (!rootEl) return;
+      const rows = rootEl.querySelectorAll('.prop-row');
+
+      let bestRow = null;
+      let bestOk = false;
+
+      rows.forEach((row) => {
+        const p = row.dataset?.propPath || '';
+        if (!p) return;
+        if (/\/\[\d+\]$/.test(p)) return; // array element row has no key segment
+        const seg = p.split('/').pop();
+        if (seg !== keyName) return;
+
+        // If we could parse a scalar, prefer exact value match.
+        if (parsedValue !== null && typeof VDataPathUtils !== 'undefined') {
+          const v = VDataPathUtils.getAtPath(docManager.activeDoc.root, p);
+          if (v === parsedValue) {
+            bestRow = row;
+            bestOk = true;
+          }
+        }
+
+        if (!bestRow) bestRow = row;
+      });
+
+      if (!bestRow) return;
+
+      bestRow.scrollIntoView({ block: 'center', behavior: 'auto' });
+      const focusTarget =
+        bestRow.querySelector('.prop-input:not([readonly])') ||
+        bestRow.querySelector('.prop-input-bool') ||
+        bestRow;
+      if (focusTarget && typeof focusTarget.focus === 'function') {
+        focusTarget.focus();
+        if (typeof focusTarget.select === 'function') focusTarget.select();
+      }
+    } catch (_) {
+      // Non-fatal: reveal is best-effort.
+    }
   }
 
   // ── Sync model → CM ────────────────────────────────────────────────────────
@@ -591,5 +697,7 @@
   window.syncManualEditorDebounced = syncManualEditorDebounced;
   window.applyManualEdit = applyManualEdit;
   window.toggleMeSearchBar = toggleMeSearchBar;
+  window.getManualEditorCM = () => _cmView;
+  window.__vdeRevealPropTreeFromManualCursor = revealPropTreeFromManualCursor;
   window.initManualEditPanel = () => true;
 })();

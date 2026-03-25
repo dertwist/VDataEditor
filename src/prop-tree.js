@@ -1195,6 +1195,180 @@ function propTreeMoveFocus(delta) {
   _propRowRegistry.get(nextPath)?.focus();
 }
 
+function escapeRegExp(s) {
+  return String(s ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function escapeKV3QuotedStringForSearch(s) {
+  // Model strings are unescaped; KV3 uses backslash escapes for " and \.
+  return String(s ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function unescapeKV3QuotedStringForSearch(s) {
+  // Input is the inner quoted string contents (no surrounding quotes).
+  return String(s ?? '').replace(/\\\\/g, '\\').replace(/\\"/g, '"');
+}
+
+function revealManualEditorFromPropPath(propPath) {
+  try {
+    const getCM = window?.getManualEditorCM;
+    let cmView = typeof getCM === 'function' ? getCM() : null;
+    if (!cmView || !cmView.state?.doc) {
+      // Manual editor may be lazily initialized; try to force a sync
+      // so CodeMirror exists before we reveal.
+      try {
+        window.syncManualEditor?.();
+      } catch (_) {}
+      cmView = typeof getCM === 'function' ? getCM() : null;
+    }
+    if (!cmView || !cmView.state?.doc) return;
+
+  const activeDoc = docManager?.activeDoc;
+  const root = activeDoc?.root;
+  if (!root) return;
+
+  const text = cmView.state.doc.toString();
+
+  const keyName = objectKeyFromPropPath(propPath);
+  const rawValue = getValueAtPath(root, propPath);
+
+  let targetPos = -1;
+
+  if (typeof keyName === 'string' && keyName.length) {
+    const k = keyName;
+    const escapedKey = escapeRegExp(k);
+
+    // KV3 key is either bare or quoted.
+    const quotedKey = `"${escapeKV3QuotedStringForSearch(k)}"`;
+    const quotedKeyRe = new RegExp(escapeRegExp(quotedKey) + '\\s*=', 'm');
+    const bareKeyRe = new RegExp(escapedKey + '\\s*=', 'm');
+
+    let m = quotedKeyRe.exec(text);
+    if (m && typeof m.index === 'number') targetPos = m.index;
+    if (targetPos < 0) {
+      m = bareKeyRe.exec(text);
+      if (m && typeof m.index === 'number') targetPos = m.index;
+    }
+    // Plain substring fallback if KV3 quoting style doesn't match our regex.
+    if (targetPos < 0) {
+      const bi = text.indexOf(k);
+      if (bi >= 0) targetPos = bi;
+      else {
+        const qi = text.indexOf(`"${escapeKV3QuotedStringForSearch(k)}"`);
+        if (qi >= 0) targetPos = qi;
+      }
+    }
+
+    // If we can parse a scalar string/number/bool, try to move within the key line.
+    if (targetPos >= 0 && rawValue != null) {
+      let needle = null;
+      if (typeof rawValue === 'string') needle = `"${escapeKV3QuotedStringForSearch(rawValue)}"`;
+      else if (typeof rawValue === 'number' && Number.isFinite(rawValue)) needle = String(rawValue);
+      else if (typeof rawValue === 'boolean') needle = rawValue ? 'true' : 'false';
+      else if (rawValue && typeof rawValue === 'object' && typeof rawValue.value === 'string')
+        needle = `"${escapeKV3QuotedStringForSearch(rawValue.value)}"`;
+
+      if (needle) {
+        const windowText = text.slice(targetPos, Math.min(text.length, targetPos + 400));
+        const p2 = windowText.indexOf(needle);
+        if (p2 >= 0) targetPos = targetPos + p2;
+      }
+    }
+  } else {
+    // Array element row: path like `${parentKey}/[idx]`.
+    const am = /\/\[(\d+)\]$/.exec(propPath);
+    const idx = am ? parseInt(am[1], 10) : null;
+    const pParent = parentPathFromRowPath(propPath);
+    const parentKey = pParent ? pParent.split('/').pop() : '';
+    if (idx != null && parentKey) {
+      const escapedParentKey = escapeRegExp(parentKey);
+      const assignRe = new RegExp(`(?:^|\\s)${escapedParentKey}\\s*=\\s*\\[`, 'm');
+      const m = assignRe.exec(text);
+      if (m && typeof m.index === 'number') {
+        const start = m.index + m[0].lastIndexOf('[');
+
+        // Bracket-scan to the matching closing `]`.
+        let depth = 0;
+        let end = -1;
+        for (let i = start; i < text.length; i++) {
+          const ch = text[i];
+          if (ch === '[') depth++;
+          else if (ch === ']') {
+            depth--;
+            if (depth === 0) {
+              end = i;
+              break;
+            }
+          }
+        }
+
+        if (end > start) {
+          const block = text.slice(start, end + 1);
+
+          let tokens = [];
+          if (typeof rawValue === 'string') {
+            const re = /"((?:[^"\\]|\\.)*)"/g;
+            let mm;
+            while ((mm = re.exec(block))) {
+              tokens.push({ at: mm.index, tok: unescapeKV3QuotedStringForSearch(mm[1]) });
+            }
+            // Helper: reuse same unescape function we use for searching.
+          } else if (typeof rawValue === 'number' && Number.isFinite(rawValue)) {
+            const re = /[-+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][-+]?\\d+)?/g;
+            let mm;
+            while ((mm = re.exec(block))) tokens.push({ at: mm.index, tok: Number(mm[0]) });
+          } else if (typeof rawValue === 'boolean') {
+            const re = /true|false|null/g;
+            let mm;
+            while ((mm = re.exec(block))) tokens.push({ at: mm.index, tok: mm[0] });
+          }
+
+          if (tokens.length && idx >= 0 && idx < tokens.length) {
+            targetPos = start + tokens[idx].at;
+          }
+        }
+      }
+    }
+  }
+
+  if (targetPos < 0) {
+    // Array element fallback: scroll to parent array assignment.
+    const am = typeof propPath === 'string' ? /\/\[(\d+)\]$/.exec(propPath) : null;
+    if (!keyName && am) {
+      const pParent = parentPathFromRowPath(propPath);
+      const parentKey = pParent ? pParent.split('/').pop() : '';
+      if (parentKey) {
+        const escapedParentKey = escapeRegExp(parentKey);
+        const fallbackRe = new RegExp(`(?:^|\\s)${escapedParentKey}\\s*=\\s*\\[`, 'm');
+        const mf = fallbackRe.exec(text);
+        if (mf && typeof mf.index === 'number') targetPos = mf.index;
+      }
+    }
+  }
+
+  if (targetPos < 0) return;
+
+  // Prefer the line containing the match (more stable than exact character).
+  try {
+    targetPos = cmView.state.doc.lineAt(targetPos).from;
+  } catch (_) {}
+
+  try {
+    // Scroll + select a 0-length range at the target.
+    cmView.dispatch({
+      selection: CM.EditorSelection.create([CM.EditorSelection.range(targetPos, targetPos)]),
+      scrollIntoView: true
+    });
+  } catch (_) {
+    // no-op
+  }
+  return;
+  } catch (e) {
+    console.error('revealManualEditorFromPropPath failed', e);
+    setStatus?.('Reveal failed: ' + (e?.message ? e.message : String(e)), 'error');
+  }
+}
+
 function initPropTreeKeyboard() {
   const treeRoot = document.getElementById('propTreeRoot');
   if (!treeRoot || treeRoot.dataset.kbInit) return;
@@ -1208,6 +1382,15 @@ function initPropTreeKeyboard() {
 
     const mod = e.metaKey || e.ctrlKey;
     const primary = propTreePrimaryPathForAction();
+
+    // Ctrl+Shift+F: reveal current property tree row in manual editor.
+    if (e.ctrlKey && e.shiftKey && (e.key || '').toLowerCase() === 'f') {
+      if (!primary) return;
+      e.preventDefault();
+      e.stopPropagation();
+      revealManualEditorFromPropPath(primary);
+      return;
+    }
 
     if (mod && e.key.toLowerCase() === 'a') {
       e.preventDefault();
@@ -1303,6 +1486,41 @@ function initPropTreeKeyboard() {
       return;
     }
   });
+
+  // ── Cross-panel reveal hotkey (Ctrl+Shift+F) ────────────────────────────
+  // Global capture handler so the shortcut works reliably regardless of
+  // which specific element inside each panel has focus.
+  if (!window.__vdeCtrlShiftFGlobalBound) {
+    window.__vdeCtrlShiftFGlobalBound = true;
+    const propRoot = treeRoot;
+    document.addEventListener(
+      'keydown',
+      (e) => {
+        if (!e || !e.ctrlKey || !e.shiftKey || (e.key || '').toLowerCase() !== 'f') return;
+        const t = e.target;
+        const inPropTree = !!(t && propRoot.contains(t));
+        const inManualEditor = !!(t && (t.closest?.('#cmEditor') || t.closest?.('.cm-editor')));
+        if (!inPropTree && !inManualEditor) return;
+
+        // Don't hijack when user is typing into a text field/textarea within the tree.
+        if (inPropTree && propTreeIsTreeTextFieldTarget(t)) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (inPropTree) {
+          const p = propTreePrimaryPathForAction() || getPropTreeSelectedPathsOrdered()[0];
+          if (p) revealManualEditorFromPropPath(p);
+          return;
+        }
+
+        // Manual editor -> property tree.
+        const fn = window.__vdeRevealPropTreeFromManualCursor;
+        if (typeof fn === 'function') fn();
+      },
+      { capture: true }
+    );
+  }
 }
 
 function buildPropertyTree() {
@@ -2783,6 +3001,13 @@ function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPa
   items.push({
     label: 'Copy property path',
     action: () => navigator.clipboard.writeText(propPath)
+  });
+
+  items.push({
+    label: 'Reveal in manual editor',
+    action: () => {
+      revealManualEditorFromPropPath(propPath);
+    }
   });
 
   showContextMenu(items, x, y);
@@ -4449,4 +4674,7 @@ function initPropTreeSelectionAndSuggestionDnD() {
   initPropsContainerSuggestionDragAffordance();
 }
 window.initPropTreeSelectionAndSuggestionDnD = initPropTreeSelectionAndSuggestionDnD;
+
+// Expose reveal helper for context-menu actions and any external callers.
+window.revealManualEditorFromPropPath = revealManualEditorFromPropPath;
 

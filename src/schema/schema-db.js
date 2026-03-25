@@ -652,6 +652,14 @@
     return null;
   }
 
+  function getClassMetadata(className) {
+    if (!className || typeof className !== 'string') return [];
+    if (!_classesByName.has(className)) return [];
+    const cls = _classesByName.get(className);
+    if (!cls || !Array.isArray(cls.metadata)) return [];
+    return cls.metadata;
+  }
+
   /**
    * @param {string} widgetId e.g. enum:module::EnumName
    * @returns {string[]}
@@ -684,6 +692,7 @@
     hasClass: hasClass,
     getFields: getFields,
     getFieldType: getFieldType,
+    getClassMetadata: getClassMetadata,
     getEnumValuesForWidgetId: getEnumValuesForWidgetId,
     listClassNames: listClassNames,
     getRaw: getRaw,
