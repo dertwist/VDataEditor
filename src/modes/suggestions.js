@@ -3,6 +3,8 @@
   'use strict';
 
   let _schemas = null;
+  /** @type {Map<string, {flat: object, sources: object}>} */
+  let _resolveWithSourcesCache = new Map();
 
   function collectKeyNamesDeep(obj, seen) {
     const s = seen || new Set();
@@ -47,38 +49,73 @@
     ].filter(Boolean);
   }
 
-  function resolveSchema(ctx) {
+  function schemaCandidatesWithSources(ctx) {
     const c = ctx || {};
-    const parentKey = c.parentKey || '';
-    const candidates = schemaCandidates(c);
-    if (candidates.length === 0) return {};
+    const fileExt = c.fileExt || '';
+    const genericDataType = c.genericDataType || '';
+    const modeId = c.modeId || '';
+    const staticMode = modeSuggestionBlock(modeId);
 
+    const out = [];
+    if (_schemas && _schemas._global) out.push({ sourceId: '_global', sch: _schemas._global });
+    if (staticMode) out.push({ sourceId: 'static:' + modeId, sch: staticMode });
+    if (modeId && _schemas && _schemas['mode:' + modeId]) out.push({ sourceId: 'mode:' + modeId, sch: _schemas['mode:' + modeId] });
+    if (_schemas && _schemas['ext:' + fileExt]) out.push({ sourceId: 'ext:' + fileExt, sch: _schemas['ext:' + fileExt] });
+    if (_schemas && genericDataType && _schemas['type:' + genericDataType]) out.push({ sourceId: 'type:' + genericDataType, sch: _schemas['type:' + genericDataType] });
+    return out;
+  }
+
+  function cacheKeyForResolve(ctx) {
+    const c = ctx || {};
+    return [c.modeId || '', c.fileExt || '', c.genericDataType || '', c.parentKey || ''].join('|');
+  }
+
+  function resolveSchemaWithSources(ctx) {
+    const c = ctx || {};
+    const cacheKey = cacheKeyForResolve(c);
+    if (_resolveWithSourcesCache.has(cacheKey)) return _resolveWithSourcesCache.get(cacheKey);
+
+    const parentKey = c.parentKey || '';
+    const candidates = schemaCandidatesWithSources(c);
+    if (!candidates.length) {
+      const empty = { flat: {}, sources: {} };
+      _resolveWithSourcesCache.set(cacheKey, empty);
+      return empty;
+    }
+
+    let usedCandidates = candidates;
     if (parentKey) {
       const childCandidates = candidates
-        .map(function (sch) {
-          return sch.children && sch.children[parentKey];
+        .map(function (cand) {
+          const ch = cand.sch && cand.sch.children ? cand.sch.children[parentKey] : null;
+          return ch ? { sourceId: cand.sourceId, sch: ch } : null;
         })
         .filter(Boolean);
-      if (childCandidates.length) {
-        return Object.assign.apply(
-          null,
-          [{}].concat(
-            childCandidates.map(function (ch) {
-              return ch.keys || {};
-            })
-          )
-        );
+      if (childCandidates.length) usedCandidates = childCandidates;
+    }
+
+    const flat = {};
+    const sources = {};
+    for (let i = 0; i < usedCandidates.length; i++) {
+      const cand = usedCandidates[i];
+      const keyMap = cand.sch && cand.sch.keys ? cand.sch.keys : {};
+      const ks = Object.keys(keyMap);
+      for (let j = 0; j < ks.length; j++) {
+        const k = ks[j];
+        const nextDef = keyMap[k];
+        if (!nextDef || typeof nextDef !== 'object') continue;
+        flat[k] = Object.assign({}, flat[k] || {}, nextDef);
+        sources[k] = cand.sourceId;
       }
     }
 
-    return Object.assign.apply(
-      null,
-      [{}].concat(
-        candidates.map(function (sch) {
-          return sch.keys || {};
-        })
-      )
-    );
+    const out = { flat: flat, sources: sources };
+    _resolveWithSourcesCache.set(cacheKey, out);
+    return out;
+  }
+
+  function resolveSchema(ctx) {
+    return resolveSchemaWithSources(ctx).flat;
   }
 
   function inferFromConvention(key) {
@@ -113,6 +150,7 @@
       console.warn('[schema] init failed', e);
       _schemas = null;
     }
+    _resolveWithSourcesCache.clear();
     applySchemasPostLoad();
   }
 
@@ -162,6 +200,15 @@
     const def = flat[key];
     if (!def) return false;
     if (Array.isArray(def.enum) && def.enum.length > 0) return true;
+
+    if (def.enumRef && window.VDataDependencyEngine && typeof window.VDataDependencyEngine.resolveEnumValues === 'function') {
+      const enumCtx = Object.assign({}, ctx, {
+        liveRoot: ctx.liveRoot || ctx.root || (typeof docManager !== 'undefined' ? docManager.activeDoc && docManager.activeDoc.root : null) || null
+      });
+      const vals = window.VDataDependencyEngine.resolveEnumValues(def.enumRef, enumCtx);
+      return Array.isArray(vals) && vals.length > 0;
+    }
+
     if (
       def.enumWidgetId &&
       typeof def.enumWidgetId === 'string' &&
@@ -179,6 +226,15 @@
     const flat = resolveSchema(ctx);
     const def = flat[key];
     if (def && Array.isArray(def.enum) && def.enum.length) return def.enum.slice();
+
+    if (def && def.enumRef && window.VDataDependencyEngine && typeof window.VDataDependencyEngine.resolveEnumValues === 'function') {
+      const enumCtx = Object.assign({}, ctx, {
+        liveRoot: ctx.liveRoot || ctx.root || (typeof docManager !== 'undefined' ? docManager.activeDoc && docManager.activeDoc.root : null) || null
+      });
+      const vals = window.VDataDependencyEngine.resolveEnumValues(def.enumRef, enumCtx);
+      if (Array.isArray(vals) && vals.length) return vals.slice();
+    }
+
     if (
       def &&
       def.enumWidgetId &&
@@ -280,14 +336,38 @@
       })
     );
 
-    const flat = resolveSchema(Object.assign({}, base, { parentKey }));
+    const resolved = resolveSchemaWithSources(Object.assign({}, base, { parentKey }));
+    const flat = resolved.flat;
+    const sources = resolved.sources;
 
     return keys.map(function (k) {
       const def = flat[k];
       const fromWidget = def && def.widget ? widgetToEditorType(def.widget) : null;
       const t = (def && def.type) || fromWidget || inferTypeFromKeyName(k);
-      return { key: k, type: t, hint: '' };
+      return {
+        key: k,
+        type: t,
+        hint: '',
+        description: def ? def.description || def.doc || '' : '',
+        enumRef: def ? def.enumRef || null : null,
+        enumWidgetId: def ? def.enumWidgetId || null : null,
+        enum: def && Array.isArray(def.enum) ? def.enum.slice() : null,
+        showIf: def ? def.showIf || null : null,
+        enableIf: def ? def.enableIf || null : null,
+        __source: sources[k] || null
+      };
     });
+  }
+
+  function getSchemaEntry(key, context) {
+    if (!key || typeof key !== 'string') return null;
+    const ctx = context || {};
+    const resolved = resolveSchemaWithSources(ctx);
+    const def = resolved.flat[key];
+    if (!def) return null;
+    const out = Object.assign({}, def);
+    if (resolved.sources && resolved.sources[key]) out.__source = resolved.sources[key];
+    return out;
   }
 
   const api = {
@@ -298,7 +378,8 @@
     getSuggestedValues,
     getWidgetType,
     inferTypeFromKeyName,
-    getSuggestions
+    getSuggestions,
+    getSchemaEntry
   };
 
   if (typeof window !== 'undefined') window.VDataSuggestions = api;

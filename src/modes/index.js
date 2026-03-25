@@ -51,17 +51,69 @@
     schemaTypeForSuggestions: '',
     suggestionSchema: {
       keys: {
-        generic_data_type: { type: 'string', widget: 'string' },
-        _class: { type: 'string', widget: 'string' },
-        m_sElementName: { type: 'string', widget: 'string' },
-        m_nElementID: { type: 'int', widget: 'number-int' },
-        m_bEnabled: { type: 'bool', widget: 'checkbox' },
-        m_flWeight: { type: 'float', widget: 'number-float' },
-        m_sModelName: { type: 'string', widget: 'resource' },
-        m_sSmartProp: { type: 'string', widget: 'resource' },
-        m_Components: { type: 'string', widget: 'string' },
-        m_Variables: { type: 'string', widget: 'string' },
-        m_Modifiers: { type: 'string', widget: 'string' }
+        generic_data_type: {
+          type: 'string',
+          widget: 'string',
+          description: 'Runtime schema slice selector.'
+        },
+        _class: {
+          type: 'string',
+          widget: 'string',
+          description: 'Smart prop class name (read-only in the editor).',
+          enumRef: '@doc._class'
+        },
+        m_sElementName: {
+          type: 'string',
+          widget: 'string',
+          description: 'Element name.'
+        },
+        m_nElementID: {
+          type: 'int',
+          widget: 'number-int',
+          description: 'Element identifier.'
+        },
+        m_bEnabled: {
+          type: 'bool',
+          widget: 'checkbox',
+          description: 'Whether this smart prop is enabled.'
+        },
+        m_flWeight: {
+          type: 'float',
+          widget: 'number-float',
+          description: 'Weight value (shown/enabled only when enabled).',
+          showIf: { key: 'm_bEnabled', eq: true },
+          enableIf: { key: 'm_bEnabled', eq: true }
+        },
+        m_sModelName: {
+          type: 'string',
+          widget: 'resource',
+          description: 'Model resource path.',
+          showIf: { key: 'm_bEnabled', eq: true }
+        },
+        m_sSmartProp: {
+          type: 'string',
+          widget: 'resource',
+          description: 'Smart prop resource path.',
+          showIf: { key: 'm_bEnabled', eq: true }
+        },
+        m_Components: {
+          type: 'string',
+          widget: 'string',
+          description: 'Serialized components array.',
+          showIf: { key: 'm_bEnabled', eq: true }
+        },
+        m_Variables: {
+          type: 'string',
+          widget: 'string',
+          description: 'Variable KV3 blob.',
+          showIf: { key: 'm_bEnabled', eq: true }
+        },
+        m_Modifiers: {
+          type: 'string',
+          widget: 'string',
+          description: 'Modifier KV3 blob.',
+          showIf: { key: 'm_bEnabled', eq: true }
+        }
       },
       children: {},
       enums: {}
@@ -87,12 +139,12 @@
     schemaTypeForSuggestions: '',
     suggestionSchema: {
       keys: {
-        generic_data_type: { type: 'string', widget: 'string' },
-        m_name: { type: 'string', widget: 'string' },
-        m_stack: { type: 'string', widget: 'string' },
-        m_sounds: { type: 'string', widget: 'string' },
-        m_volume: { type: 'float', widget: 'number-float' },
-        m_pitch: { type: 'float', widget: 'number-float' }
+        generic_data_type: { type: 'string', widget: 'string', description: 'Runtime schema slice selector.' },
+        m_name: { type: 'string', widget: 'string', description: 'Sound stack name.' },
+        m_stack: { type: 'string', widget: 'string', description: 'Stack identifier.' },
+        m_sounds: { type: 'string', widget: 'string', description: 'Sounds list blob.' },
+        m_volume: { type: 'float', widget: 'number-float', description: 'Volume.' },
+        m_pitch: { type: 'float', widget: 'number-float', description: 'Pitch.' }
       },
       children: {},
       enums: {}
@@ -108,12 +160,12 @@
     schemaTypeForSuggestions: '',
     suggestionSchema: {
       keys: {
-        generic_data_type: { type: 'string', widget: 'string' },
-        m_Nodes: { type: 'string', widget: 'string' },
-        m_Connections: { type: 'string', widget: 'string' },
-        m_Variables: { type: 'string', widget: 'string' },
-        m_nNodeID: { type: 'int', widget: 'number-int' },
-        m_sNodeClass: { type: 'string', widget: 'string' }
+        generic_data_type: { type: 'string', widget: 'string', description: 'Runtime schema slice selector.' },
+        m_Nodes: { type: 'string', widget: 'string', description: 'Node list blob.' },
+        m_Connections: { type: 'string', widget: 'string', description: 'Connection list blob.' },
+        m_Variables: { type: 'string', widget: 'string', description: 'Variable KV3 blob.' },
+        m_nNodeID: { type: 'int', widget: 'number-int', description: 'Node identifier.' },
+        m_sNodeClass: { type: 'string', widget: 'string', description: 'Node class name.' }
       },
       children: {},
       enums: {}
@@ -129,14 +181,14 @@
     schemaTypeForSuggestions: '',
     suggestionSchema: {
       keys: {
-        generic_data_type: { type: 'string', widget: 'string' },
-        surfaceproperties: { type: 'string', widget: 'string' },
-        base: { type: 'string', widget: 'string' },
-        density: { type: 'float', widget: 'number-float' },
-        elasticity: { type: 'float', widget: 'number-float' },
-        friction: { type: 'float', widget: 'number-float' },
-        dampening: { type: 'float', widget: 'number-float' },
-        gamematerial: { type: 'string', widget: 'string' }
+        generic_data_type: { type: 'string', widget: 'string', description: 'Runtime schema slice selector.' },
+        surfaceproperties: { type: 'string', widget: 'string', description: 'Surface properties blob.' },
+        base: { type: 'string', widget: 'string', description: 'Base surface name.' },
+        density: { type: 'float', widget: 'number-float', description: 'Density.' },
+        elasticity: { type: 'float', widget: 'number-float', description: 'Elasticity.' },
+        friction: { type: 'float', widget: 'number-float', description: 'Friction.' },
+        dampening: { type: 'float', widget: 'number-float', description: 'Dampening.' },
+        gamematerial: { type: 'string', widget: 'string', description: 'Game material name.' }
       },
       children: {},
       enums: {}

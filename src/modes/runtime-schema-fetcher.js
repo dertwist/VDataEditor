@@ -35,6 +35,48 @@
     return { type: 'string', widget: 'string' };
   }
 
+  function extractDocFromMetadata(metadata) {
+    if (!Array.isArray(metadata) || metadata.length === 0) return '';
+
+    const nameRe =
+      /(^desc$|description|doc|tooltip|help|m_.*desc|m_.*description|m_.*tooltip)/i;
+
+    for (let i = 0; i < metadata.length; i++) {
+      const m = metadata[i];
+      if (!m || typeof m !== 'object') continue;
+      const n = m.name;
+      if (typeof n !== 'string' || !nameRe.test(n)) continue;
+
+      const v = m.value;
+      if (typeof v === 'string') {
+        const s = v.trim();
+        if (s) return s;
+      }
+
+      // Some schema formats might store nested { value: "..." }.
+      if (_isObj(v) && typeof v.value === 'string') {
+        const s = v.value.trim();
+        if (s) return s;
+      }
+    }
+
+    return '';
+  }
+
+  function _isObj(x) {
+    return x && typeof x === 'object' && !Array.isArray(x);
+  }
+
+  function widgetToDefFromField(field) {
+    const def = widgetToDef(field && field.type ? field.type : null);
+    const doc = extractDocFromMetadata(field && Array.isArray(field.metadata) ? field.metadata : []);
+    if (doc) {
+      def.description = doc;
+      def.doc = doc;
+    }
+    return def;
+  }
+
   async function buildRuntimeBuckets(onProgress) {
     const S = window.SchemaDB;
     if (!S || !S.isLoaded()) {
@@ -64,7 +106,7 @@
       const keys = {};
       for (let j = 0; j < fields.length; j++) {
         const f = fields[j];
-        const def = widgetToDef(f.type);
+        const def = widgetToDefFromField(f);
         keys[f.name] = def;
         globalFreq[f.name] = (globalFreq[f.name] || 0) + 1;
         if (!globalDef[f.name]) globalDef[f.name] = def;

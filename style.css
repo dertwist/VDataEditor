@@ -527,6 +527,13 @@ input,select,textarea,button{font-family:inherit;font-size:inherit;color:inherit
 .property-browser-prop-key{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .property-browser-prop-type{display:inline-flex;align-items:center;justify-content:flex-end;flex-shrink:0;min-width:16px}
 .property-browser-actions{margin-top:auto;display:flex;justify-content:flex-end}
+
+#propertyBrowserPaneInfo{flex:1 1 0;min-height:0;display:flex;flex-direction:column}
+#propertyInfoHeader{flex-shrink:0;font-size:11px;font-weight:600;color:var(--text-primary);padding:6px;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;gap:8px;min-width:0}
+#propertyInfoBody{flex:1;min-height:0;overflow:auto;padding:8px;font-size:11px;color:var(--text-secondary);font-family:var(--font-mono)}
+.property-info-section{margin-bottom:10px}
+.property-info-section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:4px}
+.property-info-muted{color:var(--text-muted)}
 /* Manual editor (CodeMirror) line striping — fallback when theme not loaded */
 #cmEditor .cm-line:nth-child(even){
   background:rgba(255,255,255,.008);

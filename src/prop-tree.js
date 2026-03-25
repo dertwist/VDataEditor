@@ -28,6 +28,8 @@ window.markPropTreeStructureDirty = markPropTreeStructureDirty;
 
 /** @type {Map<string, HTMLElement>} */
 const _propRowRegistry = new Map();
+/** @type {WeakMap<HTMLElement, object>} */
+const _propRowDependencyDef = new WeakMap();
 
 function clearPropRowRegistry() {
   _propRowRegistry.clear();
@@ -111,6 +113,36 @@ function updatePropRowValueFromModel(row, value) {
   return true;
 }
 
+function applyDependencyStateToPropRow(row, depDef, parentObj, schemaCtx) {
+  if (!row || !depDef || typeof window.VDataDependencyEngine === 'undefined') return;
+  const engine = window.VDataDependencyEngine;
+  if (!engine || typeof engine.evaluateDependency !== 'function') return;
+
+  const res = engine.evaluateDependency(depDef, parentObj, schemaCtx);
+  const visible = !!res.visible;
+  const enabled = !!res.enabled;
+
+  // Visibility: hide the row itself and its immediate children container (if any).
+  row.style.display = visible ? '' : 'none';
+
+  const childWrap = row.nextElementSibling;
+  if (childWrap && childWrap.classList && childWrap.classList.contains('prop-row-children')) {
+    if (!visible) {
+      row.dataset.depChildrenPrevDisplay = childWrap.style.display;
+      childWrap.style.display = 'none';
+    } else if (row.dataset.depChildrenPrevDisplay != null) {
+      childWrap.style.display = row.dataset.depChildrenPrevDisplay || '';
+      delete row.dataset.depChildrenPrevDisplay;
+    }
+  }
+
+  // Enablement: disable interactive form controls.
+  const disable = !enabled;
+  row.querySelectorAll('input,select,textarea,button').forEach((el) => {
+    if ('disabled' in el) el.disabled = disable;
+  });
+}
+
 /**
  * Apply a typed command to the property tree DOM where possible.
  * @param {object} cmd — see VDataCommands
@@ -137,6 +169,27 @@ function patchPropertyTree(cmd) {
       return;
     }
     updatePropRowValueFromModel(row, cmd.nextValue);
+
+    // Targeted dependency invalidation:
+    // If a sibling key changes, only re-evaluate rows that declared dependency
+    // references to that key.
+    const changedKey = objectKeyFromPropPath(cmd.pathStr);
+    if (changedKey) {
+      const schemaCtx = schemaCtxForPropertyTree();
+      for (const r of _propRowRegistry.values()) {
+        const depKeys = r?.dataset?.depKeys;
+        if (!depKeys || depKeys.indexOf(',' + changedKey + ',') < 0) continue;
+
+        const depDef = _propRowDependencyDef.get(r);
+        if (!depDef) continue;
+
+        const p = r.dataset.propPath;
+        const parentPathOnly = parentPathFromRowPath(p);
+        const doc = docManager.activeDoc;
+        const parentObj = parentPathOnly ? getValueAtPath(doc.root, parentPathOnly) : doc.root;
+        applyDependencyStateToPropRow(r, depDef, parentObj, schemaCtx);
+      }
+    }
     stripePropTree();
     syncPropTreeSelectionClasses();
     return;
@@ -650,6 +703,12 @@ function castPropertyType(parentRef, key, value, fromType, toType, arrayIdx, pro
 }
 
 function isPropRowInHiddenBranch(row) {
+  if (!row) return false;
+  try {
+    const csRow = window.getComputedStyle(row);
+    if (csRow && csRow.display === 'none') return true;
+  } catch (_) {}
+
   let el = row.parentElement;
   while (el && el.id !== 'propTreeRoot') {
     if (el.classList && el.classList.contains('prop-row-children')) {
@@ -1355,6 +1414,28 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
   row.dataset.type = type;
   row.dataset.propPath = propPath;
   _propRowRegistry.set(propPath, row);
+
+  // Dependency evaluation (schema-driven showIf/enableIf).
+  // This is evaluated once when the row is built, then re-evaluated selectively
+  // after `SET_VALUE` edits.
+  if (typeof window !== 'undefined' && window.VDataDependencyEngine && typeof window.VDataDependencyEngine.getDependencyForKey === 'function') {
+    const schemaCtx = schemaCtxForPropertyTree();
+    const parentKey = schemaParentKeyFromRowPath(propPath);
+    const depDef = window.VDataDependencyEngine.getDependencyForKey(key, Object.assign({}, schemaCtx, { parentKey }));
+    if (depDef) {
+      const refKeys = window.VDataDependencyEngine.collectReferencedKeys(depDef);
+      if (refKeys && refKeys.length) {
+        row.dataset.depKeys = ',' + refKeys.join(',') + ',';
+      }
+      _propRowDependencyDef.set(row, depDef);
+      applyDependencyStateToPropRow(row, depDef, parentRef, schemaCtx);
+    }
+  }
+
+  row.addEventListener('focus', () => {
+    showPropertyInfo(null, key, type, propPath);
+  });
+
   if (depth > 9) row.style.setProperty('--prop-depth', String(depth));
   if (type === 'commented_value') row.classList.add('prop-row-commented-value');
   if (type === 'comment_label') row.classList.add('prop-row-comment-label');
@@ -2812,10 +2893,13 @@ function schemaCtxForPropertyTree() {
     return {
       modeId: 'generic',
       fileExt: m ? m[1].toLowerCase() : '',
-      genericDataType: d?.root?.generic_data_type ?? ''
+      genericDataType: d?.root?.generic_data_type ?? '',
+      liveRoot: d?.root || null
     };
   }
-  return window.VDataEditorModes.getSuggestionContext(d.fileName, d.root);
+  const ctx = window.VDataEditorModes.getSuggestionContext(d.fileName, d.root) || {};
+  ctx.liveRoot = d.root || null;
+  return ctx;
 }
 
 function buildStringWidget(container, value, onChange, options) {
@@ -3422,16 +3506,201 @@ function addSuggestedPropertyAtPath(keyRaw, parentObjectPath, editorTypeOverride
   return true;
 }
 
+function formatDependencyLeaf(cond) {
+  if (!cond || typeof cond !== 'object') return '';
+  if (cond.and || cond.or || cond.not) return '';
+  const key = typeof cond.key === 'string' ? cond.key : '';
+  const k = key || '';
+  if (!k) return '';
+
+  if (Object.prototype.hasOwnProperty.call(cond, 'eq')) return `${k} = ${cond.eq}`;
+  if (Object.prototype.hasOwnProperty.call(cond, 'ne')) return `${k} != ${cond.ne}`;
+  if (Object.prototype.hasOwnProperty.call(cond, 'in')) return `${k} in [${Array.isArray(cond.in) ? cond.in.join(', ') : ''}]`;
+  if (Object.prototype.hasOwnProperty.call(cond, 'lt')) return `${k} < ${cond.lt}`;
+  if (Object.prototype.hasOwnProperty.call(cond, 'lte')) return `${k} <= ${cond.lte}`;
+  if (Object.prototype.hasOwnProperty.call(cond, 'gt')) return `${k} > ${cond.gt}`;
+  if (Object.prototype.hasOwnProperty.call(cond, 'gte')) return `${k} >= ${cond.gte}`;
+  if (Object.prototype.hasOwnProperty.call(cond, 'regex')) return `${k} ~ /${cond.regex}/`;
+  return `${k} (truthy)`;
+}
+
+function formatDependencyExpr(expr) {
+  if (!expr) return '';
+  if (Array.isArray(expr)) return expr.map(formatDependencyExpr).filter(Boolean).join(' AND ');
+  if (typeof expr !== 'object') return String(expr);
+  if (expr.and) return expr.and.map(formatDependencyExpr).filter(Boolean).join(' AND ');
+  if (expr.or) return expr.or.map(formatDependencyExpr).filter(Boolean).join(' OR ');
+  if (expr.not) return `NOT (${formatDependencyExpr(expr.not)})`;
+  return formatDependencyLeaf(expr);
+}
+
+function showPropertyInfo(suggestion, key, type, propPath) {
+  const headerEl = document.getElementById('propertyInfoHeader');
+  const bodyEl = document.getElementById('propertyInfoBody');
+  if (!headerEl || !bodyEl) return;
+
+  const d = docManager && docManager.activeDoc ? docManager.activeDoc : null;
+  const liveRoot = d && d.root ? d.root : null;
+
+  const schemaCtx = schemaCtxForPropertyTree();
+  schemaCtx.liveRoot = liveRoot;
+  const parentKey = propPath ? schemaParentKeyFromRowPath(propPath) : '';
+  const schemaEntry = window.VDataSuggestions?.getSchemaEntry ? window.VDataSuggestions.getSchemaEntry(key, Object.assign({}, schemaCtx, { parentKey })) : null;
+
+  const desc =
+    (suggestion && (suggestion.description || suggestion.doc)) ||
+    (schemaEntry && (schemaEntry.description || schemaEntry.doc)) ||
+    '';
+
+  const showIf = (schemaEntry && schemaEntry.showIf != null ? schemaEntry.showIf : suggestion && suggestion.showIf != null ? suggestion.showIf : null) || null;
+  const enableIf = (schemaEntry && schemaEntry.enableIf != null ? schemaEntry.enableIf : suggestion && suggestion.enableIf != null ? suggestion.enableIf : null) || null;
+
+  const enumRef =
+    (schemaEntry && schemaEntry.enumRef) ||
+    (suggestion && suggestion.enumRef) ||
+    null;
+
+  const enumWidgetId =
+    (schemaEntry && schemaEntry.enumWidgetId) ||
+    (suggestion && suggestion.enumWidgetId) ||
+    null;
+
+  let enumValues = null;
+  if (enumRef && window.VDataDependencyEngine?.resolveEnumValues) {
+    enumValues = window.VDataDependencyEngine.resolveEnumValues(enumRef, schemaCtx);
+  } else if ((schemaEntry && schemaEntry.enum) || (schemaEntry && schemaEntry.enumWidgetId) || (suggestion && suggestion.enumWidgetId)) {
+    if (window.VDataSuggestions?.getSuggestedValues) {
+      enumValues = window.VDataSuggestions.getSuggestedValues(key, Object.assign({}, schemaCtx, { parentKey }));
+    }
+  }
+
+  const depSummary = showIf || enableIf ? [] : null;
+  if (showIf) depSummary.push(`Visible when ${formatDependencyExpr(showIf)}`);
+  if (enableIf) depSummary.push(`Enabled when ${formatDependencyExpr(enableIf)}`);
+
+  let currentVal = '';
+  if (d && propPath && typeof propPath === 'string' && d.root) {
+    try {
+      const v = getValueAtPath(d.root, propPath);
+      if (v === undefined) currentVal = '';
+      else if (v === null) currentVal = 'null';
+      else if (typeof v === 'object') currentVal = JSON.stringify(v);
+      else currentVal = String(v);
+    } catch (_) {}
+  }
+
+  const source = schemaEntry && schemaEntry.__source ? schemaEntry.__source : suggestion && suggestion.__source ? suggestion.__source : null;
+
+  // Header
+  headerEl.innerHTML = '';
+  const kEl = document.createElement('div');
+  kEl.style.fontWeight = '700';
+  kEl.style.fontSize = '12px';
+  kEl.style.overflow = 'hidden';
+  kEl.style.textOverflow = 'ellipsis';
+  kEl.style.whiteSpace = 'nowrap';
+  kEl.textContent = key || '';
+  headerEl.appendChild(kEl);
+
+  const badge = document.createElement('span');
+  badge.className = 'prop-type-badge';
+  badge.textContent = type || (schemaEntry && schemaEntry.type) || '';
+  headerEl.appendChild(badge);
+
+  // Body
+  bodyEl.innerHTML = '';
+  if (desc) {
+    const sec = document.createElement('div');
+    sec.className = 'property-info-section';
+    const title = document.createElement('div');
+    title.className = 'property-info-section-title';
+    title.textContent = 'Description';
+    const txt = document.createElement('div');
+    txt.className = 'property-info-muted';
+    txt.textContent = desc;
+    sec.appendChild(title);
+    sec.appendChild(txt);
+    bodyEl.appendChild(sec);
+  }
+
+  if (enumValues && Array.isArray(enumValues) && enumValues.length) {
+    const sec = document.createElement('div');
+    sec.className = 'property-info-section';
+    const title = document.createElement('div');
+    title.className = 'property-info-section-title';
+    title.textContent = 'Enum values';
+    sec.appendChild(title);
+    const list = document.createElement('div');
+    list.textContent = enumValues.slice(0, 200).join(', ') + (enumValues.length > 200 ? '…' : '');
+    bodyEl.appendChild(sec);
+    sec.appendChild(list);
+  }
+
+  if (depSummary && depSummary.length) {
+    const sec = document.createElement('div');
+    sec.className = 'property-info-section';
+    const title = document.createElement('div');
+    title.className = 'property-info-section-title';
+    title.textContent = 'Dependencies';
+    sec.appendChild(title);
+    const txt = document.createElement('div');
+    txt.textContent = depSummary.join(' • ');
+    bodyEl.appendChild(sec);
+    sec.appendChild(txt);
+  }
+
+  if (propPath && d && d.root) {
+    const sec = document.createElement('div');
+    sec.className = 'property-info-section';
+    const title = document.createElement('div');
+    title.className = 'property-info-section-title';
+    title.textContent = 'Current value';
+    const txt = document.createElement('div');
+    txt.className = 'property-info-muted';
+    txt.textContent = currentVal || '(not set)';
+    sec.appendChild(title);
+    sec.appendChild(txt);
+    bodyEl.appendChild(sec);
+  }
+
+  if (source) {
+    const sec = document.createElement('div');
+    sec.className = 'property-info-section';
+    const title = document.createElement('div');
+    title.className = 'property-info-section-title';
+    title.textContent = 'Schema source';
+    const txt = document.createElement('div');
+    txt.className = 'property-info-muted';
+    txt.textContent = source;
+    sec.appendChild(title);
+    sec.appendChild(txt);
+    bodyEl.appendChild(sec);
+  }
+
+  if (!desc && (!enumValues || !enumValues.length) && (!depSummary || !depSummary.length) && !currentVal && !source) {
+    const empty = document.createElement('div');
+    empty.className = 'property-info-muted';
+    empty.textContent = 'No schema info for this property.';
+    bodyEl.appendChild(empty);
+  }
+}
+
 function buildPropertyBrowserPropertyList() {
   const list = document.getElementById('propertyBrowserPropertyList');
   if (!list) return;
   const suggestions = getPropertyBrowserSuggestions();
   const q = _propertyBrowserPropertyFilter;
   list.innerHTML = '';
+
+  const d = docManager && docManager.activeDoc ? docManager.activeDoc : null;
+  const existingKeys =
+    d && d.root && typeof d.root === 'object' && !Array.isArray(d.root) ? new Set(Object.keys(d.root)) : new Set();
+
   for (let i = 0; i < suggestions.length; i++) {
     const s = suggestions[i];
     const key = s.key || '';
     const type = inferPropertyTypeFromSuggestion(s);
+    if (existingKeys.has(key)) continue;
     if (q && key.toLowerCase().indexOf(q) < 0 && type.toLowerCase().indexOf(q) < 0) continue;
     const row = document.createElement('div');
     row.setAttribute('role', 'button');
@@ -3452,7 +3721,11 @@ function buildPropertyBrowserPropertyList() {
     });
     row.addEventListener('click', () => {
       _propertyBrowserSelectedProperty = key;
+      showPropertyInfo(s, key, type, key);
       buildPropertyBrowserPropertyList();
+    });
+    row.addEventListener('focus', () => {
+      showPropertyInfo(s, key, type, key);
     });
     row.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') {
@@ -3542,6 +3815,37 @@ function initPropertyBrowser() {
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
       }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
+  const infoSplit = document.getElementById('propertyBrowserInfoSplit');
+  const paneInfo = document.getElementById('propertyBrowserPaneInfo');
+  if (infoSplit && paneBottom && paneInfo && !infoSplit.dataset.bound) {
+    infoSplit.dataset.bound = '1';
+    const MIN_PANE = 80;
+    infoSplit.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      infoSplit.classList.add('active');
+      const startY = e.clientY;
+      const startPropsH = paneBottom.offsetHeight;
+      const startInfoH = paneInfo.offsetHeight;
+
+      function onMove(e2) {
+        const dy = e2.clientY - startY;
+        const newPropsH = Math.max(MIN_PANE, startPropsH + dy);
+        const newInfoH = Math.max(MIN_PANE, startInfoH - dy);
+        paneBottom.style.flex = `${newPropsH} 1 ${newPropsH}px`;
+        paneInfo.style.flex = `${newInfoH} 1 ${newInfoH}px`;
+      }
+
+      function onUp() {
+        infoSplit.classList.remove('active');
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      }
+
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
     });
