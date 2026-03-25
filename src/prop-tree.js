@@ -452,11 +452,26 @@ function getActiveMode() {
   return window.VDataEditorModes.getModeForFile(docManager.activeDoc?.fileName ?? 'Untitled');
 }
 
-function resolveRowWidgetType(key, value, parentObj) {
+function schemaParentKeyFromRowPath(propPath) {
+  const parentOnly = parentPathFromRowPath(propPath);
+  return parentOnly ? parentOnly.slice(parentOnly.lastIndexOf('/') + 1) : '';
+}
+
+function resolveRowWidgetType(key, value, parentObj, propPath) {
   const mode = getActiveMode();
   if (mode && typeof mode.resolveWidget === 'function') {
     const w = mode.resolveWidget(key, value, parentObj);
     if (w) return w;
+  }
+  if (
+    propPath != null &&
+    typeof VDataSuggestions !== 'undefined' &&
+    typeof VDataSuggestions.isSchemaEnumField === 'function' &&
+    (typeof value === 'string' || typeof value === 'number' || value == null) &&
+    !(value !== null && typeof value === 'object')
+  ) {
+    const ctx = Object.assign(schemaCtxForPropertyTree(), { parentKey: schemaParentKeyFromRowPath(propPath) });
+    if (VDataSuggestions.isSchemaEnumField(key, ctx)) return 'enum';
   }
   const inferred = inferType(key, value);
   return VDataSettings.resolveWidgetType(key, inferred);
@@ -712,6 +727,377 @@ function applyPropTreePointerSelection(ev, path) {
     _propTreeSelectionAnchorPath = path;
   }
   syncPropTreeSelectionClasses();
+  const row = _propRowRegistry.get(path);
+  row?.focus();
+}
+
+function collectPropTreeBulkSameParentPaths(primaryPath) {
+  if (!primaryPath) return [];
+  if (!_propTreeSelection.has(primaryPath) || _propTreeSelection.size < 2) return [primaryPath];
+  const par = parentPathFromRowPath(primaryPath);
+  const same = [..._propTreeSelection].filter((p) => parentPathFromRowPath(p) === par);
+  return same.length >= 2 ? same : [primaryPath];
+}
+
+function sortPropPathsForDelete(paths) {
+  const unique = [...new Set(paths)];
+  function arrayTail(path) {
+    let m = /^(.*)\/\[(\d+)\]$/.exec(path);
+    if (m) return { parent: m[1], idx: parseInt(m[2], 10) };
+    m = /^\[(\d+)\]$/.exec(path);
+    if (m) return { parent: '', idx: parseInt(m[1], 10) };
+    return null;
+  }
+  return unique.sort((a, b) => {
+    if (b.startsWith(a + '/')) return 1;
+    if (a.startsWith(b + '/')) return -1;
+    const ta = arrayTail(a);
+    const tb = arrayTail(b);
+    if (ta && tb && ta.parent === tb.parent) return tb.idx - ta.idx;
+    return b.length - a.length || a.localeCompare(b);
+  });
+}
+
+function propTreeDeletePaths(paths) {
+  const d = docManager.activeDoc;
+  if (!d || !paths?.length || typeof VDataPathUtils === 'undefined') return;
+  const sorted = sortPropPathsForDelete(paths);
+  withDocUndoRootPair(() => {
+    let ex = new Set(d.expandedPaths);
+    let col = new Set(d.collapsedPaths);
+    for (let i = 0; i < sorted.length; i++) {
+      const p = sorted[i];
+      const item = rowDragItemFromPath(p);
+      const isArr = item.arrayIdx !== null;
+      const snap = isArr
+        ? snapshotAfterArrayContainerInvalidate(arrayContainerPathFromRowPath(p), ex, col)
+        : snapshotAfterObjectKeyInvalidate(p, ex, col);
+      ex = new Set(snap.expandedAfter);
+      col = new Set(snap.collapsedAfter);
+      VDataPathUtils.deleteAtPath(d.root, p);
+    }
+    d.expandedPaths = ex;
+    d.collapsedPaths = col;
+  }, 'Delete');
+  _propTreeSelection.clear();
+  _propTreeSelectionAnchorPath = '';
+}
+
+function normalizeClipboardEntries() {
+  if (!_clipboard) return [];
+  if (Array.isArray(_clipboard.entries) && _clipboard.entries.length) return _clipboard.entries;
+  return [{ key: _clipboard.key, value: _clipboard.value, type: _clipboard.type }];
+}
+
+function getPropTreeSelectedPathsOrdered() {
+  const ordered = getVisiblePropRowPathsOrdered();
+  const out = [];
+  for (let i = 0; i < ordered.length; i++) {
+    if (_propTreeSelection.has(ordered[i])) out.push(ordered[i]);
+  }
+  return out;
+}
+
+function propTreePrimaryPathForAction() {
+  const sel = getPropTreeSelectedPathsOrdered();
+  if (sel.length) return sel[sel.length - 1];
+  const r = document.activeElement?.closest?.('#propTreeRoot .prop-row');
+  return r?.dataset?.propPath || '';
+}
+
+function propTreeActiveEditorStealsKeys() {
+  return !!document.activeElement?.closest?.('.cm-editor');
+}
+
+function propTreeIsTreeTextFieldTarget(el) {
+  if (!el || !(el instanceof Element)) return false;
+  return (
+    el.closest(
+      '#propTreeRoot input:not([type="checkbox"]):not([type="color"]):not([type="range"]):not([type="button"]), ' +
+        '#propTreeRoot textarea, #propTreeRoot select, #propTreeRoot .prop-key-rename'
+    ) != null
+  );
+}
+
+function propTreeCopySelection() {
+  const d = docManager.activeDoc;
+  if (!d) return;
+  let paths = getPropTreeSelectedPathsOrdered();
+  if (!paths.length) {
+    const one = propTreePrimaryPathForAction();
+    if (one) paths = [one];
+  }
+  if (!paths.length) return;
+  const entries = [];
+  for (let i = 0; i < paths.length; i++) {
+    const p = paths[i];
+    const v = getValueAtPath(d.root, p);
+    const item = rowDragItemFromPath(p);
+    const parentPathOnly = parentPathFromRowPath(p);
+    const parentVal = parentPathOnly ? getValueAtPath(d.root, parentPathOnly) : d.root;
+    const keyName = item.key != null ? item.key : `[${item.arrayIdx}]`;
+    const parentObj = Array.isArray(parentVal) || (parentVal && typeof parentVal === 'object') ? parentVal : {};
+    const t = resolveRowWidgetType(keyName, v, parentObj, p);
+    entries.push({ key: item.key, value: deepClone(v), type: t, propPath: p });
+  }
+  _clipboard = { entries };
+  const vals = entries.map((e) => e.value);
+  const text = JSON.stringify(vals.length === 1 ? vals[0] : vals, null, 2);
+  navigator.clipboard.writeText(text).catch(() => {});
+}
+
+/** Paste clipboard into the selected row: replace its value and keep full nested structure (object/array children). */
+function propTreePasteIntoSelection(anchorPath) {
+  const entries = normalizeClipboardEntries();
+  if (!entries.length) return;
+  const d = docManager.activeDoc;
+  if (!d || !anchorPath) return;
+  const val0 = deepClone(entries[0].value);
+  const item = rowDragItemFromPath(anchorPath);
+  const parentPath = parentPathFromRowPath(anchorPath);
+  const parentRef = parentPath ? getValueAtPath(d.root, parentPath) : d.root;
+  if (!parentRef || typeof parentRef !== 'object') return;
+  const row = _propRowRegistry.get(anchorPath);
+  const depth =
+    row != null ? parseInt(row.dataset.depth || '0', 10) : (anchorPath.match(/\//g) || []).length;
+  const isStruct = val0 !== null && typeof val0 === 'object';
+  const hasKids = isStruct && (Array.isArray(val0) ? val0.length > 0 : Object.keys(val0).length > 0);
+  if (hasKids) {
+    if (depth === 0) propCol().delete(anchorPath);
+    else propEx().add(anchorPath);
+  }
+  commitValue(parentRef, item.key, val0, item.arrayIdx, isStruct, anchorPath);
+}
+
+async function propTreeTryPasteSystemClipboardIntoSelection(anchorPath) {
+  const d = docManager.activeDoc;
+  if (!d || !anchorPath) return;
+  let text;
+  try {
+    text = await navigator.clipboard.readText();
+  } catch (_) {
+    return;
+  }
+  if (!text || !text.trim()) return;
+  let v;
+  try {
+    v = JSON.parse(text);
+  } catch (_) {
+    return;
+  }
+  _clipboard = { key: null, value: v, type: inferType('', v) };
+  propTreePasteIntoSelection(anchorPath);
+}
+
+function sortPropPathsForDuplicate(paths) {
+  const unique = [...new Set(paths)];
+  function arrayTail(path) {
+    let m = /^(.*)\/\[(\d+)\]$/.exec(path);
+    if (m) return { parent: m[1], idx: parseInt(m[2], 10) };
+    m = /^\[(\d+)\]$/.exec(path);
+    if (m) return { parent: '', idx: parseInt(m[1], 10) };
+    return null;
+  }
+  return unique.sort((a, b) => {
+    if (b.startsWith(a + '/')) return 1;
+    if (a.startsWith(b + '/')) return -1;
+    const ta = arrayTail(a);
+    const tb = arrayTail(b);
+    if (ta && tb && ta.parent === tb.parent) return tb.idx - ta.idx;
+    return b.length - a.length || a.localeCompare(b);
+  });
+}
+
+function propTreeDuplicatePaths(paths) {
+  const d = docManager.activeDoc;
+  if (!d || !paths.length) return;
+  const parentGroups = new Map();
+  for (let i = 0; i < paths.length; i++) {
+    const p = paths[i];
+    const par = parentPathFromRowPath(p);
+    if (!parentGroups.has(par)) parentGroups.set(par, []);
+    parentGroups.get(par).push(p);
+  }
+  withDocUndoRootPair(() => {
+    const parStr = [...parentGroups.keys()].sort();
+    for (let g = 0; g < parStr.length; g++) {
+      const sorted = sortPropPathsForDuplicate(parentGroups.get(parStr[g]));
+      for (let j = 0; j < sorted.length; j++) {
+        const p = sorted[j];
+        const value = getValueAtPath(d.root, p);
+        if (value === undefined) continue;
+        const item = rowDragItemFromPath(p);
+        const parentPath = parentPathFromRowPath(p);
+        const parentRef = parentPath ? getValueAtPath(d.root, parentPath) : d.root;
+        if (typeof item.arrayIdx === 'number') {
+          const arrP = arrayContainerPathFromRowPath(p);
+          const arr = getValueAtPath(d.root, arrP);
+          if (!Array.isArray(arr)) continue;
+          const snap = snapshotAfterArrayContainerInvalidate(arrP, d.expandedPaths, d.collapsedPaths);
+          d.expandedPaths = new Set(snap.expandedAfter);
+          d.collapsedPaths = new Set(snap.collapsedAfter);
+          arr.splice(item.arrayIdx + 1, 0, deepClone(value));
+        } else {
+          const key = item.key;
+          if (typeof key !== 'string' || !parentRef || typeof parentRef !== 'object' || Array.isArray(parentRef))
+            continue;
+          let newKey = key + '_copy';
+          let n = 1;
+          while (Object.prototype.hasOwnProperty.call(parentRef, newKey)) newKey = key + '_copy' + ++n;
+          parentRef[newKey] = deepClone(value);
+        }
+      }
+    }
+  }, 'Duplicate');
+}
+
+function propTreeToggleExpandForRow(row) {
+  if (!row) return;
+  const t = row.querySelector('.prop-key-toggle');
+  if (t) t.click();
+}
+
+function propTreeStartRenameFocusedPath(path) {
+  if (!path) return;
+  const row = _propRowRegistry.get(path);
+  if (!row) return;
+  if (/\/\[(\d+)\]$/.test(path) || /^\[(\d+)\]$/.test(path)) return;
+  const keyText = row.querySelector('.prop-key-text');
+  const keyEl = row.querySelector('.prop-key');
+  if (!keyEl || !keyText) return;
+  const keyName = objectKeyFromPropPath(path);
+  if (keyName == null) return;
+  const d = docManager.activeDoc;
+  if (!d) return;
+  const parentPath = parentPathFromRowPath(path);
+  const parentRef = parentPath ? getValueAtPath(d.root, parentPath) : d.root;
+  if (!parentRef || typeof parentRef !== 'object' || Array.isArray(parentRef)) return;
+  startInlineRename(keyEl, keyText, keyName, parentRef, path);
+}
+
+function propTreeMoveFocus(delta) {
+  const ordered = getVisiblePropRowPathsOrdered();
+  if (!ordered.length) return;
+  let cur = propTreePrimaryPathForAction();
+  let i = cur ? ordered.indexOf(cur) : 0;
+  if (i < 0) i = 0;
+  i = Math.max(0, Math.min(ordered.length - 1, i + delta));
+  const nextPath = ordered[i];
+  _propTreeSelection.clear();
+  _propTreeSelection.add(nextPath);
+  _propTreeSelectionAnchorPath = nextPath;
+  syncPropTreeSelectionClasses();
+  _propRowRegistry.get(nextPath)?.focus();
+}
+
+function initPropTreeKeyboard() {
+  const treeRoot = document.getElementById('propTreeRoot');
+  if (!treeRoot || treeRoot.dataset.kbInit) return;
+  treeRoot.dataset.kbInit = '1';
+  treeRoot.tabIndex = -1;
+  treeRoot.addEventListener('keydown', (e) => {
+    if (propTreeActiveEditorStealsKeys()) return;
+    const hasSel = getPropTreeSelectedPathsOrdered().length > 0;
+    if (!treeRoot.contains(document.activeElement) && !hasSel) return;
+    if (propTreeIsTreeTextFieldTarget(e.target)) return;
+
+    const mod = e.metaKey || e.ctrlKey;
+    const primary = propTreePrimaryPathForAction();
+
+    if (mod && e.key.toLowerCase() === 'a') {
+      e.preventDefault();
+      const ord = getVisiblePropRowPathsOrdered();
+      _propTreeSelection.clear();
+      ord.forEach((p) => _propTreeSelection.add(p));
+      _propTreeSelectionAnchorPath = ord.length ? ord[ord.length - 1] : '';
+      syncPropTreeSelectionClasses();
+      return;
+    }
+
+    if (mod && e.key.toLowerCase() === 'c') {
+      e.preventDefault();
+      propTreeCopySelection();
+      return;
+    }
+
+    if (mod && e.key.toLowerCase() === 'x') {
+      e.preventDefault();
+      const anchor = primary || getPropTreeSelectedPathsOrdered()[0];
+      if (!anchor) return;
+      const paths = collectPropTreeBulkSameParentPaths(anchor);
+      propTreeCopySelection();
+      propTreeDeletePaths(paths);
+      return;
+    }
+
+    if (mod && e.key.toLowerCase() === 'v') {
+      e.preventDefault();
+      const anchor = primary;
+      if (!anchor) return;
+      if (normalizeClipboardEntries().length) {
+        propTreePasteIntoSelection(anchor);
+      } else {
+        void propTreeTryPasteSystemClipboardIntoSelection(anchor);
+      }
+      return;
+    }
+
+    if (mod && e.key.toLowerCase() === 'd') {
+      e.preventDefault();
+      const anchor = primary || getPropTreeSelectedPathsOrdered()[0];
+      if (!anchor) return;
+      propTreeDuplicatePaths(collectPropTreeBulkSameParentPaths(anchor));
+      return;
+    }
+
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      const anchor = primary || getPropTreeSelectedPathsOrdered()[0];
+      if (!anchor) return;
+      e.preventDefault();
+      propTreeDeletePaths(collectPropTreeBulkSameParentPaths(anchor));
+      return;
+    }
+
+    if (e.key === 'F2') {
+      e.preventDefault();
+      propTreeStartRenameFocusedPath(primary);
+      return;
+    }
+
+    if (e.key === 'Enter') {
+      if (!primary) return;
+      e.preventDefault();
+      propTreeToggleExpandForRow(_propRowRegistry.get(primary));
+      return;
+    }
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      propTreeMoveFocus(1);
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      propTreeMoveFocus(-1);
+      return;
+    }
+    if (e.key === 'ArrowRight') {
+      if (!primary) return;
+      e.preventDefault();
+      const row = _propRowRegistry.get(primary);
+      const ch = row?.nextElementSibling;
+      if (ch?.classList.contains('prop-row-children') && ch.style.display === 'none') propTreeToggleExpandForRow(row);
+      return;
+    }
+    if (e.key === 'ArrowLeft') {
+      if (!primary) return;
+      e.preventDefault();
+      const row = _propRowRegistry.get(primary);
+      const ch = row?.nextElementSibling;
+      if (ch?.classList.contains('prop-row-children') && ch.style.display !== 'none') propTreeToggleExpandForRow(row);
+      return;
+    }
+  });
 }
 
 function buildPropertyTree() {
@@ -808,8 +1194,8 @@ function renderObjectRows(container, obj, depth, parentPath) {
   for (let idx = 0; idx < total; idx++) {
     const [key, value] = entries[idx];
     if (value === undefined) continue;
-    const type = resolveRowWidgetType(key, value, obj);
     const rowPath = parentPath ? `${parentPath}/${key}` : key;
+    const type = resolveRowWidgetType(key, value, obj, rowPath);
     const row = buildPropRow(key, value, type, depth, obj, undefined, rowPath, {
       index: idx,
       total,
@@ -866,8 +1252,8 @@ function renderArrayRows(container, arr, depth, parentPath) {
   if (!Array.isArray(arr)) return;
   const total = arr.length;
   arr.forEach((item, idx) => {
-    const itemType = resolveRowWidgetType(`[${idx}]`, item, arr);
     const rowPath = `${parentPath}/[${idx}]`;
+    const itemType = resolveRowWidgetType(`[${idx}]`, item, arr, rowPath);
     const row = buildPropRow(`[${idx}]`, item, itemType, depth, arr, idx, rowPath, {
       index: idx,
       total,
@@ -958,6 +1344,7 @@ function setPropKeyToggleIcon(toggle, isExpanded, forceExpanded = false) {
 function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hierarchyMeta) {
   const row = document.createElement('div');
   row.className = 'prop-row' + (type === 'object' || type === 'array' ? ' is-object' : '');
+  row.tabIndex = -1;
   const mode = getActiveMode();
   if (mode && typeof mode.rowClass === 'function') {
     const rc = mode.rowClass(key, value);
@@ -1197,6 +1584,21 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
       buildStringWidget(valEl, value, onScalarChange, { suggestedValues: listVals });
       break;
     }
+    case 'enum': {
+      let listVals = [];
+      if (typeof VDataSuggestions !== 'undefined' && VDataSuggestions.getSuggestedValues) {
+        const pp = parentPathFromRowPath(propPath);
+        const parentKey = pp ? pp.slice(pp.lastIndexOf('/') + 1) : '';
+        listVals = VDataSuggestions.getSuggestedValues(key, Object.assign(schemaCtxForPropertyTree(), { parentKey }));
+      }
+      buildEnumWidget(
+        valEl,
+        value,
+        (v) => onScalarChange(v),
+        { enumValues: listVals }
+      );
+      break;
+    }
     case 'resource':
       buildResourceWidget(valEl, value, 'resource_name', onScalarChange);
       break;
@@ -1253,6 +1655,11 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
   dupBtn.textContent = '⧉';
   dupBtn.addEventListener('click', (e) => {
     e.stopPropagation();
+    const paths = collectPropTreeBulkSameParentPaths(propPath);
+    if (paths.length > 1) {
+      propTreeDuplicatePaths(paths);
+      return;
+    }
     const d = docManager.activeDoc;
     if (!d) return;
     if (isArrayIndex) {
@@ -1297,6 +1704,11 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
   delBtn.textContent = '✕';
   delBtn.addEventListener('click', (e) => {
     e.stopPropagation();
+    const paths = collectPropTreeBulkSameParentPaths(propPath);
+    if (paths.length > 1) {
+      propTreeDeletePaths(paths);
+      return;
+    }
     const d = docManager.activeDoc;
     if (!d) return;
     withDocUndo(makeDeleteRowBatch(d, propPath, isArrayIndex), 'Delete');
@@ -1585,9 +1997,6 @@ function showAddKeyDialog(parentRef, parentObjectPath) {
 function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPath, row) {
   const isContainer = type === 'object' || type === 'array';
   const isArrayIndex = typeof arrayIdx === 'number';
-  const castOptions = STATIC_TYPE_SUMMARY.has(type)
-    ? ALL_CAST_TARGETS.filter((t) => t !== type)
-    : TYPE_CAST_OPTIONS[type] || [];
   const items = [
     {
       label: 'Copy value',
@@ -1653,13 +2062,6 @@ function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPa
         startInlineRename(keyEl, keyText, key, parentRef, propPath);
       }
     },
-    ...castOptions.map((targetType) => ({
-      label: `Change type → ${targetType}`,
-      icon: ICONS.wrench,
-      action: () => {
-        castPropertyType(parentRef, key, value, type, targetType, arrayIdx, propPath);
-      }
-    })),
     { sep: true },
     {
       label: 'Copy',
@@ -3226,6 +3628,7 @@ function initPropsContainerSuggestionDragAffordance() {
 
 function initPropTreeSelectionAndSuggestionDnD() {
   initPropTreeMultiSelect();
+  initPropTreeKeyboard();
   initPropTreeRootSuggestionDrop();
   initPropsContainerSuggestionDragAffordance();
 }

@@ -156,6 +156,24 @@
     return outSchema.concat(outDoc);
   }
 
+  function isSchemaEnumField(key, context) {
+    const ctx = context || {};
+    const flat = resolveSchema(ctx);
+    const def = flat[key];
+    if (!def) return false;
+    if (Array.isArray(def.enum) && def.enum.length > 0) return true;
+    if (
+      def.enumWidgetId &&
+      typeof def.enumWidgetId === 'string' &&
+      window.SchemaDB &&
+      typeof window.SchemaDB.getEnumValuesForWidgetId === 'function'
+    ) {
+      const vals = window.SchemaDB.getEnumValuesForWidgetId(def.enumWidgetId);
+      return Array.isArray(vals) && vals.length > 0;
+    }
+    return false;
+  }
+
   function getSuggestedValues(key, context) {
     const ctx = context || {};
     const flat = resolveSchema(ctx);
@@ -276,6 +294,7 @@
     initSchemas,
     refreshSchemasAdvanced,
     getSuggestedKeys,
+    isSchemaEnumField,
     getSuggestedValues,
     getWidgetType,
     inferTypeFromKeyName,
