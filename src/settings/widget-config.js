@@ -29,7 +29,18 @@
       if (VDataSettings.matchesRule(key, rule)) return rule.type;
     }
     const sysType = VDataSettings.getSystemType(key);
-    if (sysType) return sysType;
+    if (sysType) {
+      // Shape-driven numeric vector classification (Pattern A) sometimes yields
+      // vec2/vec4/color for `m_v*` keys. The system config has a broad `m_v* -> vec3`
+      // rule, so prevent that override from clobbering inferred widget shape.
+      if (
+        sysType === 'vec3' &&
+        (inferredType === 'vec2' || inferredType === 'vec4' || inferredType === 'color')
+      ) {
+        return inferredType;
+      }
+      return sysType;
+    }
     return inferredType;
   }
 

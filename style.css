@@ -591,8 +591,9 @@ html[data-theme="light"] #cmEditor .cm-content:focus *::selection{
   min-width:0;
 }
 .vec-axis-label{
-  width:18px;
+  width:auto;
   min-width:18px;
+  flex:0 0 auto;
   text-align:center;
   padding:1px 4px;
 }

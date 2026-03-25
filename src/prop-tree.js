@@ -34,6 +34,11 @@ const _propRowRegistry = new Map();
 /** @type {WeakMap<HTMLElement, object>} */
 const _propRowDependencyDef = new WeakMap();
 
+// Cache for auto-harvested enum options (Pattern E and C).
+// Cleared automatically when the document's `structVersion` changes.
+let _enumHarvestCache = new Map(); // effectiveEnumKey -> string[]
+let _enumHarvestCacheVersion = null;
+
 function clearPropRowRegistry() {
   _propRowRegistry.clear();
 }
@@ -130,7 +135,19 @@ function updatePropRowValueFromModel(row, value) {
       if (!Number.isFinite(axisVal)) return;
       const numInput = axisRow.querySelector('.slider-input');
       const slider = axisRow.querySelector('.slider-range');
+      const wrap = axisRow.querySelector('.slider-input-wrap');
       const newStr = parseFloat(axisVal.toFixed(6)).toString();
+
+      // Prefer updating slider closure state via hook (undo/redo safe),
+      // but skip focused controls unless we are forced.
+      const isNumFocused = !!numInput && numInput === document.activeElement;
+      const isSliderFocused = !!slider && slider === document.activeElement;
+      const canUpdateFocusedState = !skipFocused || (!isNumFocused && !isSliderFocused);
+      if (wrap && typeof wrap.__vdeSetValueFromModel === 'function' && canUpdateFocusedState) {
+        wrap.__vdeSetValueFromModel(axisVal);
+        return;
+      }
+
       if (
         numInput &&
         (!skipFocused || numInput !== document.activeElement) &&
@@ -148,6 +165,37 @@ function updatePropRowValueFromModel(row, value) {
       }
     });
   } else {
+    // Color widget has multiple controls (swatch + hidden picker + RGB(A) inputs).
+    // Undo/redo should refresh all of them, not just the first `.prop-input`.
+    const swatch = row.querySelector('.prop-color-swatch');
+    if (swatch && Array.isArray(value)) {
+      const arr = Array.isArray(value) ? value : [0, 0, 0];
+      const toHex = (a) =>
+        '#' +
+        a
+          .slice(0, 3)
+          .map((v) => Math.max(0, Math.min(255, v | 0)).toString(16).padStart(2, '0'))
+          .join('');
+
+      const picker = row.querySelector('.prop-color-input');
+      const hex = toHex(arr);
+      if (!skipFocused || swatch !== document.activeElement) {
+        swatch.style.background = hex;
+      }
+      if (picker && (!skipFocused || picker !== document.activeElement)) {
+        picker.value = hex;
+      }
+
+      const numInputs = row.querySelectorAll('.prop-input');
+      numInputs.forEach((inp, i) => {
+        if (i >= arr.length) return;
+        if (skipFocused && inp === document.activeElement) return;
+        const next = String(arr[i] ?? 0);
+        if (inp.value !== next) inp.value = next;
+      });
+      return true;
+    }
+
     const inp = row.querySelector('.prop-input:not([readonly])');
     if (inp && (!skipFocused || inp !== document.activeElement)) {
       const newStr = value == null ? '' : String(value);
@@ -543,6 +591,16 @@ function inferType(key, value) {
     if (value.type === 'panorama' && typeof value.value === 'string' && keysOk(value)) return 'panorama';
   }
   if (Array.isArray(value)) {
+    // Pattern A (inline numeric vectors): any 2-4 element numeric array becomes
+    // vec2/vec3/vec4, and color becomes `color` when the key/value looks like RGBA.
+    const shapeUtils = window?.VDataKV3ShapeUtils;
+    const inferredVecWidget =
+      shapeUtils && typeof shapeUtils.classifyNumericVectorArray === 'function'
+        ? shapeUtils.classifyNumericVectorArray(key, value)
+        : null;
+    if (inferredVecWidget) return inferredVecWidget;
+
+    // Fallback: existing key-based heuristics.
     if (isVec4Array(key, value)) return 'vec4';
     if (isVec2Array(key, value)) return 'vec2';
     if (isColorArray(key, value)) return 'color';
@@ -598,6 +656,12 @@ function resolveRowWidgetType(key, value, parentObj, propPath) {
     const w = mode.resolveWidget(key, value, parentObj);
     if (w) return w;
   }
+
+  // Pattern E/C: enum-like string values should render as dropdowns.
+  // This bypasses system widget overrides (which are key-based).
+  const shapeUtils = window?.VDataKV3ShapeUtils;
+  if (typeof value === 'string' && shapeUtils?.isEnumLikeValue?.(value)) return 'enum';
+
   if (
     propPath != null &&
     typeof VDataSuggestions !== 'undefined' &&
@@ -1475,7 +1539,17 @@ function updatePropRowValues(container) {
         if (!Number.isFinite(axisVal)) return;
         const numInput = axisRow.querySelector('.slider-input');
         const slider = axisRow.querySelector('.slider-range');
+        const wrap = axisRow.querySelector('.slider-input-wrap');
         const newStr = parseFloat(axisVal.toFixed(6)).toString();
+
+        const isNumFocused = !!numInput && numInput === document.activeElement;
+        const isSliderFocused = !!slider && slider === document.activeElement;
+        const canUpdateFocusedState = !skipFocused || (!isNumFocused && !isSliderFocused);
+        if (wrap && typeof wrap.__vdeSetValueFromModel === 'function' && canUpdateFocusedState) {
+          wrap.__vdeSetValueFromModel(axisVal);
+          return;
+        }
+
         if (
           numInput &&
           (!skipFocused || numInput !== document.activeElement) &&
@@ -1493,10 +1567,39 @@ function updatePropRowValues(container) {
         }
       });
     } else {
-      const inp = row.querySelector('.prop-input:not([readonly])');
-      if (inp && (!skipFocused || inp !== document.activeElement)) {
-        const newStr = value == null ? '' : String(value);
-        if (inp.value !== newStr) inp.value = newStr;
+      // Color widget has multiple controls (swatch + hidden picker + RGBA inputs).
+      const swatch = row.querySelector('.prop-color-swatch');
+      if (swatch && Array.isArray(value)) {
+        const arr = Array.isArray(value) ? value : [0, 0, 0];
+        const toHex = (a) =>
+          '#' +
+          a
+            .slice(0, 3)
+            .map((v) => Math.max(0, Math.min(255, v | 0)).toString(16).padStart(2, '0'))
+            .join('');
+
+        const picker = row.querySelector('.prop-color-input');
+        const hex = toHex(arr);
+        if (!skipFocused || swatch !== document.activeElement) {
+          swatch.style.background = hex;
+        }
+        if (picker && (!skipFocused || picker !== document.activeElement)) {
+          picker.value = hex;
+        }
+
+        const numInputs = row.querySelectorAll('.prop-input');
+        numInputs.forEach((inp, i) => {
+          if (i >= arr.length) return;
+          if (skipFocused && inp === document.activeElement) return;
+          const next = String(arr[i] ?? 0);
+          if (inp.value !== next) inp.value = next;
+        });
+      } else {
+        const inp = row.querySelector('.prop-input:not([readonly])');
+        if (inp && (!skipFocused || inp !== document.activeElement)) {
+          const newStr = value == null ? '' : String(value);
+          if (inp.value !== newStr) inp.value = newStr;
+        }
       }
     }
     const cb = row.querySelector('.prop-input-bool');
@@ -2020,18 +2123,57 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
       break;
     }
     case 'enum': {
-      let listVals = [];
+      // Pattern E/C: merge schema suggestions + document-wide enum harvesting.
+      // For array element rows, `key` is `[idx]`; dropdown options should be harvested for the *parent* key.
+      const pp = parentPathFromRowPath(propPath);
+      const parentKey = pp ? pp.slice(pp.lastIndexOf('/') + 1) : '';
+      const effectiveEnumKey = /^\[\d+\]$/.test(key) ? parentKey : key;
+
+      const shapeUtils = window?.VDataKV3ShapeUtils;
+      const doc = docManager?.activeDoc;
+      const docRoot = doc?.root;
+
+      let schemaVals = [];
       if (typeof VDataSuggestions !== 'undefined' && VDataSuggestions.getSuggestedValues) {
-        const pp = parentPathFromRowPath(propPath);
-        const parentKey = pp ? pp.slice(pp.lastIndexOf('/') + 1) : '';
-        listVals = VDataSuggestions.getSuggestedValues(key, Object.assign(schemaCtxForPropertyTree(), { parentKey }));
+        schemaVals = VDataSuggestions.getSuggestedValues(
+          key,
+          Object.assign(schemaCtxForPropertyTree(), { parentKey })
+        );
       }
-      buildEnumWidget(
-        valEl,
-        value,
-        (v) => onScalarChange(v),
-        { enumValues: listVals }
-      );
+      if (!Array.isArray(schemaVals)) schemaVals = [];
+
+      let harvestVals = [];
+      if (shapeUtils?.harvestEnumValues && docRoot && effectiveEnumKey) {
+        if (_enumHarvestCacheVersion !== doc?.structVersion) {
+          _enumHarvestCache = new Map();
+          _enumHarvestCacheVersion = doc?.structVersion;
+        }
+
+        if (_enumHarvestCache.has(effectiveEnumKey)) {
+          harvestVals = _enumHarvestCache.get(effectiveEnumKey) || [];
+        } else {
+          harvestVals = shapeUtils.harvestEnumValues(docRoot, effectiveEnumKey) || [];
+          _enumHarvestCache.set(effectiveEnumKey, harvestVals);
+        }
+      }
+
+      // Preserve "schema first" order, then append harvested values.
+      const merged = [];
+      const seen = new Set();
+      const pushUnique = (arr) => {
+        for (let i = 0; i < arr.length; i++) {
+          const v = arr[i];
+          if (v == null) continue;
+          const s = String(v);
+          if (!s || seen.has(s)) continue;
+          seen.add(s);
+          merged.push(s);
+        }
+      };
+      pushUnique(schemaVals);
+      pushUnique(harvestVals);
+
+      buildEnumWidget(valEl, value, (v) => onScalarChange(v), { enumValues: merged });
       break;
     }
     case 'resource':
@@ -2047,13 +2189,13 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
       buildColorWidget(valEl, value, onScalarChange);
       break;
     case 'vec2':
-      buildVec2Widget(valEl, value, onScalarChange, sliderOpts);
+      buildVec2Widget(valEl, key, value, onScalarChange, sliderOpts);
       break;
     case 'vec3':
-      buildVec3Widget(valEl, value, onScalarChange, sliderOpts);
+      buildVec3Widget(valEl, key, value, onScalarChange, sliderOpts);
       break;
     case 'vec4':
-      buildVec4Widget(valEl, value, onScalarChange, sliderOpts);
+      buildVec4Widget(valEl, key, value, onScalarChange, sliderOpts);
       break;
     case 'object':
     case 'array':
@@ -3415,16 +3557,18 @@ function buildColorWidget(container, value, onChange) {
   });
 }
 
-function buildVec3Widget(container, value, onChange, sliderOpts) {
+function buildVec3Widget(container, keyName, value, onChange, sliderOpts) {
   const v = Array.isArray(value) ? [...value] : [0, 0, 0];
   const wrapAll = document.createElement('div');
   wrapAll.className = 'vec-widget vec-widget-3d';
-  ['X', 'Y', 'Z'].forEach((axis, i) => {
+  const shapeUtils = window?.VDataKV3ShapeUtils;
+  const labels = shapeUtils?.getVectorLabels?.(keyName, 3) || ['X', 'Y', 'Z'];
+  labels.forEach((axisLabel, i) => {
     const row = document.createElement('div');
     row.className = 'vec-axis-row vec3-axis-row';
     const lbl = document.createElement('span');
     lbl.className = 'prop-type-badge vec-axis-label';
-    lbl.textContent = axis;
+    lbl.textContent = axisLabel;
     const wrap = buildSliderInput(v[i], 'float', (nv) => {
       v[i] = nv;
       onChange([...v]);
@@ -3437,16 +3581,18 @@ function buildVec3Widget(container, value, onChange, sliderOpts) {
   container.appendChild(wrapAll);
 }
 
-function buildVec2Widget(container, value, onChange, sliderOpts) {
+function buildVec2Widget(container, keyName, value, onChange, sliderOpts) {
   const v = Array.isArray(value) ? [...value] : [0, 0];
   const wrapAll = document.createElement('div');
   wrapAll.className = 'vec-widget vec-widget-2d';
-  ['X', 'Y'].forEach((axis, i) => {
+  const shapeUtils = window?.VDataKV3ShapeUtils;
+  const labels = shapeUtils?.getVectorLabels?.(keyName, 2) || ['X', 'Y'];
+  labels.forEach((axisLabel, i) => {
     const row = document.createElement('div');
     row.className = 'vec-axis-row vec2-axis-row';
     const lbl = document.createElement('span');
     lbl.className = 'prop-type-badge vec-axis-label';
-    lbl.textContent = axis;
+    lbl.textContent = axisLabel;
     const wrap = buildSliderInput(v[i], 'float', (nv) => {
       v[i] = nv;
       onChange([...v]);
@@ -3459,16 +3605,18 @@ function buildVec2Widget(container, value, onChange, sliderOpts) {
   container.appendChild(wrapAll);
 }
 
-function buildVec4Widget(container, value, onChange, sliderOpts) {
+function buildVec4Widget(container, keyName, value, onChange, sliderOpts) {
   const v = Array.isArray(value) ? [...value] : [0, 0, 0, 0];
   const wrapAll = document.createElement('div');
   wrapAll.className = 'vec-widget vec-widget-4d';
-  ['X', 'Y', 'Z', 'W'].forEach((axis, i) => {
+  const shapeUtils = window?.VDataKV3ShapeUtils;
+  const labels = shapeUtils?.getVectorLabels?.(keyName, 4) || ['X', 'Y', 'Z', 'W'];
+  labels.forEach((axisLabel, i) => {
     const row = document.createElement('div');
     row.className = 'vec-axis-row vec4-axis-row';
     const lbl = document.createElement('span');
     lbl.className = 'prop-type-badge vec-axis-label';
-    lbl.textContent = axis;
+    lbl.textContent = axisLabel;
     const wrap = buildSliderInput(v[i], 'float', (nv) => {
       v[i] = nv;
       onChange([...v]);

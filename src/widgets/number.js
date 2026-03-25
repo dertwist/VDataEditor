@@ -180,6 +180,16 @@ function buildSliderInput(value, type, onChange, opts) {
     }
   });
 
+  // Expose a hook so undo/redo / external model updates can resync the
+  // slider's internal `current` + bounds anchor (rangeAnchor).
+  // Without this, DOM value changes can leave the closure variables stale,
+  // which causes subsequent scrubs (often perceived as "redo weirdness").
+  wrap.__vdeSetValueFromModel = (nextValue) => {
+    const nv = normalize(nextValue);
+    if (nv == null) return;
+    syncUi(nv, false);
+  };
+
   return wrap;
 }
 
