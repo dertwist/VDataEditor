@@ -333,12 +333,33 @@
     const label =
       _meFormat === 'json' ? 'Apply JSON' : d.format === 'keyvalue' ? 'Apply KeyValues' : 'Apply KV3';
 
-    withDocUndo(() => {
-      if (_meFormat === 'json') d.format = 'json';
-      d.root = parsed;
-      if (typeof ensureSmartPropRootArrays === 'function') ensureSmartPropRootArrays(d);
-      d.recalcElementIds();
-    }, label);
+    const prevRoot = d.root;
+    const prevFormat = d.format;
+    const prevEx = [...d.expandedPaths];
+    const prevCol = [...d.collapsedPaths];
+    d.root = parsed;
+    if (_meFormat === 'json') d.format = 'json';
+    if (typeof ensureSmartPropRootArrays === 'function') ensureSmartPropRootArrays(d);
+    const nextRoot = d.root;
+    const nextFormat = d.format;
+    d.root = prevRoot;
+    d.format = prevFormat;
+    if (typeof withDocUndo === 'function' && typeof VDataCommands !== 'undefined') {
+      withDocUndo(
+        {
+          type: VDataCommands.CMD.DOC_REPLACE,
+          rootBefore: prevRoot,
+          rootAfter: nextRoot,
+          formatBefore: prevFormat,
+          formatAfter: nextFormat,
+          expandedBefore: prevEx,
+          expandedAfter: prevEx,
+          collapsedBefore: prevCol,
+          collapsedAfter: prevCol
+        },
+        label
+      );
+    }
 
     _setStatus(label + ' — OK', 'edited');
   }

@@ -1,4 +1,18 @@
 // Per-tab document: root JSON, format, file identity, undo stacks, property-tree UI state.
+const MAX_UNDO_STEPS = 200;
+
+function stripLargeCmdSnapshots(cmd) {
+  if (!cmd || !cmd.type) return;
+  if (cmd.type === 'remove_node') cmd.removed = undefined;
+  if (cmd.type === 'doc_replace' || cmd.type === 'root_state_pair') {
+    cmd.rootBefore = null;
+    cmd.rootAfter = null;
+  }
+  if (cmd.type === 'batch' && Array.isArray(cmd.commands)) {
+    for (let i = 0; i < cmd.commands.length; i++) stripLargeCmdSnapshots(cmd.commands[i]);
+  }
+}
+
 class VDataDocument {
   constructor({ root = null, format = 'kv3', filePath = null, fileName = 'Untitled', kv3Header = '' } = {}) {
     this.root =
@@ -17,40 +31,54 @@ class VDataDocument {
     this.collapsedPaths = new Set();
 
     this.nextElementId = 1;
+    this.structVersion = 0;
   }
 
   markDirty() {
     this.dirty = true;
   }
 
-  /** Push a command { undo, redo, label, time } onto this document's stack. */
-  pushUndo(cmd) {
-    this.undoStack.push({ ...cmd, time: cmd.time ?? Date.now() });
-    // Each entry retains full root snapshots in closures — keep cap lower for huge documents.
-    if (this.undoStack.length > 80) this.undoStack.shift();
+  /** Push `{ cmd, label, time }` (typed command) onto this document's undo stack. */
+  pushUndo(entry) {
+    const VC = typeof VDataCommands !== 'undefined' ? VDataCommands : null;
+    if (!VC || !entry || !entry.cmd) return;
+    this.undoStack.push({
+      cmd: entry.cmd,
+      label: entry.label ?? 'Edit',
+      time: entry.time ?? Date.now()
+    });
+    while (this.undoStack.length > MAX_UNDO_STEPS) {
+      const dropped = this.undoStack.shift();
+      stripLargeCmdSnapshots(dropped.cmd);
+    }
     this.redoStack.length = 0;
   }
 
+  /**
+   * @returns {{ entry: { cmd: unknown, label: string, time: number }, appliedCmd: unknown } | null}
+   */
   undo() {
-    const cmd = this.undoStack.pop();
-    if (!cmd) return null;
-    if (typeof globalThis.markPropTreeStructureDirty === 'function') {
-      globalThis.markPropTreeStructureDirty();
-    }
-    cmd.undo();
-    this.redoStack.push(cmd);
-    return cmd;
+    const VC = typeof VDataCommands !== 'undefined' ? VDataCommands : null;
+    const entry = this.undoStack.pop();
+    if (!entry || !VC) return null;
+    const appliedCmd = VC.invertCommand(entry.cmd);
+    VC.applyCommand(this, appliedCmd);
+    this.redoStack.push(entry);
+    this.dirty = true;
+    return { entry, appliedCmd };
   }
 
+  /**
+   * @returns {{ entry: { cmd: unknown, label: string, time: number }, appliedCmd: unknown } | null}
+   */
   redo() {
-    const cmd = this.redoStack.pop();
-    if (!cmd) return null;
-    if (typeof globalThis.markPropTreeStructureDirty === 'function') {
-      globalThis.markPropTreeStructureDirty();
-    }
-    cmd.redo();
-    this.undoStack.push(cmd);
-    return cmd;
+    const VC = typeof VDataCommands !== 'undefined' ? VDataCommands : null;
+    const entry = this.redoStack.pop();
+    if (!entry || !VC) return null;
+    VC.applyCommand(this, entry.cmd);
+    this.undoStack.push(entry);
+    this.dirty = true;
+    return { entry, appliedCmd: entry.cmd };
   }
 
   recalcElementIds() {
@@ -80,3 +108,5 @@ class VDataDocument {
     return (this.dirty ? '● ' : '') + this.fileName;
   }
 }
+
+if (typeof globalThis !== 'undefined') globalThis.VDataDocument = VDataDocument;

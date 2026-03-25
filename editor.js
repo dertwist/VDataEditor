@@ -167,45 +167,20 @@ function markDirty() {
   docManager.dispatchEvent(new Event('tabs-changed'));
 }
 
-function withDocUndo(applyFn, label) {
+/**
+ * Apply a typed undo command (see VDataCommands) and record it on the stack.
+ * @param {object} cmd
+ * @param {string} [label]
+ */
+function withDocUndo(cmd, label) {
   const d = docManager.activeDoc;
-  if (!d) return;
-  if (typeof markPropTreeStructureDirty === 'function') markPropTreeStructureDirty();
-  const prev = deepClone(d.root);
-  const prevFormat = d.format;
-  const prevEx = new Set(d.expandedPaths);
-  const prevCol = new Set(d.collapsedPaths);
-  applyFn();
-  const next = deepClone(d.root);
-  const nextFormat = d.format;
-  const nextEx = new Set(d.expandedPaths);
-  const nextCol = new Set(d.collapsedPaths);
-  pushUndoCommand({
-    label: label ?? 'Edit',
-    undo: () => {
-      d.format = prevFormat;
-      d.root = deepClone(prev);
-      d.expandedPaths = new Set(prevEx);
-      d.collapsedPaths = new Set(prevCol);
-      d.recalcElementIds();
-      d.dirty = true;
-      docManager.dispatchEvent(new Event('tabs-changed'));
-      renderAll();
-    },
-    redo: () => {
-      d.format = nextFormat;
-      d.root = deepClone(next);
-      d.expandedPaths = new Set(nextEx);
-      d.collapsedPaths = new Set(nextCol);
-      d.recalcElementIds();
-      d.dirty = true;
-      docManager.dispatchEvent(new Event('tabs-changed'));
-      renderAll();
-    }
-  });
+  if (!d || !cmd || typeof VDataCommands === 'undefined') return;
+  VDataCommands.applyCommand(d, cmd);
+  pushUndoCommand({ cmd, label: label ?? 'Edit', time: Date.now() });
   d.dirty = true;
   docManager.dispatchEvent(new Event('tabs-changed'));
-  renderAll();
+  if (typeof patchPropertyTree === 'function') patchPropertyTree(cmd);
+  window.scheduleManualEditorSyncFromModel?.();
   setStatus('Property edited', 'edited');
 }
 

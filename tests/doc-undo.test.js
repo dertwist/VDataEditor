@@ -1,92 +1,77 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
-/**
- * Mirrors VDataDocument undo/redo + path-set restoration used by withDocUndo.
- */
-class UndoTestDoc {
-  constructor() {
-    this.root = { k: 1 };
-    this.format = 'kv3';
-    this.undoStack = [];
-    this.redoStack = [];
-    this.expandedPaths = new Set(['openBranch']);
-    this.collapsedPaths = new Set(['closedBranch']);
-  }
+const dir = dirname(fileURLToPath(import.meta.url));
 
-  pushUndo(cmd) {
-    this.undoStack.push({ ...cmd, time: cmd.time ?? Date.now() });
-    this.redoStack.length = 0;
-  }
+beforeAll(() => {
+  new Function('globalThis', readFileSync(join(dir, '../src/model/path-utils.js'), 'utf8'))(globalThis);
+  new Function('globalThis', readFileSync(join(dir, '../src/commands.js'), 'utf8'))(globalThis);
+  new Function('globalThis', readFileSync(join(dir, '../src/document.js'), 'utf8'))(globalThis);
+});
 
-  undo() {
-    const cmd = this.undoStack.pop();
-    if (!cmd) return null;
-    cmd.undo();
-    this.redoStack.push(cmd);
-    return cmd;
-  }
-
-  redo() {
-    const cmd = this.redoStack.pop();
-    if (!cmd) return null;
-    cmd.redo();
-    this.undoStack.push(cmd);
-    return cmd;
-  }
-}
-
-function deepClone(o) {
-  return JSON.parse(JSON.stringify(o));
-}
-
-function simulateWithDocUndoStructural(d, applyFn) {
-  const prev = deepClone(d.root);
-  const prevFormat = d.format;
-  const prevEx = new Set(d.expandedPaths);
-  const prevCol = new Set(d.collapsedPaths);
-  applyFn();
-  const next = deepClone(d.root);
-  const nextFormat = d.format;
-  const nextEx = new Set(d.expandedPaths);
-  const nextCol = new Set(d.collapsedPaths);
-  d.pushUndo({
-    label: 'Test',
-    undo: () => {
-      d.format = prevFormat;
-      d.root = deepClone(prev);
-      d.expandedPaths = new Set(prevEx);
-      d.collapsedPaths = new Set(prevCol);
-    },
-    redo: () => {
-      d.format = nextFormat;
-      d.root = deepClone(next);
-      d.expandedPaths = new Set(nextEx);
-      d.collapsedPaths = new Set(nextCol);
-    }
-  });
-}
-
-describe('document undo/redo with path sets', () => {
-  it('redo restores root and expandedPaths/collapsedPaths after add-key undo', () => {
-    const d = new UndoTestDoc();
-    simulateWithDocUndoStructural(d, () => {
-      d.root.added = 'x';
-      d.expandedPaths.add('newNode');
-      d.collapsedPaths.delete('closedBranch');
+describe('VDataDocument typed undo/redo with path sets', () => {
+  it('undo/redo restore root and expandedPaths/collapsedPaths via ROOT_STATE_PAIR', () => {
+    const VC = globalThis.VDataCommands;
+    const CMD = VC.CMD;
+    const d = new globalThis.VDataDocument({
+      root: { k: 1 },
+      format: 'kv3'
     });
+    d.expandedPaths = new Set(['openBranch']);
+    d.collapsedPaths = new Set(['closedBranch']);
 
-    expect(d.root.added).toBe('x');
-    expect(d.expandedPaths.has('newNode')).toBe(true);
+    const root0 = JSON.parse(JSON.stringify(d.root));
+    const ex0 = [...d.expandedPaths];
+    const col0 = [...d.collapsedPaths];
 
-    d.undo();
-    expect(d.root.added).toBeUndefined();
+    d.root = { ...d.root, added: 'x' };
+    d.expandedPaths.add('newNode');
+    d.collapsedPaths.delete('closedBranch');
+
+    const root1 = JSON.parse(JSON.stringify(d.root));
+    const ex1 = [...d.expandedPaths];
+    const col1 = [...d.collapsedPaths];
+
+    const cmd = {
+      type: CMD.ROOT_STATE_PAIR,
+      rootBefore: root0,
+      rootAfter: root1,
+      formatBefore: 'kv3',
+      formatAfter: 'kv3',
+      expandedBefore: ex0,
+      expandedAfter: ex1,
+      collapsedBefore: col0,
+      collapsedAfter: col1
+    };
+
+    d.pushUndo({ cmd, label: 'Test', time: Date.now() });
+
+    const rUndo = d.undo();
+    expect(rUndo).not.toBeNull();
+    expect(d.root).toEqual({ k: 1 });
     expect(d.expandedPaths.has('newNode')).toBe(false);
     expect(d.expandedPaths.has('openBranch')).toBe(true);
     expect(d.collapsedPaths.has('closedBranch')).toBe(true);
 
-    d.redo();
-    expect(d.root.added).toBe('x');
+    const rRedo = d.redo();
+    expect(rRedo).not.toBeNull();
+    expect(d.root).toEqual({ k: 1, added: 'x' });
     expect(d.expandedPaths.has('newNode')).toBe(true);
     expect(d.collapsedPaths.has('closedBranch')).toBe(false);
+  });
+
+  it('SET_VALUE push + undo round trip', () => {
+    const VC = globalThis.VDataCommands;
+    const d = new globalThis.VDataDocument({ root: { n: 5 } });
+    const cmd = VC.setValueCommand('n', 5, 42);
+    VC.applyCommand(d, cmd);
+    d.pushUndo({ cmd, label: 'Edit', time: Date.now() });
+    expect(d.root.n).toBe(42);
+    d.undo();
+    expect(d.root.n).toBe(5);
+    d.redo();
+    expect(d.root.n).toBe(42);
   });
 });

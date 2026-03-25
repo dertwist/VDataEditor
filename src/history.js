@@ -1,31 +1,55 @@
 let _historyBatchDepth = 0;
 let _historyRefreshQueued = false;
 
-function pushUndoCommand(cmd) {
+const COALESCE_MS = 500;
+
+function pushUndoCommand(entry) {
   const d = docManager.activeDoc;
-  if (!d) return;
-  d.pushUndo({
-    undo: cmd.undo,
-    redo: cmd.redo,
-    label: cmd.label ?? 'Edit',
-    time: cmd.time ?? Date.now()
-  });
+  if (!d || !entry || !entry.cmd) return;
+  const VC = typeof VDataCommands !== 'undefined' ? VDataCommands : null;
+  if (!VC) return;
+
+  const now = entry.time ?? Date.now();
+  const label = entry.label ?? 'Edit';
+  const newEntry = { cmd: entry.cmd, label, time: now };
+
+  const top = d.undoStack[d.undoStack.length - 1];
+  if (VC.canCoalesceSetValue(top, newEntry, COALESCE_MS)) {
+    top.cmd.nextValue = entry.cmd.nextValue;
+    top.time = now;
+    if (typeof patchPropertyTree === 'function') {
+      patchPropertyTree(VC.setValueCommand(top.cmd.pathStr, top.cmd.prevValue, top.cmd.nextValue));
+    }
+    window.scheduleManualEditorSyncFromModel?.();
+    refreshHistoryDock();
+    return;
+  }
+
+  d.pushUndo(newEntry);
   refreshHistoryDock();
 }
 
 function undo() {
   const d = docManager.activeDoc;
   if (!d) return;
-  const cmd = d.undo();
-  if (!cmd) return;
+  const r = d.undo();
+  if (!r) return;
+  docManager.dispatchEvent(new Event('tabs-changed'));
+  if (typeof patchPropertyTree === 'function') patchPropertyTree(r.appliedCmd);
+  else if (typeof renderAll === 'function') renderAll();
+  window.scheduleManualEditorSyncFromModel?.();
   refreshHistoryDock();
 }
 
 function redo() {
   const d = docManager.activeDoc;
   if (!d) return;
-  const cmd = d.redo();
-  if (!cmd) return;
+  const r = d.redo();
+  if (!r) return;
+  docManager.dispatchEvent(new Event('tabs-changed'));
+  if (typeof patchPropertyTree === 'function') patchPropertyTree(r.appliedCmd);
+  else if (typeof renderAll === 'function') renderAll();
+  window.scheduleManualEditorSyncFromModel?.();
   refreshHistoryDock();
 }
 
@@ -63,18 +87,18 @@ function buildEmptyHistoryEntry(displayIdx, isCurrent) {
   return el;
 }
 
-function buildHistoryEntry(cmd, extraClass, displayIdx) {
+function buildHistoryEntry(entry, extraClass, displayIdx) {
   const el = document.createElement('div');
   el.className = `history-entry ${extraClass || ''}`.trim();
-  const timeStr = cmd.time
-    ? new Date(cmd.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  const timeStr = entry.time
+    ? new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     : '';
   el.innerHTML = `
     <span class="history-entry-idx">${displayIdx + 1}</span>
     <span class="history-entry-label"></span>
     <span class="history-entry-time">${timeStr}</span>
   `;
-  const lbl = cmd.label || 'Edit';
+  const lbl = entry.label || 'Edit';
   el.querySelector('.history-entry-label').textContent = lbl;
   el.title = lbl;
 
@@ -125,17 +149,17 @@ function refreshHistoryDock() {
 
   list.appendChild(buildEmptyHistoryEntry(0, totalUndo === 0));
 
-  d.undoStack.forEach((cmd, i) => {
+  d.undoStack.forEach((entry, i) => {
     const extra = totalUndo > 0 && i === totalUndo - 1 ? 'is-current' : '';
     const disp = i + 1;
-    list.appendChild(buildHistoryEntry(cmd, extra, disp));
+    list.appendChild(buildHistoryEntry(entry, extra, disp));
   });
 
   [...d.redoStack]
     .reverse()
-    .forEach((cmd, i) => {
+    .forEach((entry, i) => {
       const disp = totalUndo + 1 + i;
-      list.appendChild(buildHistoryEntry(cmd, 'is-redo', disp));
+      list.appendChild(buildHistoryEntry(entry, 'is-redo', disp));
     });
 
   list.querySelector('.is-current')?.scrollIntoView({ block: 'nearest' });

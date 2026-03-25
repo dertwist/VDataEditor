@@ -26,6 +26,137 @@ function markPropTreeStructureDirty() {
 }
 window.markPropTreeStructureDirty = markPropTreeStructureDirty;
 
+/** @type {Map<string, HTMLElement>} */
+const _propRowRegistry = new Map();
+
+function clearPropRowRegistry() {
+  _propRowRegistry.clear();
+}
+
+/** Full root deep-snapshot undo step for complex in-place mutations (drag move, reorder, schema add, etc.). */
+function withDocUndoRootPair(applyFn, label) {
+  const d = docManager.activeDoc;
+  if (!d || typeof VDataCommands === 'undefined') return;
+  const prevRoot = deepClone(d.root);
+  const prevFormat = d.format;
+  const prevEx = [...d.expandedPaths];
+  const prevCol = [...d.collapsedPaths];
+  applyFn();
+  const nextRoot = deepClone(d.root);
+  const nextFormat = d.format;
+  const nextEx = [...d.expandedPaths];
+  const nextCol = [...d.collapsedPaths];
+  withDocUndo(
+    {
+      type: VDataCommands.CMD.ROOT_STATE_PAIR,
+      rootBefore: prevRoot,
+      rootAfter: nextRoot,
+      formatBefore: prevFormat,
+      formatAfter: nextFormat,
+      expandedBefore: prevEx,
+      expandedAfter: nextEx,
+      collapsedBefore: prevCol,
+      collapsedAfter: nextCol
+    },
+    label
+  );
+}
+
+function cloneUndoValue(v) {
+  if (v === null || typeof v !== 'object') return v;
+  try {
+    if (typeof structuredClone === 'function') return structuredClone(v);
+  } catch (_) {}
+  return JSON.parse(JSON.stringify(v));
+}
+
+/**
+ * Update one property row's inputs from a model value (skips focused controls).
+ * @returns {boolean} true if row found and basic widgets updated
+ */
+function updatePropRowValueFromModel(row, value) {
+  if (!row) return false;
+  const vecWidget = row.querySelector('.vec-widget');
+  if (vecWidget && Array.isArray(value)) {
+    const axisRows = row.querySelectorAll('.vec-axis-row');
+    axisRows.forEach((axisRow, i) => {
+      const axisVal = Number(value[i]);
+      if (!Number.isFinite(axisVal)) return;
+      const numInput = axisRow.querySelector('.slider-input');
+      const slider = axisRow.querySelector('.slider-range');
+      const newStr = parseFloat(axisVal.toFixed(6)).toString();
+      if (numInput && numInput !== document.activeElement && numInput.value !== newStr) {
+        numInput.value = newStr;
+      }
+      if (slider && slider !== document.activeElement) {
+        const min = Number(slider.min);
+        const max = Number(slider.max);
+        if (Number.isFinite(min) && Number.isFinite(max) && axisVal >= min && axisVal <= max) {
+          const sliderStr = String(axisVal);
+          if (slider.value !== sliderStr) slider.value = sliderStr;
+        }
+      }
+    });
+  } else {
+    const inp = row.querySelector('.prop-input:not([readonly])');
+    if (inp && inp !== document.activeElement) {
+      const newStr = value == null ? '' : String(value);
+      if (inp.value !== newStr) inp.value = newStr;
+    }
+  }
+  const cb = row.querySelector('.prop-input-bool');
+  if (cb && cb !== document.activeElement) {
+    if (cb.checked !== !!value) cb.checked = !!value;
+  }
+  return true;
+}
+
+/**
+ * Apply a typed command to the property tree DOM where possible.
+ * @param {object} cmd — see VDataCommands
+ */
+function patchPropertyTree(cmd) {
+  const VC = typeof VDataCommands !== 'undefined' ? VDataCommands : null;
+  if (!cmd || !VC) return;
+
+  if (cmd.type === VC.CMD.BATCH) {
+    for (let i = 0; i < cmd.commands.length; i++) patchPropertyTree(cmd.commands[i]);
+    return;
+  }
+
+  if (cmd.type === VC.CMD.SET_VALUE) {
+    if (cmd.relayout) {
+      markPropTreeStructureDirty();
+      buildPropertyTree();
+      return;
+    }
+    const row = _propRowRegistry.get(cmd.pathStr);
+    if (!row) {
+      markPropTreeStructureDirty();
+      buildPropertyTree();
+      return;
+    }
+    updatePropRowValueFromModel(row, cmd.nextValue);
+    stripePropTree();
+    syncPropTreeSelectionClasses();
+    return;
+  }
+
+  if (cmd.type === VC.CMD.EXPAND_STATE) {
+    markPropTreeStructureDirty();
+    buildPropertyTree();
+    return;
+  }
+
+  if (VC.commandIsStructural(cmd) || cmd.type === VC.CMD.DOC_REPLACE || cmd.type === VC.CMD.SET_FORMAT) {
+    markPropTreeStructureDirty();
+    buildPropertyTree();
+    return;
+  }
+}
+
+window.patchPropertyTree = patchPropertyTree;
+
 // ── Property Tree ───────────────────────────────────────────────────────
 // Expansion state lives on the active VDataDocument (propEx / propCol helpers above).
 
@@ -126,6 +257,95 @@ function invalidatePropTreePathsUnderObjectKey(keyPath) {
   const re = new RegExp('^' + escapePropPathRe(keyPath) + '(?:/|$)');
   for (const p of [...propEx()]) if (re.test(p)) propEx().delete(p);
   for (const p of [...propCol()]) if (re.test(p)) propCol().delete(p);
+}
+
+function snapshotAfterArrayContainerInvalidate(arrayPath, exSet, colSet) {
+  const re = new RegExp('^' + escapePropPathRe(arrayPath) + '/\\[\\d+\\](?:/|$)');
+  const exCopy = new Set(exSet);
+  const colCopy = new Set(colSet);
+  for (const p of [...exCopy]) if (re.test(p)) exCopy.delete(p);
+  for (const p of [...colCopy]) if (re.test(p)) colCopy.delete(p);
+  return { expandedAfter: [...exCopy], collapsedAfter: [...colCopy] };
+}
+
+function snapshotAfterObjectKeyInvalidate(keyPath, exSet, colSet) {
+  const re = new RegExp('^' + escapePropPathRe(keyPath) + '(?:/|$)');
+  const exCopy = new Set(exSet);
+  const colCopy = new Set(colSet);
+  for (const p of [...exCopy]) if (re.test(p)) exCopy.delete(p);
+  for (const p of [...colCopy]) if (re.test(p)) colCopy.delete(p);
+  return { expandedAfter: [...exCopy], collapsedAfter: [...colCopy] };
+}
+
+function makeDeleteRowBatch(d, propPath, isArrayIndex) {
+  const VC = VDataCommands;
+  const CMD = VC.CMD;
+  const exBefore = [...d.expandedPaths];
+  const colBefore = [...d.collapsedPaths];
+  const snap = isArrayIndex
+    ? snapshotAfterArrayContainerInvalidate(arrayContainerPathFromRowPath(propPath), d.expandedPaths, d.collapsedPaths)
+    : snapshotAfterObjectKeyInvalidate(propPath, d.expandedPaths, d.collapsedPaths);
+  return {
+    type: CMD.BATCH,
+    commands: [
+      {
+        type: CMD.EXPAND_STATE,
+        expandedBefore: exBefore,
+        collapsedBefore: colBefore,
+        expandedAfter: snap.expandedAfter,
+        collapsedAfter: snap.collapsedAfter
+      },
+      { type: CMD.REMOVE_NODE, pathStr: propPath }
+    ]
+  };
+}
+
+function makeDuplicateArrayBatch(d, arrayContainerPath, arrayIdx, cloneValue) {
+  const VC = VDataCommands;
+  const CMD = VC.CMD;
+  const exBefore = [...d.expandedPaths];
+  const colBefore = [...d.collapsedPaths];
+  const snap = snapshotAfterArrayContainerInvalidate(arrayContainerPath, d.expandedPaths, d.collapsedPaths);
+  const insertPath = `${arrayContainerPath}/[${arrayIdx + 1}]`;
+  return {
+    type: CMD.BATCH,
+    commands: [
+      {
+        type: CMD.EXPAND_STATE,
+        expandedBefore: exBefore,
+        collapsedBefore: colBefore,
+        expandedAfter: snap.expandedAfter,
+        collapsedAfter: snap.collapsedAfter
+      },
+      { type: CMD.ADD_NODE, pathStr: insertPath, value: cloneValue }
+    ]
+  };
+}
+
+function makeRemoveArrayDupesBatch(d, arrayPropPath, prevArr, nextArr) {
+  const CMD = VDataCommands.CMD;
+  const exBefore = [...d.expandedPaths];
+  const colBefore = [...d.collapsedPaths];
+  const snap = snapshotAfterArrayContainerInvalidate(arrayPropPath, d.expandedPaths, d.collapsedPaths);
+  return {
+    type: CMD.BATCH,
+    commands: [
+      {
+        type: CMD.EXPAND_STATE,
+        expandedBefore: exBefore,
+        collapsedBefore: colBefore,
+        expandedAfter: snap.expandedAfter,
+        collapsedAfter: snap.collapsedAfter
+      },
+      {
+        type: CMD.SET_VALUE,
+        pathStr: arrayPropPath,
+        prevValue: cloneUndoValue(prevArr),
+        nextValue: nextArr,
+        relayout: true
+      }
+    ]
+  };
 }
 
 function clearPropTreeViewState() {
@@ -318,7 +538,7 @@ function attachPropTreeTypeCastToBadge(badgeEl, currentType, onCast) {
   });
 }
 
-function castPropertyType(parentRef, key, value, fromType, toType, arrayIdx) {
+function castPropertyType(parentRef, key, value, fromType, toType, arrayIdx, propPath) {
   let newValue;
   try {
     switch (toType) {
@@ -407,11 +627,11 @@ function castPropertyType(parentRef, key, value, fromType, toType, arrayIdx) {
   } catch (_) {
     newValue = value;
   }
-  withDocUndo(() => {
-    const isArrayIndex = typeof arrayIdx === 'number' && Array.isArray(parentRef);
-    if (isArrayIndex) parentRef[arrayIdx] = newValue;
-    else parentRef[key] = newValue;
-  });
+  if (!propPath || typeof VDataCommands === 'undefined') return;
+  const useIdx = typeof arrayIdx === 'number' && Array.isArray(parentRef);
+  const prev = useIdx ? parentRef[arrayIdx] : parentRef[key];
+  const prevCopy = cloneUndoValue(prev);
+  withDocUndo(VDataCommands.setValueCommand(propPath, prevCopy, newValue, true), 'Change type');
 }
 
 function isPropRowInHiddenBranch(row) {
@@ -501,6 +721,7 @@ function buildPropertyTree() {
   const root = d?.root;
   if (!root || typeof root !== 'object') {
     container.innerHTML = '';
+    clearPropRowRegistry();
     _propTreeBuiltForDoc = null;
     _propTreeStructuralDirty = true;
     return;
@@ -524,6 +745,7 @@ function buildPropertyTree() {
 
   _propTreeStructuralDirty = false;
   container.innerHTML = '';
+  clearPropRowRegistry();
   renderObjectRows(container, root, 0, '');
   prunePropTreeSelectionFromDom();
   syncPropTreeSelectionClasses();
@@ -745,6 +967,7 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
   row.dataset.depth = String(d);
   row.dataset.type = type;
   row.dataset.propPath = propPath;
+  _propRowRegistry.set(propPath, row);
   if (depth > 9) row.style.setProperty('--prop-depth', String(depth));
   if (type === 'commented_value') row.classList.add('prop-row-commented-value');
   if (type === 'comment_label') row.classList.add('prop-row-comment-label');
@@ -773,7 +996,7 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
   paintTypeBadgeCircle(keyIcon, type, value, key);
   if (type !== 'commented_value' && type !== 'comment_label') {
     attachPropTreeTypeCastToBadge(keyIcon, type, (newType) => {
-      castPropertyType(parentRef, key, value, type, newType, arrayIdx);
+      castPropertyType(parentRef, key, value, type, newType, arrayIdx, propPath);
     });
   }
 
@@ -867,10 +1090,8 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
     sliderScrubActive = true;
     sliderScrubDidChange = false;
     sliderScrubTx = {
-      prevRoot: deepClone(d.root),
-      prevFormat: d.format,
-      prevEx: new Set(propEx()),
-      prevCol: new Set(propCol()),
+      propPath,
+      prevValue: cloneUndoValue(getValueAtPath(d.root, propPath)),
       label: `Edit: ${key}`
     };
   }
@@ -890,39 +1111,22 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
     const d = docManager.activeDoc;
     if (!d) return;
 
-    const nextRoot = deepClone(d.root);
-    const nextFormat = d.format;
-    const nextEx = new Set(propEx());
-    const nextCol = new Set(propCol());
     sliderScrubDidChange = false;
 
-    pushUndoCommand({
-      label: tx.label,
-      undo: () => {
-        d.format = tx.prevFormat;
-        d.root = deepClone(tx.prevRoot);
-        d.expandedPaths = new Set(tx.prevEx);
-        d.collapsedPaths = new Set(tx.prevCol);
-        d.recalcElementIds();
-        d.dirty = true;
-        docManager.dispatchEvent(new Event('tabs-changed'));
-        renderAll();
-      },
-      redo: () => {
-        d.format = nextFormat;
-        d.root = deepClone(nextRoot);
-        d.expandedPaths = new Set(nextEx);
-        d.collapsedPaths = new Set(nextCol);
-        d.recalcElementIds();
-        d.dirty = true;
-        docManager.dispatchEvent(new Event('tabs-changed'));
-        renderAll();
-      }
-    });
+    const nextValue = cloneUndoValue(getValueAtPath(d.root, tx.propPath));
+    try {
+      if (JSON.stringify(tx.prevValue) === JSON.stringify(nextValue)) return;
+    } catch (_) {
+      if (tx.prevValue === nextValue) return;
+    }
+
+    const cmd = VDataCommands.setValueCommand(tx.propPath, tx.prevValue, nextValue, false);
+    pushUndoCommand({ cmd, label: tx.label, time: Date.now() });
 
     d.dirty = true;
     docManager.dispatchEvent(new Event('tabs-changed'));
-    renderAll();
+    patchPropertyTree(cmd);
+    window.scheduleManualEditorSyncFromModel?.();
     setStatus('Property edited', 'edited');
   }
 
@@ -937,7 +1141,7 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
       setScalarNoUndo(v);
       return;
     }
-    commitValue(parentRef, key, v, arrayIdx, false);
+    commitValue(parentRef, key, v, arrayIdx, false, propPath);
   };
 
   const onComponentsChange = (newArr) => {
@@ -946,7 +1150,7 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
       setScalarNoUndo(newArr);
       return;
     }
-    commitValue(parentRef, key, newArr, arrayIdx, true);
+    commitValue(parentRef, key, newArr, arrayIdx, true, propPath);
   };
 
   switch (type) {
@@ -1034,9 +1238,10 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
     disableBtn.textContent = '//';
     disableBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      withDocUndo(() => {
-        parentRef[arrayIdx] = makeCommentedValueNode(value);
-      }, 'Disable list item');
+      withDocUndo(
+        VDataCommands.setValueCommand(propPath, cloneUndoValue(value), makeCommentedValueNode(value), true),
+        'Disable list item'
+      );
     });
     actions.appendChild(disableBtn);
   }
@@ -1048,18 +1253,17 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
   dupBtn.textContent = '⧉';
   dupBtn.addEventListener('click', (e) => {
     e.stopPropagation();
+    const d = docManager.activeDoc;
+    if (!d) return;
     if (isArrayIndex) {
-      withDocUndo(() => {
-        invalidatePropTreePathsForArrayContainer(arrayContainerPathFromRowPath(propPath));
-        parentRef.splice(arrayIdx + 1, 0, deepClone(value));
-      });
+      withDocUndo(makeDuplicateArrayBatch(d, arrayContainerPathFromRowPath(propPath), arrayIdx, deepClone(value)), 'Duplicate');
     } else {
-      withDocUndo(() => {
-        let newKey = key + '_copy';
-        let n = 1;
-        while (Object.prototype.hasOwnProperty.call(parentRef, newKey)) newKey = key + '_copy' + ++n;
-        parentRef[newKey] = deepClone(value);
-      });
+      let newKey = key + '_copy';
+      let n = 1;
+      while (Object.prototype.hasOwnProperty.call(parentRef, newKey)) newKey = key + '_copy' + ++n;
+      const parentObjPath = parentPathFromRowPath(propPath);
+      const newPath = parentObjPath ? `${parentObjPath}/${newKey}` : newKey;
+      withDocUndo({ type: VDataCommands.CMD.ADD_NODE, pathStr: newPath, value: deepClone(value) }, 'Duplicate');
     }
   });
   actions.appendChild(dupBtn);
@@ -1072,16 +1276,16 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
     addBtn.textContent = '+';
     addBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      withDocUndo(() => {
-        if (type === 'array') {
-          value.push('');
-        } else {
-          let newKey = 'new_key';
-          let n = 1;
-          while (Object.prototype.hasOwnProperty.call(value, newKey)) newKey = 'new_key_' + ++n;
-          value[newKey] = '';
-        }
-      });
+      if (type === 'array') {
+        const insertPath = `${propPath}/[${value.length}]`;
+        withDocUndo({ type: VDataCommands.CMD.ADD_NODE, pathStr: insertPath, value: '' }, 'Add child');
+      } else {
+        let newKey = 'new_key';
+        let n = 1;
+        while (Object.prototype.hasOwnProperty.call(value, newKey)) newKey = 'new_key_' + ++n;
+        const newPath = `${propPath}/${newKey}`;
+        withDocUndo({ type: VDataCommands.CMD.ADD_NODE, pathStr: newPath, value: '' }, 'Add child');
+      }
     });
     actions.appendChild(addBtn);
   }
@@ -1093,15 +1297,9 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
   delBtn.textContent = '✕';
   delBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    withDocUndo(() => {
-      if (isArrayIndex) {
-        invalidatePropTreePathsForArrayContainer(arrayContainerPathFromRowPath(propPath));
-        parentRef.splice(arrayIdx, 1);
-      } else {
-        invalidatePropTreePathsUnderObjectKey(propPath);
-        delete parentRef[key];
-      }
-    });
+    const d = docManager.activeDoc;
+    if (!d) return;
+    withDocUndo(makeDeleteRowBatch(d, propPath, isArrayIndex), 'Delete');
   });
   actions.appendChild(delBtn);
 
@@ -1362,9 +1560,8 @@ function showAddKeyDialog(parentRef, parentObjectPath) {
       return;
     }
     const newVal = defaultValueFor(typeInput.value);
-    withDocUndo(() => {
-      parentRef[newKey] = newVal;
-    }, 'Add key');
+    const pathStr = pp ? `${pp}/${newKey}` : newKey;
+    withDocUndo({ type: VDataCommands.CMD.ADD_NODE, pathStr, value: newVal }, 'Add key');
     overlay.remove();
   }
 
@@ -1404,7 +1601,7 @@ function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPa
         try {
           const text = await navigator.clipboard.readText();
           const v = JSON.parse(text);
-          commitValue(parentRef, key, v, arrayIdx, true);
+          commitValue(parentRef, key, v, arrayIdx, true, propPath);
         } catch (_) {}
       }
     },
@@ -1413,18 +1610,23 @@ function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPa
       label: 'Duplicate',
       icon: ICONS.duplicate,
       action: () => {
+        const d = docManager.activeDoc;
+        if (!d) return;
         if (isArrayIndex) {
-          withDocUndo(() => {
-            invalidatePropTreePathsForArrayContainer(arrayContainerPathFromRowPath(propPath));
-            parentRef.splice(arrayIdx + 1, 0, deepClone(value));
-          }, 'Duplicate');
+          withDocUndo(
+            makeDuplicateArrayBatch(d, arrayContainerPathFromRowPath(propPath), arrayIdx, deepClone(value)),
+            'Duplicate'
+          );
         } else {
-          withDocUndo(() => {
-            let newKey = key + '_copy';
-            let n = 1;
-            while (Object.prototype.hasOwnProperty.call(parentRef, newKey)) newKey = key + '_copy' + ++n;
-            parentRef[newKey] = deepClone(value);
-          }, 'Duplicate');
+          let newKey = key + '_copy';
+          let n = 1;
+          while (Object.prototype.hasOwnProperty.call(parentRef, newKey)) newKey = key + '_copy' + ++n;
+          const parentObjPath = parentPathFromRowPath(propPath);
+          const newPath = parentObjPath ? `${parentObjPath}/${newKey}` : newKey;
+          withDocUndo(
+            { type: VDataCommands.CMD.ADD_NODE, pathStr: newPath, value: deepClone(value) },
+            'Duplicate'
+          );
         }
       }
     },
@@ -1433,15 +1635,9 @@ function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPa
       icon: ICONS.trash,
       cls: 'danger',
       action: () => {
-        withDocUndo(() => {
-          if (isArrayIndex) {
-            invalidatePropTreePathsForArrayContainer(arrayContainerPathFromRowPath(propPath));
-            parentRef.splice(arrayIdx, 1);
-          } else {
-            invalidatePropTreePathsUnderObjectKey(propPath);
-            delete parentRef[key];
-          }
-        }, 'Delete');
+        const d = docManager.activeDoc;
+        if (!d) return;
+        withDocUndo(makeDeleteRowBatch(d, propPath, isArrayIndex), 'Delete');
       }
     },
     { sep: true },
@@ -1461,7 +1657,7 @@ function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPa
       label: `Change type → ${targetType}`,
       icon: ICONS.wrench,
       action: () => {
-        castPropertyType(parentRef, key, value, type, targetType, arrayIdx);
+        castPropertyType(parentRef, key, value, type, targetType, arrayIdx, propPath);
       }
     })),
     { sep: true },
@@ -1479,7 +1675,7 @@ function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPa
       disabled: !_clipboard,
       action: () => {
         if (!_clipboard) return;
-        commitValue(parentRef, key, deepClone(_clipboard.value), arrayIdx, true);
+        commitValue(parentRef, key, deepClone(_clipboard.value), arrayIdx, true, propPath);
       }
     },
     {
@@ -1488,17 +1684,26 @@ function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPa
       disabled: !_clipboard,
       action: () => {
         if (!_clipboard) return;
-        withDocUndo(() => {
+        (() => {
+          const d = docManager.activeDoc;
+          if (!d) return;
           if (isArrayIndex) {
-            parentRef.splice(arrayIdx + 1, 0, deepClone(_clipboard.value));
-            invalidatePropTreePathsForArrayContainer(arrayContainerPathFromRowPath(propPath));
+            withDocUndo(
+              makeDuplicateArrayBatch(d, arrayContainerPathFromRowPath(propPath), arrayIdx, deepClone(_clipboard.value)),
+              'Paste sibling'
+            );
           } else {
             let nk = _clipboard.key || 'pasted';
             let n = 1;
             while (Object.prototype.hasOwnProperty.call(parentRef, nk)) nk = nk + '_' + ++n;
-            parentRef[nk] = deepClone(_clipboard.value);
+            const parentObjPath = parentPathFromRowPath(propPath);
+            const newPath = parentObjPath ? `${parentObjPath}/${nk}` : nk;
+            withDocUndo(
+              { type: VDataCommands.CMD.ADD_NODE, pathStr: newPath, value: deepClone(_clipboard.value) },
+              'Paste sibling'
+            );
           }
-        }, 'Paste sibling');
+        })();
       }
     },
     { sep: true },
@@ -1508,7 +1713,9 @@ function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPa
       disabled: type !== 'array' || !Array.isArray(value),
       action: () => {
         if (type !== 'array' || !Array.isArray(value)) return;
-        withDocUndo(() => {
+        (() => {
+          const d = docManager.activeDoc;
+          if (!d) return;
           const seen = new Set();
           const next = value.filter((item) => {
             const k = JSON.stringify(item);
@@ -1516,10 +1723,8 @@ function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPa
             seen.add(k);
             return true;
           });
-          if (isArrayIndex) parentRef[arrayIdx] = next;
-          else parentRef[key] = next;
-          invalidatePropTreePathsForArrayContainer(propPath);
-        }, 'Remove duplicates');
+          withDocUndo(makeRemoveArrayDupesBatch(d, propPath, value, next), 'Remove duplicates');
+        })();
       }
     },
     { sep: true },
@@ -1528,12 +1733,14 @@ function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPa
       icon: ICONS.typeObject,
       disabled: isArrayIndex,
       action: () => {
-        withDocUndo(() => {
+        (() => {
           let nk = 'new_object';
           let n = 1;
           while (Object.prototype.hasOwnProperty.call(parentRef, nk)) nk = 'new_object_' + ++n;
-          parentRef[nk] = {};
-        }, 'Add object');
+          const parentObjPath = parentPathFromRowPath(propPath);
+          const newPath = parentObjPath ? `${parentObjPath}/${nk}` : nk;
+          withDocUndo({ type: VDataCommands.CMD.ADD_NODE, pathStr: newPath, value: {} }, 'Add object');
+        })();
       }
     },
     {
@@ -1541,12 +1748,14 @@ function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPa
       icon: ICONS.typeArray,
       disabled: isArrayIndex,
       action: () => {
-        withDocUndo(() => {
+        (() => {
           let nk = 'new_list';
           let n = 1;
           while (Object.prototype.hasOwnProperty.call(parentRef, nk)) nk = 'new_list_' + ++n;
-          parentRef[nk] = [];
-        }, 'Add list');
+          const parentObjPath = parentPathFromRowPath(propPath);
+          const newPath = parentObjPath ? `${parentObjPath}/${nk}` : nk;
+          withDocUndo({ type: VDataCommands.CMD.ADD_NODE, pathStr: newPath, value: [] }, 'Add list');
+        })();
       }
     },
     { sep: true }
@@ -1567,16 +1776,18 @@ function showPropContextMenu(x, y, key, value, type, parentRef, arrayIdx, propPa
     disabled: !isContainer,
     action: () => {
       if (!isContainer) return;
-      withDocUndo(() => {
+      (() => {
         if (type === 'array') {
-          value.push('');
+          const insertPath = `${propPath}/[${value.length}]`;
+          withDocUndo({ type: VDataCommands.CMD.ADD_NODE, pathStr: insertPath, value: '' }, 'Add child');
         } else {
           let nk = 'new_key';
           let n = 1;
           while (Object.prototype.hasOwnProperty.call(value, nk)) nk = 'new_key_' + ++n;
-          value[nk] = '';
+          const newPath = `${propPath}/${nk}`;
+          withDocUndo({ type: VDataCommands.CMD.ADD_NODE, pathStr: newPath, value: '' }, 'Add child');
         }
-      }, 'Add child');
+      })();
     }
   });
   items.push({ sep: true });
@@ -1661,7 +1872,7 @@ function isMovePropIntoContainerAllowed(src, dstContainerPath, dstType) {
   return true;
 }
 
-/** Mutates doc root — caller must wrap in a single withDocUndo for batches. */
+/** Mutates doc root — caller must wrap in `withDocUndoRootPair`. */
 function mutateMovePropIntoContainer(src, dstContainerPath, dstType) {
   const root = docManager.activeDoc?.root;
   if (!root) return;
@@ -1703,7 +1914,7 @@ function mutateMovePropIntoContainer(src, dstContainerPath, dstType) {
  */
 function movePropIntoContainer(src, dstContainerPath, dstType) {
   if (!isMovePropIntoContainerAllowed(src, dstContainerPath, dstType)) return false;
-  withDocUndo(() => {
+  withDocUndoRootPair(() => {
     mutateMovePropIntoContainer(src, dstContainerPath, dstType);
   }, 'Move into');
   return true;
@@ -1715,7 +1926,7 @@ function batchMovePropIntoContainers(items, dstContainerPath, dstType) {
     if (!isMovePropIntoContainerAllowed(items[i], dstContainerPath, dstType)) return false;
   }
   const sorted = [...items].sort((a, b) => b.propPath.length - a.propPath.length);
-  withDocUndo(() => {
+  withDocUndoRootPair(() => {
     for (let j = 0; j < sorted.length; j++) {
       mutateMovePropIntoContainer(sorted[j], dstContainerPath, dstType);
     }
@@ -1797,7 +2008,7 @@ function batchReorderPropSameParent(parentRef, items, dst, dropZone) {
   const keys = items.map((i) => i.key);
   if (keys.some((k) => typeof k !== 'string')) return false;
   if (typeof dst.key !== 'string') return false;
-  withDocUndo(() => {
+  withDocUndoRootPair(() => {
     reorderObjectKeysBlock(parentRef, keys, dst.key, dropZone === PROP_DROP_ZONE_AFTER);
   }, 'Reorder');
   return true;
@@ -1944,7 +2155,7 @@ function reorderProp(parentRef, src, dst, dropZone) {
     const insertBase = di + (placeAfter ? 1 : 0);
     const insert = si < insertBase ? insertBase - 1 : insertBase;
     if (si === insert) return;
-    withDocUndo(() => {
+    withDocUndoRootPair(() => {
       invalidatePropTreePathsForArrayContainer(arrayContainerPathFromRowPath(dst.propPath || ''));
       const [item] = parentRef.splice(si, 1);
       parentRef.splice(insert, 0, item);
@@ -1953,7 +2164,7 @@ function reorderProp(parentRef, src, dst, dropZone) {
   }
   if (typeof src.key !== 'string' || typeof dst.key !== 'string') return;
   if (src.key === dst.key) return;
-  withDocUndo(() => {
+  withDocUndoRootPair(() => {
     const entries = Object.entries(parentRef);
     const srcIdx = entries.findIndex(([k]) => k === src.key);
     const dstIdx = entries.findIndex(([k]) => k === dst.key);
@@ -2035,63 +2246,27 @@ function startInlineRename(keyEl, keyTextSpan, oldKey, parentRef, propPath) {
     const oldPrefix = oldPath + '/';
     const newPrefix = newPath + '/';
 
-    const prevRoot = deepClone(d.root);
-    const prevFormat = d.format;
-    const prevEx = new Set(propEx());
-    const prevCol = new Set(propCol());
+    withDocUndoRootPair(() => {
+      const entries = Object.entries(parentRef);
+      for (const [k] of entries) delete parentRef[k];
+      for (const [k, v] of entries) {
+        parentRef[k === oldKey ? newKey : k] = v;
+      }
 
-    const entries = Object.entries(parentRef);
-    for (const [k] of entries) delete parentRef[k];
-    for (const [k, v] of entries) {
-      parentRef[k === oldKey ? newKey : k] = v;
-    }
-
-    for (const set of [propEx(), propCol()]) {
-      for (const p of [...set]) {
-        if (p === oldPath) {
-          set.delete(p);
-          set.add(newPath);
-        } else if (p.startsWith(oldPrefix)) {
-          set.delete(p);
-          set.add(newPrefix + p.slice(oldPrefix.length));
+      for (const set of [propEx(), propCol()]) {
+        for (const p of [...set]) {
+          if (p === oldPath) {
+            set.delete(p);
+            set.add(newPath);
+          } else if (p.startsWith(oldPrefix)) {
+            set.delete(p);
+            set.add(newPrefix + p.slice(oldPrefix.length));
+          }
         }
       }
-    }
+    }, `Rename: ${oldKey}`);
 
-    const nextRoot = deepClone(d.root);
-    const nextFormat = d.format;
-    const nextEx = new Set(propEx());
-    const nextCol = new Set(propCol());
-
-    markPropTreeStructureDirty();
-    pushUndoCommand({
-      label: `Rename: ${oldKey}`,
-      undo: () => {
-        d.format = prevFormat;
-        d.root = deepClone(prevRoot);
-        d.expandedPaths = new Set(prevEx);
-        d.collapsedPaths = new Set(prevCol);
-        d.recalcElementIds();
-        d.dirty = true;
-        docManager.dispatchEvent(new Event('tabs-changed'));
-        renderAll();
-      },
-      redo: () => {
-        d.format = nextFormat;
-        d.root = deepClone(nextRoot);
-        d.expandedPaths = new Set(nextEx);
-        d.collapsedPaths = new Set(nextCol);
-        d.recalcElementIds();
-        d.dirty = true;
-        docManager.dispatchEvent(new Event('tabs-changed'));
-        renderAll();
-      }
-    });
-
-    d.dirty = true;
-    docManager.dispatchEvent(new Event('tabs-changed'));
     setStatus('Key renamed', 'edited');
-    renderAll();
   }
 
   inp.addEventListener('blur', commit);
@@ -2456,55 +2631,13 @@ function buildVec4Widget(container, value, onChange, sliderOpts) {
   container.appendChild(wrapAll);
 }
 
-function commitValue(parentRef, key, newValue, arrayIdx, isStructural = false) {
-  const d = docManager.activeDoc;
-  if (!d) return;
-
+function commitValue(parentRef, key, newValue, arrayIdx, isStructural, propPath) {
+  if (!propPath || typeof VDataCommands === 'undefined') return;
   const useIdx = arrayIdx !== undefined && arrayIdx !== null && Array.isArray(parentRef);
-
-  const prevRoot = deepClone(d.root);
-  const prevFormat = d.format;
-  const prevEx = new Set(propEx());
-  const prevCol = new Set(propCol());
-
-  if (useIdx) parentRef[arrayIdx] = newValue;
-  else parentRef[key] = newValue;
-
-  const nextRoot = deepClone(d.root);
-  const nextFormat = d.format;
-  const nextEx = new Set(propEx());
-  const nextCol = new Set(propCol());
-
-  if (isStructural) markPropTreeStructureDirty();
-
-  pushUndoCommand({
-    label: `Edit: ${key}`,
-    undo: () => {
-      d.format = prevFormat;
-      d.root = deepClone(prevRoot);
-      d.expandedPaths = new Set(prevEx);
-      d.collapsedPaths = new Set(prevCol);
-      d.recalcElementIds();
-      d.dirty = true;
-      docManager.dispatchEvent(new Event('tabs-changed'));
-      renderAll();
-    },
-    redo: () => {
-      d.format = nextFormat;
-      d.root = deepClone(nextRoot);
-      d.expandedPaths = new Set(nextEx);
-      d.collapsedPaths = new Set(nextCol);
-      d.recalcElementIds();
-      d.dirty = true;
-      docManager.dispatchEvent(new Event('tabs-changed'));
-      renderAll();
-    }
-  });
-
-  d.dirty = true;
-  docManager.dispatchEvent(new Event('tabs-changed'));
-  setStatus('Property edited', 'edited');
-  renderAll();
+  const prev = useIdx ? parentRef[arrayIdx] : parentRef[key];
+  const prevCopy = cloneUndoValue(prev);
+  const cmd = VDataCommands.setValueCommand(propPath, prevCopy, newValue, !!isStructural);
+  withDocUndo(cmd, `Edit: ${key}`);
 }
 
 function filterPropTree(query) {
@@ -2655,7 +2788,7 @@ function initPropTreePanelContextMenu() {
         label: 'Add object',
         icon: ICONS.typeObject,
         action: () => {
-          withDocUndo(() => {
+          withDocUndoRootPair(() => {
             let nk = 'new_object';
             let n = 1;
             while (Object.prototype.hasOwnProperty.call(d.root, nk)) nk = 'new_object_' + ++n;
@@ -2667,7 +2800,7 @@ function initPropTreePanelContextMenu() {
         label: 'Add list',
         icon: ICONS.typeArray,
         action: () => {
-          withDocUndo(() => {
+          withDocUndoRootPair(() => {
             let nk = 'new_list';
             let n = 1;
             while (Object.prototype.hasOwnProperty.call(d.root, nk)) nk = 'new_list_' + ++n;
@@ -2682,7 +2815,7 @@ function initPropTreePanelContextMenu() {
         disabled: !_clipboard,
         action: () => {
           if (!_clipboard) return;
-          withDocUndo(() => {
+          withDocUndoRootPair(() => {
             let nk = _clipboard.key || 'pasted';
             let n = 1;
             while (Object.prototype.hasOwnProperty.call(d.root, nk)) nk = nk + '_' + ++n;
@@ -2852,7 +2985,7 @@ function addSuggestedPropertyAtPath(keyRaw, parentObjectPath, editorTypeOverride
     setStatus('Invalid insert reference', 'error');
     return false;
   }
-  withDocUndo(() => {
+  withDocUndoRootPair(() => {
     parentObj[key] = defaultValueForPropertyType(type);
     if (near != null && Object.prototype.hasOwnProperty.call(parentObj, near)) {
       insertObjectKeyBesideReference(parentObj, key, near, !!insertNear.placeAfter);
