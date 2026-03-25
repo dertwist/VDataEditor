@@ -139,10 +139,6 @@
       default:
         console.warn('applyCommand: unknown type', cmd.type);
     }
-
-    if (commandIsStructural(cmd) && typeof doc.recalcElementIds === 'function') {
-      doc.recalcElementIds();
-    }
   }
 
   function invertCommand(cmd) {

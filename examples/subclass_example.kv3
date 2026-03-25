@@ -1,0 +1,21 @@
+<!-- kv3 encoding:text:version{e21c7f3c-8a33-41c5-9977-a76d3a32aa0d} format:generic:version{7412167c-06e9-4698-aff2-e63eb59037e7} -->
+{
+  // Example: typed subclass object (plus typed atoms)
+  m_BuffModifier = subclass:
+  {
+    _class = "modifier_unicorn_luminousstrike_buff"
+    _my_subclass_name = "luminous_strike_buff"
+    m_BuffParticle = resource_name:"particles/abilities/unicorn/unicorn_flux_buff.vpcf"
+    m_IncomingParticle = resource_name:"particles/abilities/unicorn/unicorn_flux_buff_incoming.vpcf"
+    m_strBuffReceivedSound = soundevent:"Unicorn.Luminous.Flux.Buff"
+    m_eModifierDisplayLocaiton = "MODIFIER_DISPLAY_HEALTHBAR"
+    m_eHudDisplayLocation = "DISPLAY_HUD_NONE"
+    m_strMaxBuffReceivedSound = soundevent:"Unicorn.Luminous.Flux.Buff.Max"
+    m_sAmbientLoopingSound = soundevent:"Unicorn.Luminous.Flux.Buff.Lp"
+    m_sExpiredSound = soundevent:"Unicorn.Luminous.Flux.Buff.Expire"
+  }
+
+  // Example: panorama typed string
+  m_strAbilityImage = panorama:"file://{images}/hud/abilities/weapon_damage.psd"
+}
+

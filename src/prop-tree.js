@@ -1657,7 +1657,22 @@ function buildPropertyTree() {
 
         const total = planRows.length;
         const frag = document.createDocumentFragment();
+        const yieldNextFrame = () =>
+          new Promise((resolve) => {
+            requestAnimationFrame(() => resolve());
+          });
+        const FRAME_BUDGET_MS = 10;
+        const ROWS_PER_SLICE_FALLBACK = 4;
+        const perfNow =
+          typeof performance !== 'undefined' && typeof performance.now === 'function'
+            ? () => performance.now()
+            : () => Date.now();
+        let sliceStart = perfNow();
+
         for (let idx = 0; idx < total; idx++) {
+          if (gen !== _propTreeRebuildGeneration) {
+            return;
+          }
           const r = planRows[idx];
           if (!r) continue;
           const key = r.key;
@@ -1683,6 +1698,19 @@ function buildPropertyTree() {
             // buildPropRow initializes as "expanded" for depth==0; override to collapsed state.
             const toggle = row.querySelector?.('.prop-key-toggle');
             if (toggle) setPropKeyToggleIcon(toggle, !shouldCollapse, false);
+          }
+
+          const hasMore = idx < total - 1;
+          if (!hasMore) break;
+          const elapsed = perfNow() - sliceStart;
+          const hitBudget = elapsed >= FRAME_BUDGET_MS;
+          const hitFallbackRows = (idx + 1) % ROWS_PER_SLICE_FALLBACK === 0;
+          if (hitBudget || hitFallbackRows) {
+            await yieldNextFrame();
+            if (gen !== _propTreeRebuildGeneration) {
+              return;
+            }
+            sliceStart = perfNow();
           }
         }
 

@@ -134,7 +134,6 @@ class DocumentManager extends EventTarget {
         doc.deferInitialPropTreeRender = true;
       }
       ensureSmartPropRootArrays(doc);
-      doc.recalcElementIds();
       doc.dirty = false;
       this._docs.push(doc);
       this._activate(this._docs.length - 1);
@@ -170,7 +169,6 @@ class DocumentManager extends EventTarget {
         doc.deferInitialPropTreeRender = true;
       }
       ensureSmartPropRootArrays(doc);
-      doc.recalcElementIds();
       doc.dirty = false;
       this._docs.push(doc);
       this._activate(this._docs.length - 1);
