@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showSaveDialog: (opts) => ipcRenderer.invoke('show-save-dialog', opts),
   pickResourceFile: (opts) => ipcRenderer.invoke('pick-resource-file', opts),
   getVersion: () => ipcRenderer.invoke('get-version'),
+  getPlatform: () => ipcRenderer.invoke('get-platform'),
+  openWin11FreezeReg: () => ipcRenderer.invoke('open-win11-freeze-reg'),
   getRecentFiles: () => ipcRenderer.invoke('get-recent-files'),
   clearRecentFiles: () => ipcRenderer.invoke('clear-recent-files'),
   addRecentFile: (filePath) => ipcRenderer.invoke('add-recent-file', filePath),

@@ -266,7 +266,7 @@
     const m = mode || resolveActiveEditorMode();
     const extFromName = extFromFileName(fileName);
     const fileExt = m.extensions && m.extensions.length ? m.extensions[0] : extFromName;
-    let genericDataType = (root && root.generic_data_type) || '';
+    let genericDataType = (root && (root.generic_data_type || root._class)) || '';
     if (!isEditorModeAuto()) {
       if (m.schemaTypeForSuggestions !== undefined) {
         genericDataType = m.schemaTypeForSuggestions || '';

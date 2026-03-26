@@ -32,6 +32,15 @@
         enumWidgetId: widgetStr
       };
     }
+    if (widgetStr.indexOf('bitmaskEnum:') === 0) {
+      return {
+        type: 'string',
+        widget: 'string',
+        enum: [],
+        enumWidgetId: widgetStr,
+        bitmaskEnum: true
+      };
+    }
     return { type: 'string', widget: 'string' };
   }
 

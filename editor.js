@@ -730,6 +730,14 @@ if (typeof window !== 'undefined' && window.StartupProfiler) {
   window.StartupProfiler.startPhase('editor-menu-tab-init', { description: 'Initialize menu and tab bar' });
 }
 initMenuBar();
+if (window.electronAPI?.getPlatform) {
+  void window.electronAPI.getPlatform().then((p) => {
+    if (p !== 'win32') {
+      const el = document.getElementById('menuHelpWin11Freeze');
+      if (el) el.style.display = 'none';
+    }
+  });
+}
 initTabBar();
 if (typeof window !== 'undefined' && window.StartupProfiler) window.StartupProfiler.endPhase();
 

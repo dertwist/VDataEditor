@@ -1,7 +1,104 @@
-const { app, BrowserWindow, ipcMain, Menu, dialog } = require('electron/main')
+const { app, BrowserWindow, ipcMain, Menu, dialog, shell } = require('electron/main')
 const { Worker } = require('node:worker_threads')
 const path = require('node:path')
 const fs = require('fs')
+const os = require('node:os')
+
+const PREFERENCES_FILE = 'preferences.json'
+const GPU_MODES = new Set(['auto', 'safe', 'software'])
+
+function preferencesFilePath() {
+  return path.join(app.getPath('userData'), PREFERENCES_FILE)
+}
+
+function readPreferencesFromDisk() {
+  try {
+    const raw = fs.readFileSync(preferencesFilePath(), 'utf8')
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function readGpuModePreference() {
+  const env = process.env.VDATA_GPU_MODE
+  if (typeof env === 'string' && GPU_MODES.has(env.trim())) return env.trim()
+  const disk = readPreferencesFromDisk().gpuMode
+  if (disk === 'auto' || disk === 'safe' || disk === 'software') return disk
+  return 'auto'
+}
+
+/** A/B: on Win11 24H2+ use only disable-gpu-compositing (previous default) instead of the Step 1 bundle. */
+function win24h2GpuLightEnv() {
+  const v = process.env.VDATA_WIN24H2_GPU_LIGHT
+  return typeof v === 'string' && v.trim() === '1'
+}
+
+function appendWin11_24H2CompositingOnly() {
+  app.commandLine.appendSwitch('disable-gpu-compositing')
+}
+
+/** Escalated Chromium flags for kernel 10.0.26100+ (DWM/MPO freezes). Must run before app.ready. */
+function appendWin11_24H2Step1Flags() {
+  app.commandLine.appendSwitch('disable-gpu-compositing')
+  app.commandLine.appendSwitch('disable-gpu-vsync')
+  app.commandLine.appendSwitch('disable-software-rasterizer')
+  app.commandLine.appendSwitch('enable-features', 'UseSkiaRenderer')
+}
+
+/**
+ * Windows 11 24H2+ DWM/MPO workaround — applied automatically at startup (before app.ready).
+ * No in-app menu; overrides via VDATA_GPU_MODE, preferences.json gpuMode, or VDATA_WIN24H2_GPU_LIGHT.
+ */
+function applyWindowsGpuMitigations() {
+  if (process.platform !== 'win32') return
+
+  const parts = os.release().split('.')
+  const buildNumber = parseInt(parts[2], 10)
+  const is24H2Plus = !Number.isNaN(buildNumber) && buildNumber >= 26100
+  const useLight = is24H2Plus && win24h2GpuLightEnv()
+
+  const mode = readGpuModePreference()
+
+  if (mode === 'software') {
+    app.disableHardwareAcceleration()
+    console.log('[VDataEditor] GPU path: software (disableHardwareAcceleration), build=' + buildNumber)
+    return
+  }
+
+  if (mode === 'safe') {
+    if (!is24H2Plus) {
+      appendWin11_24H2CompositingOnly()
+      console.log('[VDataEditor] GPU path: safe+compositing-only, build=' + buildNumber)
+      return
+    }
+    if (useLight) {
+      appendWin11_24H2CompositingOnly()
+      console.log(
+        '[VDataEditor] GPU path: safe+light (VDATA_WIN24H2_GPU_LIGHT=1), build=' + buildNumber
+      )
+      return
+    }
+    appendWin11_24H2Step1Flags()
+    console.log('[VDataEditor] GPU path: safe+step1 (Win11 24H2+ bundle), build=' + buildNumber)
+    return
+  }
+
+  if (mode === 'auto' && is24H2Plus) {
+    if (useLight) {
+      appendWin11_24H2CompositingOnly()
+      console.log(
+        '[VDataEditor] GPU path: auto+light (VDATA_WIN24H2_GPU_LIGHT=1), build=' + buildNumber
+      )
+      return
+    }
+    appendWin11_24H2Step1Flags()
+    console.log('[VDataEditor] GPU path: auto+step1 (Win11 24H2+ bundle), build=' + buildNumber)
+  }
+}
+
+applyWindowsGpuMitigations()
 
 const RECENT_MAX = 10
 const recentPath = () => path.join(app.getPath('userData'), 'recent.json')
@@ -63,7 +160,8 @@ function createWindow(filePath) {
     icon: path.join(__dirname, 'assets/images/vdata_editor/appicon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true
+      contextIsolation: true,
+      backgroundThrottling: false
     }
   })
 
@@ -301,6 +399,26 @@ ipcMain.handle('pick-resource-file', async (_e, opts) => {
 })
 
 ipcMain.handle('get-version', () => app.getVersion())
+ipcMain.handle('get-platform', () => process.platform)
+
+ipcMain.handle('open-win11-freeze-reg', async () => {
+  if (process.platform !== 'win32') {
+    return { ok: false, error: 'This registry helper is for Windows only.' }
+  }
+  const regPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'extras', 'fix_win11_freeze.reg')
+    : path.join(__dirname, 'extras', 'fix_win11_freeze.reg')
+  try {
+    if (!fs.existsSync(regPath)) {
+      return { ok: false, error: 'Registry file not found at ' + regPath }
+    }
+    const err = await shell.openPath(regPath)
+    return err ? { ok: false, error: err } : { ok: true }
+  } catch (e) {
+    return { ok: false, error: e && e.message ? e.message : String(e) }
+  }
+})
+
 ipcMain.handle('get-recent-files', () => recentFiles)
 
 ipcMain.handle('clear-recent-files', async () => {

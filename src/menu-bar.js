@@ -68,6 +68,18 @@ function initMenuBar() {
       } else if (action === 'setAppTheme') {
         const pref = el.getAttribute('data-theme-pref');
         if (pref && typeof setAppThemePreference === 'function') setAppThemePreference(pref);
+      } else if (action === 'openWin11FreezeReg') {
+        if (window.electronAPI?.openWin11FreezeReg) {
+          window.electronAPI.openWin11FreezeReg().then((r) => {
+            if (r && r.ok) {
+              if (typeof setStatus === 'function') setStatus('Opened OverlayMinFPS registry file — merge if prompted, then restart DWM (see README).', 'info');
+            } else if (typeof setStatus === 'function') {
+              setStatus((r && r.error) || 'Could not open registry file.', 'error');
+            }
+          });
+        } else if (typeof setStatus === 'function') {
+          setStatus('Registry helper is only available in the desktop app on Windows.', 'info');
+        }
       } else if (action === 'openWidgetConfig') {
         openWidgetConfigDialog();
       } else if (action === 'minimize' && window.electronAPI?.minimize) window.electronAPI.minimize();

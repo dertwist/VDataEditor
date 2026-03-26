@@ -480,6 +480,9 @@ html.vde-cursor-busy *{
 .prop-value{display:flex;align-items:center;gap:4px;min-width:0;flex-wrap:wrap}
 .prop-input{flex:1;background:var(--bg-surface);border:1px solid transparent;border-radius:3px;color:var(--text-primary);font-family:var(--font-mono),monospace;font-size:11px;padding:2px 6px;min-width:0;outline:none}
 .prop-input:focus{border-color:var(--accent)}
+.prop-bitmask-enum{max-height:12em;overflow:auto;display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.prop-bitmask-row{display:flex;align-items:flex-start;gap:6px;font-size:11px;color:var(--text-primary);cursor:pointer;margin:0}
+.prop-bitmask-row input{margin-top:2px;flex-shrink:0;accent-color:var(--accent)}
 .prop-input-bool{width:16px;height:16px;cursor:pointer;accent-color:var(--accent);flex-shrink:0}
 .prop-color-swatch{width:22px;height:22px;border-radius:3px;border:1px solid var(--border-subtle);flex-shrink:0;cursor:pointer}
 .prop-color-input{position:absolute;opacity:0;width:0;height:0;pointer-events:none}

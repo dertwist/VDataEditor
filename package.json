@@ -91,6 +91,12 @@
     "asarUnpack": [
       "**/*.node"
     ],
+    "extraResources": [
+      {
+        "from": "extras",
+        "to": "extras"
+      }
+    ],
     "win": {
       "target": [
         {

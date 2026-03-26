@@ -212,6 +212,14 @@
     if (
       def.enumWidgetId &&
       typeof def.enumWidgetId === 'string' &&
+      def.enumWidgetId.indexOf('bitmaskEnum:') === 0
+    ) {
+      return false;
+    }
+
+    if (
+      def.enumWidgetId &&
+      typeof def.enumWidgetId === 'string' &&
       window.SchemaDB &&
       typeof window.SchemaDB.getEnumValuesForWidgetId === 'function'
     ) {

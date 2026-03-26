@@ -650,11 +650,39 @@ function schemaParentKeyFromRowPath(propPath) {
   return parentOnly ? parentOnly.slice(parentOnly.lastIndexOf('/') + 1) : '';
 }
 
+function rowIsBitmaskEnumField(key, propPath) {
+  if (!key || typeof key !== 'string' || /^\[\d+\]$/.test(key)) return false;
+  const parentKey = propPath != null ? schemaParentKeyFromRowPath(propPath) : '';
+  const ctxBase = schemaCtxForPropertyTree();
+  if (typeof VDataSuggestions !== 'undefined' && VDataSuggestions.getSchemaEntry) {
+    const entry = VDataSuggestions.getSchemaEntry(key, Object.assign({}, ctxBase, { parentKey }));
+    if (entry && entry.enumWidgetId && entry.enumWidgetId.indexOf('bitmaskEnum:') === 0) return true;
+  }
+  const tn = String(ctxBase.genericDataType || '').trim();
+  if (
+    tn &&
+    window.SchemaDB &&
+    typeof SchemaDB.hasClass === 'function' &&
+    SchemaDB.hasClass(tn) &&
+    typeof SchemaDB.getFieldType === 'function' &&
+    typeof SchemaDB.typeToWidget === 'function'
+  ) {
+    const raw = SchemaDB.getFieldType(tn, key);
+    const w = raw ? SchemaDB.typeToWidget(raw) : null;
+    if (w && typeof w === 'string' && w.indexOf('bitmaskEnum:') === 0) return true;
+  }
+  return false;
+}
+
 function resolveRowWidgetType(key, value, parentObj, propPath) {
   const mode = getActiveMode();
   if (mode && typeof mode.resolveWidget === 'function') {
     const w = mode.resolveWidget(key, value, parentObj);
     if (w) return w;
+  }
+
+  if (rowIsBitmaskEnumField(key, propPath) && (value == null || typeof value === 'string')) {
+    return 'bitmaskEnum';
   }
 
   // Pattern E/C: enum-like string values should render as dropdowns.
@@ -686,7 +714,8 @@ const TYPE_CAST_OPTIONS = {
   panorama: ['string', 'resource', 'soundevent'],
   vec2: ['vec3', 'vec4', 'array', 'string'],
   vec3: ['vec2', 'vec4', 'array', 'string'],
-  vec4: ['vec2', 'vec3', 'array', 'string']
+  vec4: ['vec2', 'vec3', 'array', 'string'],
+  bitmaskEnum: ['string', 'enum']
 };
 
 const STATIC_TYPE_SUMMARY = new Set(['object', 'array', 'null', 'unknown']);
@@ -701,6 +730,8 @@ const ALL_CAST_TARGETS = [
   'vec2',
   'vec3',
   'vec4',
+  'bitmaskEnum',
+  'enum',
   'array',
   'object'
 ];
@@ -2422,6 +2453,57 @@ function buildPropRow(key, value, type, depth, parentRef, arrayIdx, propPath, hi
       buildEnumWidget(valEl, value, (v) => onScalarChange(v), { enumValues: merged });
       break;
     }
+    case 'bitmaskEnum': {
+      const pp = parentPathFromRowPath(propPath);
+      const parentKey = pp ? pp.slice(pp.lastIndexOf('/') + 1) : '';
+
+      const shapeUtils = window?.VDataKV3ShapeUtils;
+      const doc = docManager?.activeDoc;
+      const docRoot = doc?.root;
+
+      let schemaVals = [];
+      if (typeof VDataSuggestions !== 'undefined' && VDataSuggestions.getSuggestedValues) {
+        schemaVals = VDataSuggestions.getSuggestedValues(
+          key,
+          Object.assign(schemaCtxForPropertyTree(), { parentKey })
+        );
+      }
+      if (!Array.isArray(schemaVals)) schemaVals = [];
+
+      let harvestVals = [];
+      const effectiveEnumKey = key;
+      if (shapeUtils?.harvestEnumValues && docRoot && effectiveEnumKey) {
+        if (_enumHarvestCacheVersion !== doc?.structVersion) {
+          _enumHarvestCache = new Map();
+          _enumHarvestCacheVersion = doc?.structVersion;
+        }
+
+        if (_enumHarvestCache.has(effectiveEnumKey)) {
+          harvestVals = _enumHarvestCache.get(effectiveEnumKey) || [];
+        } else {
+          harvestVals = shapeUtils.harvestEnumValues(docRoot, effectiveEnumKey) || [];
+          _enumHarvestCache.set(effectiveEnumKey, harvestVals);
+        }
+      }
+
+      const merged = [];
+      const seen = new Set();
+      const pushUnique = (arr) => {
+        for (let i = 0; i < arr.length; i++) {
+          const v = arr[i];
+          if (v == null) continue;
+          const s = String(v);
+          if (!s || seen.has(s)) continue;
+          seen.add(s);
+          merged.push(s);
+        }
+      };
+      pushUnique(schemaVals);
+      pushUnique(harvestVals);
+
+      buildBitmaskEnumWidget(valEl, value, (v) => onScalarChange(v), { enumValues: merged });
+      break;
+    }
     case 'resource':
       buildResourceWidget(valEl, value, 'resource_name', onScalarChange);
       break;
@@ -3639,11 +3721,12 @@ function schemaCtxForPropertyTree() {
   if (!d || !window.VDataEditorModes?.getSuggestionContext) {
     const fn = d?.fileName || '';
     const m = /\.([a-z0-9]+)$/i.exec(fn);
+    const root = d?.root;
     return {
       modeId: 'generic',
       fileExt: m ? m[1].toLowerCase() : '',
-      genericDataType: d?.root?.generic_data_type ?? '',
-      liveRoot: d?.root || null
+      genericDataType: root?.generic_data_type || root?._class || '',
+      liveRoot: root || null
     };
   }
   const ctx = window.VDataEditorModes.getSuggestionContext(d.fileName, d.root) || {};
@@ -4333,17 +4416,6 @@ function showPropertyInfo(suggestion, key, type, propPath) {
   if (showIf) depSummary.push(`Visible when ${formatDependencyExpr(showIf)}`);
   if (enableIf) depSummary.push(`Enabled when ${formatDependencyExpr(enableIf)}`);
 
-  let currentVal = '';
-  if (d && propPath && typeof propPath === 'string' && d.root) {
-    try {
-      const v = getValueAtPath(d.root, propPath);
-      if (v === undefined) currentVal = '';
-      else if (v === null) currentVal = 'null';
-      else if (typeof v === 'object') currentVal = JSON.stringify(v);
-      else currentVal = String(v);
-    } catch (_) {}
-  }
-
   const source = schemaEntry && schemaEntry.__source ? schemaEntry.__source : suggestion && suggestion.__source ? suggestion.__source : null;
 
   // Header
@@ -4404,20 +4476,6 @@ function showPropertyInfo(suggestion, key, type, propPath) {
     sec.appendChild(txt);
   }
 
-  if (propPath && d && d.root) {
-    const sec = document.createElement('div');
-    sec.className = 'property-info-section';
-    const title = document.createElement('div');
-    title.className = 'property-info-section-title';
-    title.textContent = 'Current value';
-    const txt = document.createElement('div');
-    txt.className = 'property-info-muted';
-    txt.textContent = currentVal || '(not set)';
-    sec.appendChild(title);
-    sec.appendChild(txt);
-    bodyEl.appendChild(sec);
-  }
-
   if (source) {
     const sec = document.createElement('div');
     sec.className = 'property-info-section';
@@ -4432,7 +4490,7 @@ function showPropertyInfo(suggestion, key, type, propPath) {
     bodyEl.appendChild(sec);
   }
 
-  if (!desc && (!enumValues || !enumValues.length) && (!depSummary || !depSummary.length) && !currentVal && !source) {
+  if (!desc && (!enumValues || !enumValues.length) && (!depSummary || !depSummary.length) && !source) {
     const empty = document.createElement('div');
     empty.className = 'property-info-muted';
     empty.textContent = 'No schema info for this property.';

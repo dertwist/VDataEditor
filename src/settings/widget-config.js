@@ -39,6 +39,10 @@
       ) {
         return inferredType;
       }
+      // `m_vec*` / `m_v*` match `^m_v` but CUtlVector and other lists are JSON arrays.
+      if (sysType === 'vec3' && inferredType === 'array') {
+        return inferredType;
+      }
       return sysType;
     }
     return inferredType;

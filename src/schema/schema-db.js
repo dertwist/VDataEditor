@@ -105,6 +105,17 @@
   function _atomicWidget(t) {
     const n = t.name;
     if (!n) return null;
+    if (
+      n === 'CBitVecEnum' &&
+      t.inner &&
+      typeof t.inner === 'object' &&
+      t.inner.category === 'declared_enum' &&
+      t.inner.name
+    ) {
+      const inner = t.inner;
+      const mod = inner.module || '';
+      return mod ? 'bitmaskEnum:' + mod + '::' + inner.name : 'bitmaskEnum:' + inner.name;
+    }
     if (['Vector', 'QAngle', 'RadianEuler', 'DegreeEuler', 'VectorWS'].includes(n)) return 'vec3';
     if (n === 'Vector2D') return 'vec2';
     if (n === 'Vector4D' || n === 'Quaternion' || n === 'QuaternionAligned') return 'vec4';
@@ -661,12 +672,15 @@
   }
 
   /**
-   * @param {string} widgetId e.g. enum:module::EnumName
+   * @param {string} widgetId e.g. enum:module::EnumName or bitmaskEnum:module::EnumName
    * @returns {string[]}
    */
   function getEnumValuesForWidgetId(widgetId) {
-    if (!widgetId || typeof widgetId !== 'string' || widgetId.indexOf('enum:') !== 0) return [];
-    const rest = widgetId.slice('enum:'.length);
+    if (!widgetId || typeof widgetId !== 'string') return [];
+    let rest;
+    if (widgetId.indexOf('enum:') === 0) rest = widgetId.slice('enum:'.length);
+    else if (widgetId.indexOf('bitmaskEnum:') === 0) rest = widgetId.slice('bitmaskEnum:'.length);
+    else return [];
     const en = _enumByKey.get(rest) || _enumByKey.get(rest.split('::').pop());
     if (!en || !Array.isArray(en.members)) return [];
     const members = en.members.slice().sort(function (a, b) {

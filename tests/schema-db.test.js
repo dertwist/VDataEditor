@@ -33,6 +33,59 @@ beforeEach(() => {
 });
 
 describe('SchemaDB', () => {
+  it('typeToWidget maps CBitVecEnum to bitmaskEnum and CUtlVector to array', () => {
+    const { SchemaDB } = globalThis;
+    const bitVec = {
+      category: 'atomic',
+      name: 'CBitVecEnum',
+      inner: { category: 'declared_enum', module: 'client', name: 'EMyFlags_t' }
+    };
+    const utlVec = {
+      category: 'atomic',
+      name: 'CUtlVector',
+      inner: { category: 'declared_class', module: 'client', name: 'SomeStruct_t' }
+    };
+    expect(SchemaDB.typeToWidget(bitVec)).toBe('bitmaskEnum:client::EMyFlags_t');
+    expect(SchemaDB.typeToWidget(utlVec)).toBe('array');
+  });
+
+  it('getEnumValuesForWidgetId resolves bitmaskEnum ids', () => {
+    const { SchemaDB } = globalThis;
+    SchemaDB.applySchemaPayload(
+      {
+        classes: [
+          {
+            name: 'BitMaskHost',
+            fields: [
+              {
+                name: 'm_Flags',
+                type: {
+                  category: 'atomic',
+                  name: 'CBitVecEnum',
+                  inner: { category: 'declared_enum', module: 'test', name: 'EFlags_t' }
+                }
+              }
+            ],
+            metadata: []
+          }
+        ],
+        enums: [
+          {
+            name: 'EFlags_t',
+            module: 'test',
+            members: [
+              { name: 'FLAG_B', value: 2 },
+              { name: 'FLAG_A', value: 1 }
+            ]
+          }
+        ]
+      },
+      'cs2'
+    );
+    expect(SchemaDB.getEnumValuesForWidgetId('bitmaskEnum:test::EFlags_t')).toEqual(['FLAG_A', 'FLAG_B']);
+    expect(SchemaDB.getEnumValuesForWidgetId('enum:test::EFlags_t')).toEqual(['FLAG_A', 'FLAG_B']);
+  });
+
   it('applySchemaPayload rejects missing classes array', () => {
     const { SchemaDB } = globalThis;
     expect(() => SchemaDB.applySchemaPayload({ enums: [] }, 'cs2')).toThrow(/classes/);
