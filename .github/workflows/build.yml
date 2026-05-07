@@ -1,18 +1,22 @@
-name: Build & Package
+name: Build & Package (Pake)
 
 on:
   push:
     branches: [ main ]
-    tags:
-      - 'v*.*.*'
+  tags:
+    - 'v*.*.*'
 
 permissions:
   contents: write
 
 jobs:
-  build-windows:
-    name: Build Windows (.exe)
-    runs-on: windows-latest
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -22,20 +26,25 @@ jobs:
         with:
           node-version: 20
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Install dependencies
         run: npm install
 
-      - name: Build native KV3 addon (x64)
-        run: node scripts/build-kv3-addon.js --arch=x64
-
-      - name: Build native prop-tree addon (x64)
-        run: node scripts/build-prop-tree-addon.js --arch=x64
+      - name: Build CM bundle
+        run: npm run build:cm
 
       - name: Run tests
         run: npm test
 
-      - name: Build Windows installer
+      - name: Build with Pake (Windows)
+        if: matrix.os == 'windows-latest'
         run: npm run build:win
+
+      - name: Build with Pake (macOS)
+        if: matrix.os == 'macos-latest'
+        run: npm run build:mac
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
@@ -43,8 +52,12 @@ jobs:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'latest-build' }}
           name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'Latest Build' }}
           prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          files: dist/*.exe
+          files: |
+            *.exe
+            *.dmg
+            *.app.zip
+            dist/*.exe
+            dist/*.dmg
           body: ${{ github.event.head_commit.message }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-

@@ -7,111 +7,13 @@
   "version": "0.1.0",
   "author": "dertwist",
   "scripts": {
-    "start": "electron .",
+    "start": "pake ./index.html --use-local-file --name VDataEditor",
     "test": "vitest",
     "test:examples-full": "node -e \"process.env.VDATA_FULL_EXAMPLES='1';require('node:child_process').spawnSync('npx',['vitest','run','tests/examples-corpus.test.js'],{stdio:'inherit',env:process.env, shell:true})\"",
-    "build:win": "electron-builder --win --publish never",
-    "build:mac": "electron-builder --mac --universal --publish never",
-    "build:native:kv3addon": "node scripts/build-kv3-addon.js",
+    "build:win": "pake ./index.html --use-local-file --name VDataEditor --platform windows",
+    "build:mac": "pake ./index.html --use-local-file --name VDataEditor --platform macos",
     "build:cm": "esbuild src/cm-bundle.js --bundle --outfile=vendor/cm.js --format=iife --global-name=CM --platform=neutral",
     "postinstall": "npm run build:cm"
-  },
-  "build": {
-    "appId": "com.dertwist.vdataeditor",
-    "productName": "VDataEditor",
-    "fileAssociations": [
-      {
-        "ext": "vdata",
-        "name": "VData",
-        "description": "Source 2 generic VData (KV3)",
-        "role": "Editor"
-      },
-      {
-        "ext": "vsmart",
-        "name": "SmartProp",
-        "description": "Source 2 SmartProp (KV3)",
-        "role": "Editor"
-      },
-      {
-        "ext": "vpcf",
-        "name": "Particle system",
-        "description": "Source 2 particle system (KV3)",
-        "role": "Editor"
-      },
-      {
-        "ext": "kv3",
-        "name": "KV3",
-        "description": "Source 2 KeyValues3 text",
-        "role": "Editor"
-      },
-      {
-        "ext": "vsurf",
-        "name": "Surface properties",
-        "description": "Source 2 surface / material properties (KV3)",
-        "role": "Editor"
-      },
-      {
-        "ext": "vsndstck",
-        "name": "Sound stack",
-        "description": "Source 2 sound stack (KV3)",
-        "role": "Editor"
-      },
-      {
-        "ext": "vsndevts",
-        "name": "Sound events",
-        "description": "Source 2 sound events (KV3)",
-        "role": "Editor"
-      },
-      {
-        "ext": "vpulse",
-        "name": "Pulse",
-        "description": "Source 2 Pulse / script graph (KV3)",
-        "role": "Editor"
-      },
-      {
-        "ext": "vmdl",
-        "name": "Model",
-        "description": "Source 2 model compile text / KV3 sidecar",
-        "role": "Editor"
-      },
-      {
-        "ext": "vmat",
-        "name": "Material",
-        "description": "Source 2 material (Valve KeyValues text)",
-        "role": "Editor"
-      }
-    ],
-    "files": [
-      "**/*",
-      "!node_modules/**",
-      ".git/**",
-      "!dist/**",
-      "!*.md"
-    ],
-    "asarUnpack": [
-      "**/*.node"
-    ],
-    "extraResources": [
-      {
-        "from": "extras",
-        "to": "extras"
-      }
-    ],
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "icon": "assets/images/vdata_editor/appicon.ico"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    }
   },
   "devDependencies": {
     "@codemirror/commands": "^6.6.0",
@@ -120,9 +22,9 @@
     "@codemirror/search": "^6.5.0",
     "@codemirror/state": "^6.4.0",
     "@codemirror/view": "^6.34.0",
-    "electron": "^41.0.0",
-    "electron-builder": "^26.8.1",
     "esbuild": "^0.25.0",
+    "pake-cli": "^3.1.2",
     "vitest": "^4.1.0"
   }
 }
+

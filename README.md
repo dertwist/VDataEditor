@@ -52,12 +52,12 @@ A merge file ships with the app as **`extras/fix_win11_freeze.reg`** (also bundl
 
 ### Architecture
 
-VDataEditor follows the usual Electron split:
+VDataEditor is now a lightweight desktop app built with **Pake** (Tauri-based):
 
 | Layer | Role |
 |--------|------|
-| **Main** (`main.js`) | Window lifecycle, native dialogs, filesystem read/write, recent-files list and optional **`preferences.json`** (e.g. `gpuMode` override), IPC handlers. On Windows kernel **26100+** applies **GPU / Chromium mitigations** for DWM freezes automatically unless overridden (**`VDATA_GPU_MODE`**, file, or **`VDATA_WIN24H2_GPU_LIGHT=1`**). File-open from OS (CLI on Windows, `open-file` on macOS) forwards paths to the renderer. |
-| **Preload** (`preload.js`) | Exposes a small `window.electronAPI` surface via `contextBridge` (isolated context; the renderer does not use Node directly). |
+| **Pake Shell** | Lightweight Rust-based window wrapper (replaces Electron main process). |
+| **Shim** (`src/pake-shim.js`) | Provides fallbacks for legacy Electron APIs to ensure web compatibility. |
 | **Renderer** (`index.html`, `style.css`, `editor.js`, …) | All UI: menus, docks, text editing, and the property tree for structured KV3 data. |
 
 `renderer.js` is the stock Electron placeholder. In **`index.html`**, scripts load in dependency order: `format/kv3.js` and `format/keyvalue.js`, then `src/model/` (`kv3-node.js`, `kv3-document.js`), `src/formats/registry.js`, `src/settings/`, `src/modes/index.js`, `icons.js`, `vendor/cm.js`, an inline icon bootstrap, and finally **`editor.js`** (main UI).
@@ -87,10 +87,11 @@ The preload exposes: file read/save, save dialog, app version, **`getPlatform`**
 
 | Command | Purpose |
 |---------|---------|
-| `npm start` | Run the app with Electron. |
+| `npm start` | Run the app locally using Pake. |
 | `npm test` | Run **Vitest** tests under `tests/`. |
 | `npm run build:cm` | Rebuild `vendor/cm.js` from `src/cm-bundle.js`. |
-| `npm run build:win` | Package a Windows installer (see `package.json` `build` block). |
+| `npm run build:win` | Package a Windows installer using Pake. |
+| `npm run build:mac` | Package a macOS app using Pake. |
 
 ### File associations
 
