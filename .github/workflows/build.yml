@@ -48,7 +48,9 @@ jobs:
           prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
           files: |
             *.exe
+            *.msi
             dist/*.exe
+            dist/*.msi
           body: ${{ github.event.head_commit.message }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

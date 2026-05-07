@@ -61,14 +61,14 @@ function main() {
     process.exit(res.status || 1);
   }
 
-  // Move the resulting exe back to the root or dist folder
+  // Move the resulting installer back to the root
   const files = fs.readdirSync(distPake);
-  const exe = files.find(f => f.endsWith('.exe'));
-  if (exe) {
-    const srcExe = path.join(distPake, exe);
-    const destExe = path.join(process.cwd(), exe);
-    fs.copyFileSync(srcExe, destExe);
-    console.log(`Build successful: ${destExe}`);
+  const installer = files.find(f => f.endsWith('.exe') || f.endsWith('.msi'));
+  if (installer) {
+    const src = path.join(distPake, installer);
+    const dest = path.join(process.cwd(), installer);
+    fs.copyFileSync(src, dest);
+    console.log(`Build successful: ${dest}`);
   }
 }
 
