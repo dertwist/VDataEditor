@@ -11,11 +11,8 @@ permissions:
 
 jobs:
   build:
-    name: Build (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [windows-latest, macos-latest]
+    name: Build Windows
+    runs-on: windows-latest
     
     steps:
       - name: Checkout code
@@ -40,13 +37,8 @@ jobs:
         env:
           VDATA_NATIVE_TESTS_SKIP: 1
 
-      - name: Build with Pake (Windows)
-        if: matrix.os == 'windows-latest'
+      - name: Build with Pake
         run: npm run build:win
-
-      - name: Build with Pake (macOS)
-        if: matrix.os == 'macos-latest'
-        run: npm run build:mac
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
@@ -56,10 +48,7 @@ jobs:
           prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
           files: |
             *.exe
-            *.dmg
-            *.app.zip
             dist/*.exe
-            dist/*.dmg
           body: ${{ github.event.head_commit.message }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
