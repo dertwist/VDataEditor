@@ -7,10 +7,10 @@
   "version": "0.1.0",
   "author": "dertwist",
   "scripts": {
-    "start": "pake ./index.html --use-local-file --name VDataEditor",
+    "start": "node scripts/pake-build.js",
     "test": "vitest",
     "test:examples-full": "node -e \"process.env.VDATA_FULL_EXAMPLES='1';require('node:child_process').spawnSync('npx',['vitest','run','tests/examples-corpus.test.js'],{stdio:'inherit',env:process.env, shell:true})\"",
-    "build:win": "pake ./index.html --use-local-file --name VDataEditor",
+    "build:win": "node scripts/pake-build.js",
     "build:cm": "esbuild src/cm-bundle.js --bundle --outfile=vendor/cm.js --format=iife --global-name=CM --platform=neutral",
     "postinstall": "npm run build:cm"
   },
@@ -22,8 +22,8 @@
     "@codemirror/state": "^6.4.0",
     "@codemirror/view": "^6.34.0",
     "esbuild": "^0.25.0",
-    "pake-cli": "^3.1.2",
     "vitest": "^4.1.0"
   }
 }
+
 
