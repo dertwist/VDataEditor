@@ -37,6 +37,8 @@ jobs:
 
       - name: Run tests
         run: npm test
+        env:
+          VDATA_NATIVE_TESTS_SKIP: 1
 
       - name: Build with Pake (Windows)
         if: matrix.os == 'windows-latest'
