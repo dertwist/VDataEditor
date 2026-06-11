@@ -1,102 +1,77 @@
 # VDataEditor
 
-> Desktop editor for Source 2 KV3 files (`.vsmart`, `.vdata`, `.vpcf`, `.kv3`).
+> Desktop editor for Source 2 KV3 files (`.vsmart`, `.vdata`, `.vpcf`, `.kv3`), written in Rust with [egui](https://github.com/emilk/egui) and [egui_tiles](https://github.com/rerun-io/egui_tiles).
 
-VDataEditor is a lightweight desktop tool for viewing, editing, and saving Source 2 data files with both raw text editing and structured property widgets. It is designed for fast iteration when working with Valve resource data and related KV3-based content.
+VDataEditor is a fast desktop tool for viewing, editing, and saving Source 2 data files with both raw text editing and structured property widgets. It is designed for fast iteration when working with Valve resource data and related KV3-based content — including multi-megabyte assets like Deadlock's `abilities.vdata` (7+ MB), which parse in well under a second and render at full frame rate.
 
 [![GitHub release](https://img.shields.io/github/v/release/dertwist/VDataEditor?label=latest&style=flat-square)](https://github.com/dertwist/VDataEditor/releases/latest)
-[![Build & Package](https://img.shields.io/github/actions/workflow/status/dertwist/VDataEditor/build.yml?branch=main&style=flat-square)](https://github.com/dertwist/VDataEditor/actions)
+[![Build & Test](https://img.shields.io/github/actions/workflow/status/dertwist/VDataEditor/build.yml?branch=main&style=flat-square)](https://github.com/dertwist/VDataEditor/actions)
 
 ## Screenshot
 
-![VDataEditor program screenshot](readme/screenshot.png)
+![VDataEditor with the 7.3 MB abilities.vdata open](readme/screenshot.png)
 
-## Download
+## Highlights
 
-| Platform | Stable release | Latest build |
-|----------|---------------|---------------|
-| 🪟 Windows | [**Download .exe**](https://github.com/dertwist/VDataEditor/releases/latest) | [Latest build ↗](https://github.com/dertwist/VDataEditor/releases/tag/latest-build) |
+- **Native Rust application** — single static binary, no browser engine, no Node runtime. Starts instantly and stays at native speed on huge files.
+- **Tiling dock UI** via `egui_tiles`: every document opens as a tab holding a property-tree pane and a raw-text pane. Panes can be dragged into any arrangement (side-by-side documents, stacked text views, …) and reset from the **View** menu.
+- **Round-trip-safe KV3** — comments, typed strings (`resource_name:"…"`, `soundevent:"…"`, `panorama:"…"`), `subclass:` values, multi-line strings, and the document header all survive load → edit → save. The serializer detects and reproduces the formatting style of the original file (generic vs `modeldoc41`, Valve's split container assignment, trailing array commas).
+- **Built for large data assets** — the property tree and the text view are fully virtualized; only visible rows are laid out each frame. Documents over 512 KB show a virtualized read-only text view (editing still flows through the property tree).
+- **Structured editing** — type-aware widgets (checkboxes, drag-values, vector and color editors, enum dropdowns), add/duplicate/delete/rename, type casting, comment-out/uncomment, and full undo/redo with edit coalescing.
+- **Schema support** — the bundled CS2 / Dota 2 / Deadlock schema dumps power enum dropdowns and are loaded on a background thread (Schema menu). Enum-like values are also harvested from the open document itself.
 
-## Project documentation
+## File formats
 
-### Performance
+| Format | Extensions |
+|--------|------------|
+| KV3 (text) | `.vdata`, `.vsmart`, `.vpcf`, `.kv3`, `.vsurf`, `.vsndstck`, `.vsndevts`, `.vpulse`, `.vmdl`, `.vmix`, `.vrman`, `.txt` |
+| KeyValues (legacy) | `.vmat`, `.vmt` |
+| JSON | `.json` |
 
-For keeping the UI responsive (DOM, workers, Electron, profiling), see **[readme/js-performance-guide.md](readme/js-performance-guide.md)**.
+The text pane can additionally display and apply any document as JSON.
 
-### Windows 11 UI freezes (24H2+)
+## Building
 
-Some Windows 11 builds (24H2 and later, e.g. kernel `10.0.26100+`) have a **Desktop Window Manager (DWM) / multi-plane overlay** interaction issue that can make **Chromium and Electron apps** stutter or freeze on ordinary actions (menus, resize, clicks), often with a system beep. This is **not specific to VDataEditor**; it affects other Electron apps as well. macOS is unaffected.
+```sh
+# Run the editor (optionally pass files to open)
+cargo run --release -p vdata-editor -- examples/abilities.vdata
 
-**What VDataEditor does automatically**
+# Run the full test suite, including the large-asset corpus
+cargo test --release
+```
 
-- On **Windows**, if the OS build is **26100 or newer** and the effective GPU mode is **`auto`** (the default), the app applies a **Step 1** Chromium flag bundle at startup (no menu toggle — it runs before the window opens):
-  - `disable-gpu-compositing`
-  - `disable-gpu-vsync`
-  - `disable-software-rasterizer`
-  - `enable-features=UseSkiaRenderer` (exact feature availability follows the **Electron** / Chromium version in `package.json`).
-- Set **`VDATA_WIN24H2_GPU_LIGHT=1`** before launch to use **only** `disable-gpu-compositing` on **26100+** instead of the Step 1 bundle (useful to compare behavior or if a flag causes regressions).
-- **Overrides** (restart required after changing): set **`VDATA_GPU_MODE`** to `auto` (default), `safe`, or `software`, or add **`"gpuMode"`** to **`preferences.json`** in the app **`userData`** folder (`safe` = compositing-only on older Windows; on **26100+** uses the same Step 1 bundle as `auto` unless **`VDATA_WIN24H2_GPU_LIGHT=1`**; **`software`** = full software rendering via `disableHardwareAcceleration()`). Environment variable wins over the file.
+Requires stable Rust (2024 edition). No system dependencies are needed to build; on Linux the usual X11/Wayland runtime libraries are used at runtime.
 
-**Quick checks on an affected PC (e.g. 26100.x)** — restart the app after each change: (1) default (Step 1), (2) **`VDATA_WIN24H2_GPU_LIGHT=1`** to see if the extra flags matter, (3) **`VDATA_GPU_MODE=software`** for maximum app-side mitigation, (4) add the **registry Step 3** below if freezes persist (often fixes all Chromium apps on that machine).
+## Architecture
 
-**System-level fix (recommended for all Chromium apps on that PC)**
+The repository is a Cargo workspace:
 
-Microsoft’s community discussion: [Windows 11 24H2 rendering / freezing with Chromium](https://techcommunity.microsoft.com/discussions/windows11/cause-and-solution-to-windows-24h2-related-renderingpartial-freezing-with-chromi/4435381).
+| Crate | Role |
+|-------|------|
+| [`crates/kv3`](crates/kv3) | Dependency-free parser/serializer for KV3 text and legacy KeyValues. Permissive (never fails; collects diagnostics), byte-oriented, and fast: ~60–110 MB/s parse throughput. |
+| [`crates/vdata-editor`](crates/vdata-editor) | The application: document model, undo/redo, schema loading, and the egui/egui_tiles UI. |
 
-1. Open **Registry Editor** (`Win+R` → `regedit`).
-2. Go to `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\Dwm`.
-3. Create a **DWORD (32-bit)** value named **`OverlayMinFPS`** and set it to **`0`**.
-4. Restart **Desktop Window Manager** (Task Manager → find “Desktop Window Manager” → End task; it restarts), or sign out / reboot.
+Key design points:
 
-A merge file ships with the app as **`extras/fix_win11_freeze.reg`** (also bundled next to the app in packaged builds). In the desktop app on Windows, use **Help → Windows 11 UI freezes (registry fix)…** to open that file (confirm the merge when Windows prompts). Administrator rights may be required for `HKEY_LOCAL_MACHINE`.
+- **Arena document model** (`vdata-editor/src/model.rs`): the parsed tree is converted into a flat arena with stable `u32` node ids. Undo commands reference ids; removed subtrees stay in the arena so undo can re-attach them.
+- **Command-based history** (`history.rs`): every edit is an invertible command; rapid scalar edits (slider scrubs, typing) coalesce into one undo step (200-step cap per document).
+- **Virtualized rendering** (`ui/tree.rs`, `ui/text.rs`): a cached flattened row list plus `ScrollArea::show_rows` keeps per-frame cost proportional to the visible rows, not the document size.
+- **Background work**: schema parsing and file dialogs run on worker threads; the text pane resyncs ~300 ms after edits settle, so dragging a slider never blocks on serializing a 7 MB document.
 
-### Architecture
+## Testing
 
-VDataEditor is now a lightweight desktop app built with **Pake** (Tauri-based):
+`cargo test --release` covers:
 
-| Layer | Role |
-|--------|------|
-| **Pake Shell** | Lightweight Rust-based window wrapper (replaces Electron main process). |
-| **Shim** (`src/pake-shim.js`) | Provides fallbacks for legacy Electron APIs to ensure web compatibility. |
-| **Renderer** (`index.html`, `style.css`, `editor.js`, …) | All UI: menus, docks, text editing, and the property tree for structured KV3 data. |
+- the complete KV3 test suite ported from the original JavaScript implementation (headers, typed values, subclass, comments, block comments, modeldoc41 style);
+- a round-trip corpus over every file in `examples/` — including the 7.3 MB `abilities.vdata` and 2.3 MB `heroes.vdata` — asserting parse-issue-free loads, semantic equality after re-serialization, and serializer idempotence;
+- a synthetic ~50 MB / 2-million-node stress document;
+- arena/undo/search unit tests and headless UI tests that drive the full application against the large assets (`crates/vdata-editor/tests/`).
 
-`renderer.js` is the stock Electron placeholder. In **`index.html`**, scripts load in dependency order: `format/kv3.js` and `format/keyvalue.js`, then `src/model/` (`kv3-node.js`, `kv3-document.js`), `src/formats/registry.js`, `src/settings/`, `src/modes/index.js`, `icons.js`, `vendor/cm.js`, an inline icon bootstrap, and finally **`editor.js`** (main UI).
+## Examples & schemas
 
-### Text editing
+- `examples/` — real Valve sample files used by the test corpus.
+- `schemas/` — class/enum dumps for CS2, Dota 2 and Deadlock (from [SchemaExplorer](https://github.com/ValveResourceFormat/SchemaExplorer)) consumed by the Schema menu.
 
-**CodeMirror 6** is not pulled from `node_modules` at runtime. Source lives in `src/cm-bundle.js` and is bundled to **`vendor/cm.js`** with esbuild (`npm run build:cm`). That step runs on **`npm install`** via `postinstall`. After changing editor dependencies or `src/cm-bundle.js`, rebuild the vendor file before testing.
+## Contributing
 
-### Data layer
-
-- **`format/kv3.js`** and **`format/keyvalue.js`** — parse and serialize KV3 / KeyValues text. Round-trip behavior is covered by tests; changes here should keep fixtures and assertions in sync.
-- **`src/model/kv3-document.js`**, **`src/model/kv3-node.js`** — document model helpers used by the UI.
-- **`src/formats/registry.js`** — maps file extension plus document shape (`generic_data_type`, particle `_class`, etc.) to **widget profiles** (labels and dispatch for the property panel). Extend `PROFILES` when adding a new typed profile.
-- **`src/modes/index.js`** — property editor **mode registry**: schema hints and custom widgets per file type (`vsmart`, particle types, etc.), exposed as `window.VDataEditorModes`. Loaded before `editor.js`.
-- **`src/settings/`** — widget config and system config (`widget-config.js`, `system-config.js`).
-
-### IPC surface (`electronAPI`)
-
-The preload exposes: file read/save, save dialog, app version, **`getPlatform`**, **`openWin11FreezeReg`** (opens the bundled DWM registry helper on Windows), recent files (get/clear/add, and `onRecentFilesUpdated`), `onOpenFile`, and window actions (quit, minimize, zoom, fullscreen). New main-process features should add a matching handler in `main.js` and a typed bridge in `preload.js`.
-
-### Assets
-
-- **`icons.js`** — inline SVG icons consumed by `index.html` for menus and toolbars.
-- **`assets/images/`** — app icon, file-type and UI imagery referenced from HTML/CSS.
-
-### Scripts
-
-| Command | Purpose |
-|---------|---------|
-| `npm start` | Run the app locally using Pake. |
-| `npm test` | Run **Vitest** tests under `tests/`. |
-| `npm run build:cm` | Rebuild `vendor/cm.js` from `src/cm-bundle.js`. |
-| `npm run build:win` | Package a Windows installer using Pake. |
-| `npm run build:mac` | Package a macOS app using Pake. |
-
-### File associations
-
-Supported extensions for “open with” and CLI are defined in **`main.js`** (`OPEN_FILE_EXTENSIONS` / `OPEN_FILE_RE`) and should stay aligned with **`package.json`** `build.fileAssociations` so the packaged app and dev behavior match.
-
-### Contributing
-
-When you change parsing, serialization, or document structure, run **`npm test`** and update or add tests under `tests/`. Prefer edits that follow patterns and naming in the surrounding files.
+When changing parsing, serialization, or the document structure, run `cargo test --release` and keep the corpus green. Prefer edits that follow the patterns and naming of the surrounding code.

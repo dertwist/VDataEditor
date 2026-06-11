@@ -1,56 +1,55 @@
-name: Build & Package (Pake)
+name: Build & Test
 
 on:
   push:
-    branches: [ main ]
+    branches: [main, egui]
     tags:
       - 'v*.*.*'
+  pull_request:
+  workflow_dispatch:
 
-permissions:
-  contents: write
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-    name: Build Windows
-    runs-on: windows-latest
-    
+  test:
+    name: Test (Linux)
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run tests (includes large-asset corpus)
+        run: cargo test --release --workspace
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+  build-windows:
+    name: Build (Windows)
+    runs-on: windows-latest
+    needs: test
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build release binary
+        run: cargo build --release -p vdata-editor
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path package | Out-Null
+          Copy-Item target/release/vdata-editor.exe package/VDataEditor.exe
+          Copy-Item -Recurse schemas package/schemas
+          Compress-Archive -Path package/* -DestinationPath VDataEditor-windows-x64.zip
+      - uses: actions/upload-artifact@v4
         with:
-          node-version: 20
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Build CM bundle
-        run: npm run build:cm
-
-      - name: Run tests
-        run: npm test
-        env:
-          VDATA_NATIVE_TESTS_SKIP: 1
-
-      - name: Build with Pake
-        run: npm run build:win
-
+          name: VDataEditor-windows-x64
+          path: VDataEditor-windows-x64.zip
       - name: Upload to GitHub Release
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'latest-build' }}
           name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'Latest Build' }}
           prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          files: |
-            *.exe
-            *.msi
-            dist/*.exe
-            dist/*.msi
-          body: ${{ github.event.head_commit.message }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          files: VDataEditor-windows-x64.zip

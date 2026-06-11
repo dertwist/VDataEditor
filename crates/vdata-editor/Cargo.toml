@@ -1,0 +1,25 @@
+[package]
+name = "vdata-editor"
+description = "Desktop editor for Source 2 KV3 files (.vsmart, .vdata, .vpcf, .kv3) built with egui and egui_tiles."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "vdata-editor"
+path = "src/main.rs"
+
+[dependencies]
+kv3.workspace = true
+egui.workspace = true
+eframe.workspace = true
+egui_tiles.workspace = true
+rfd.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+image.workspace = true
+
+[dev-dependencies]
+egui_kittest.workspace = true

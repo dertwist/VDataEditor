@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = ["crates/kv3", "crates/vdata-editor"]
+
+[workspace.package]
+version = "2.0.0"
+edition = "2024"
+authors = ["dertwist"]
+repository = "https://github.com/dertwist/VDataEditor"
+license = "MIT"
+
+[workspace.dependencies]
+kv3 = { path = "crates/kv3" }
+egui = "0.34.3"
+eframe = { version = "0.34.3", features = ["persistence"] }
+egui_tiles = { version = "0.15.0", features = ["serde"] }
+rfd = "0.17.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+image = { version = "0.25", default-features = false, features = ["ico", "png"] }
+egui_kittest = { version = "0.34.3", features = ["wgpu", "snapshot"] }
+
+# Fast enough for large-asset tests even without --release.
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+opt-level = 3
+lto = "thin"

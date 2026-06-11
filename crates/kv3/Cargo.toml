@@ -1,0 +1,10 @@
+[package]
+name = "kv3"
+description = "Parser and serializer for Valve Source 2 KV3 text files and legacy KeyValues (VMT/VMAT), with comment and header preservation."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]

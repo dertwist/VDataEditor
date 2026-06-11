@@ -1,9 +1,2 @@
-node_modules/
-dist/
-out/
+/target
 .DS_Store
-
-# Native addon build artifacts (C++/N-API)
-native/**/build/
-native/**/prebuilds/
-native/**/*.node
