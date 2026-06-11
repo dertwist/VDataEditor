@@ -50,6 +50,19 @@ pub enum TreeAction {
     DuplicateMany(Vec<NodeId>),
     CommentOutMany(Vec<NodeId>),
     CastMany(Vec<NodeId>, CastTarget),
+    /// Drag-and-drop reorder: drop `id` before/after `target` (same parent).
+    MoveTo {
+        id: NodeId,
+        target: NodeId,
+        after: bool,
+    },
+}
+
+/// Payload carried while dragging a tree row.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct DragRow {
+    doc: crate::doc::DocId,
+    id: NodeId,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -252,6 +265,22 @@ pub fn show(
 
     doc.tree_view.flat = flat;
 
+    // Floating label following the pointer while one of our rows is dragged.
+    if let Some(drag) = egui::DragAndDrop::payload::<DragRow>(ui.ctx()) {
+        if drag.doc == doc.id {
+            if let Some(pos) = ui.ctx().pointer_interact_pos() {
+                egui::Area::new(egui::Id::new(("drag-label", doc.id)))
+                    .fixed_pos(pos + egui::vec2(12.0, 6.0))
+                    .order(egui::Order::Tooltip)
+                    .show(ui.ctx(), |ui| {
+                        egui::Frame::popup(ui.style()).show(ui, |ui| {
+                            ui.label(doc.model.label(drag.id));
+                        });
+                    });
+            }
+        }
+    }
+
     for action in actions {
         apply_action(doc, action);
     }
@@ -285,12 +314,32 @@ fn row_ui(
     let total_width = ui.available_width();
     let key_col = (total_width * 0.40).clamp(140.0, 460.0);
 
-    ui.allocate_ui_with_layout(
+    let row_response = ui.allocate_ui_with_layout(
         Vec2::new(total_width, ROW_HEIGHT),
         Layout::left_to_right(Align::Center),
         |ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
-            ui.add_space(4.0 + depth as f32 * 14.0);
+            ui.add_space(2.0 + depth as f32 * 14.0);
+
+            // Drag handle for reordering within the parent (the old editor's
+            // ⋮⋮ handle). The root has nothing to reorder against.
+            if id != doc.model.root() {
+                let drag_id = egui::Id::new(("row-drag", doc.id, id));
+                let handle = ui
+                    .dnd_drag_source(
+                        drag_id,
+                        DragRow { doc: doc.id, id },
+                        |ui| {
+                            ui.label(RichText::new("⋮").color(palette.dim).small());
+                        },
+                    )
+                    .response;
+                if handle.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                }
+            } else {
+                ui.add_space(7.0);
+            }
 
             // Expand/collapse triangle (Valve-style arrow PNGs, hover variant).
             let is_container = doc.model.is_container(id);
@@ -343,6 +392,48 @@ fn row_ui(
             value_ui(ui, doc, schema, palette, id, actions);
         },
     );
+
+    // Drop target: while a sibling row is being dragged, show an insertion
+    // line above/below this row and reorder on release.
+    let row_rect = row_response.response.rect;
+    let drop_resp = ui.interact(
+        row_rect,
+        egui::Id::new(("row-drop", doc.id, id)),
+        Sense::hover(),
+    );
+    let same_parent_drag = |drag: &DragRow| {
+        drag.doc == doc.id
+            && drag.id != id
+            && doc.model.node(drag.id).parent.is_some()
+            && doc.model.node(drag.id).parent == doc.model.node(id).parent
+    };
+    if let Some(drag) = drop_resp.dnd_hover_payload::<DragRow>() {
+        if same_parent_drag(&drag) {
+            let after = ui
+                .ctx()
+                .pointer_interact_pos()
+                .is_some_and(|p| p.y > row_rect.center().y);
+            let y = if after { row_rect.bottom() } else { row_rect.top() };
+            ui.painter().hline(
+                row_rect.x_range(),
+                y,
+                egui::Stroke::new(2.0, ui.visuals().selection.stroke.color),
+            );
+        }
+    }
+    if let Some(drag) = drop_resp.dnd_release_payload::<DragRow>() {
+        if same_parent_drag(&drag) {
+            let after = ui
+                .ctx()
+                .pointer_interact_pos()
+                .is_some_and(|p| p.y > row_rect.center().y);
+            actions.push(TreeAction::MoveTo {
+                id: drag.id,
+                target: id,
+                after,
+            });
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1303,6 +1394,30 @@ pub fn apply_action(doc: &mut Document, action: TreeAction) {
             doc.history.push(model, Cmd::Batch(cmds), label);
             doc.mark_edited();
         }
+        TreeAction::MoveTo { id, target, after } => {
+            let (Some((parent_a, from)), Some((parent_b, target_idx))) =
+                (model.index_in_parent(id), model.index_in_parent(target))
+            else {
+                return;
+            };
+            if parent_a != parent_b {
+                return;
+            }
+            let to = reorder_target_index(from, target_idx, after);
+            if to == from {
+                return;
+            }
+            doc.history.push(
+                model,
+                Cmd::Move {
+                    parent: parent_a,
+                    from,
+                    to,
+                },
+                "Reorder",
+            );
+            doc.mark_edited();
+        }
         TreeAction::CastMany(ids, target) => {
             let mut cmds = Vec::new();
             for id in ids {
@@ -1320,6 +1435,17 @@ pub fn apply_action(doc: &mut Document, action: TreeAction) {
             doc.mark_edited();
         }
     }
+}
+
+/// Insertion index for dropping before/after `target`, accounting for the
+/// dragged element being removed from `from` first (`Vec::remove` +
+/// `Vec::insert` semantics of [`DocModel::move_child`]).
+fn reorder_target_index(from: usize, target: usize, after: bool) -> usize {
+    let mut to = target + after as usize;
+    if from < to {
+        to -= 1;
+    }
+    to
 }
 
 /// Resolve a multi-selection into `(parent, index, id)` triples safe to
@@ -1563,6 +1689,60 @@ mod tests {
             ));
         }
         assert_eq!(doc.history.depth(), 1);
+        doc.history.undo(&mut doc.model);
+        assert_eq!(doc.model.to_value(), before);
+    }
+
+    #[test]
+    fn reorder_index_accounts_for_removal() {
+        // Dropping below a later sibling: removal shifts the target left.
+        assert_eq!(reorder_target_index(0, 2, true), 2);
+        assert_eq!(reorder_target_index(0, 2, false), 1);
+        // Dropping above an earlier sibling: indices unaffected by removal.
+        assert_eq!(reorder_target_index(3, 1, false), 1);
+        assert_eq!(reorder_target_index(3, 1, true), 2);
+        // No-op drops resolve to the original index.
+        assert_eq!(reorder_target_index(2, 2, false), 2);
+        assert_eq!(reorder_target_index(1, 0, true), 1);
+    }
+
+    #[test]
+    fn move_to_reorders_and_undoes() {
+        let mut doc = Document::from_text(1, "{ a = 1 b = 2 c = 3 }", "t.vdata".into(), None);
+        let before = doc.model.to_value();
+        let root = doc.model.root();
+        let kids = doc.model.children(root).to_vec();
+        let keys = |doc: &Document| -> Vec<String> {
+            doc.model
+                .children(doc.model.root())
+                .iter()
+                .map(|&c| doc.model.node(c).key.clone())
+                .collect()
+        };
+
+        // Drag a below c.
+        apply_action(
+            &mut doc,
+            TreeAction::MoveTo {
+                id: kids[0],
+                target: kids[2],
+                after: true,
+            },
+        );
+        assert_eq!(keys(&doc), ["b", "c", "a"]);
+
+        // Drag c above b (now first).
+        apply_action(
+            &mut doc,
+            TreeAction::MoveTo {
+                id: kids[2],
+                target: kids[1],
+                after: false,
+            },
+        );
+        assert_eq!(keys(&doc), ["c", "b", "a"]);
+
+        doc.history.undo(&mut doc.model);
         doc.history.undo(&mut doc.model);
         assert_eq!(doc.model.to_value(), before);
     }
