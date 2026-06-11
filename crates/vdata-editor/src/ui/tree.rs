@@ -15,6 +15,7 @@ use crate::schema::SchemaDb;
 
 use super::icons;
 use super::theme::Palette;
+use super::widgets;
 
 pub const ROW_HEIGHT: f32 = 22.0;
 
@@ -169,6 +170,27 @@ pub fn show(
     focus_search: &mut bool,
 ) {
     let mut actions: Vec<TreeAction> = Vec::new();
+
+    // Resolve a finished resource-browse dialog into an edit.
+    if let Some((id, kind, rx)) = doc.tree_view.pending_pick.take() {
+        match rx.try_recv() {
+            Ok(Some(path)) => {
+                let base = doc.file_path.as_deref().and_then(|p| p.parent());
+                let value = widgets::relativize_path(&path, base);
+                actions.push(TreeAction::SetScalar {
+                    id,
+                    new: Scalar::Typed { kind, value },
+                    label: "Pick resource",
+                });
+            }
+            Ok(None) => {} // dialog cancelled
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                doc.tree_view.pending_pick = Some((id, kind, rx));
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {}
+        }
+    }
 
     // ---- Toolbar ----
     ui.horizontal(|ui| {
@@ -658,19 +680,17 @@ fn value_ui(
             }
         }
         Payload::Scalar(Scalar::Int(i)) => {
-            let mut v = i;
-            if ui.add(DragValue::new(&mut v).speed(1)).changed() {
+            // Paired input + adaptive-range slider, like the old number.js.
+            if let Some(v) = widgets::slider_input(ui, ("num", id), i as f64, true) {
                 actions.push(TreeAction::SetScalar {
                     id,
-                    new: Scalar::Int(v),
+                    new: Scalar::Int(v as i64),
                     label: "Edit number",
                 });
             }
         }
         Payload::Scalar(Scalar::Double(d)) => {
-            let mut v = d;
-            let speed = (v.abs() * 0.01).clamp(0.01, 10.0);
-            if ui.add(DragValue::new(&mut v).speed(speed)).changed() {
+            if let Some(v) = widgets::slider_input(ui, ("num", id), d, false) {
                 actions.push(TreeAction::SetScalar {
                     id,
                     new: Scalar::Double(v),
@@ -683,12 +703,38 @@ fn value_ui(
         }
         Payload::Scalar(Scalar::Typed { kind, value }) => {
             ui.label(RichText::new(format!("{kind}:")).color(palette.typed).small());
-            let avail = ui.available_width() - 8.0;
+            let avail = ui.available_width() - 34.0;
             if let Some(new) = editable_text(ui, ("typed", id), &value, avail, None) {
                 actions.push(TreeAction::SetScalar {
                     id,
-                    new: Scalar::Typed { kind, value: new },
+                    new: Scalar::Typed {
+                        kind: kind.clone(),
+                        value: new,
+                    },
                     label: "Edit value",
+                });
+            }
+            // Browse button with the original per-kind file filters.
+            let glyph = widgets::resource_button_glyph(&kind);
+            let browse = ui.small_button(glyph).on_hover_text(match kind.as_str() {
+                "soundevent" => "Sound event",
+                "panorama" => "Panorama path",
+                _ => "Resource path",
+            });
+            if browse.clicked() && doc.tree_view.pending_pick.is_none() {
+                let (filter_name, extensions) = widgets::resource_filters(&kind);
+                let dir = doc
+                    .file_path
+                    .as_deref()
+                    .and_then(|p| p.parent().map(std::path::Path::to_path_buf));
+                let (tx, rx) = std::sync::mpsc::channel();
+                doc.tree_view.pending_pick = Some((id, kind, rx));
+                std::thread::spawn(move || {
+                    let mut dialog = rfd::FileDialog::new().add_filter(filter_name, extensions);
+                    if let Some(dir) = dir {
+                        dialog = dialog.set_directory(dir);
+                    }
+                    let _ = tx.send(dialog.pick_file());
                 });
             }
         }
@@ -708,7 +754,7 @@ fn value_ui(
             ui.label(RichText::new("null").color(palette.badge_null).italics());
         }
         Payload::Array(children) => {
-            if !inline_vector_ui(ui, doc, palette, id, &children, actions) {
+            if !inline_vector_ui(ui, doc, schema, palette, id, &children, actions) {
                 container_summary_ui(ui, doc, palette, id, false);
             }
         }
@@ -844,9 +890,11 @@ fn string_value_ui(
 
 /// Inline editors for short numeric arrays (vectors and colors).
 /// Returns false when the array should render as a normal container row.
+#[allow(clippy::too_many_arguments)]
 fn inline_vector_ui(
     ui: &mut egui::Ui,
     doc: &mut Document,
+    schema: Option<&SchemaDb>,
     palette: &Palette,
     id: NodeId,
     children: &[NodeId],
@@ -863,9 +911,13 @@ fn inline_vector_ui(
         }
     }
 
-    // Color swatch for [r, g, b] / [r, g, b, a] byte arrays under *color* keys.
+    // Color swatch for [r, g, b] / [r, g, b, a] byte arrays under *color*
+    // keys, or fields the game schema declares as `Color`.
     let key = &doc.model.node(id).key;
-    let is_colorish = ci_contains(key, "color")
+    let schema_says_color = schema
+        .and_then(|db| db.field_widgets.get(key))
+        .is_some_and(|hint| *hint == crate::schema::WidgetHint::Color);
+    let is_colorish = (ci_contains(key, "color") || schema_says_color)
         && children.len() >= 3
         && values
             .iter()
@@ -896,26 +948,33 @@ fn inline_vector_ui(
         }
     }
 
-    const AXES: [&str; 4] = ["x", "y", "z", "w"];
+    // Per-component editors with the original axis/channel badges
+    // (X/Y/Z/W from vec.js, R/G/B/A from color.js). Expanding the array
+    // exposes full slider+input rows per component.
+    const AXES: [&str; 4] = ["X", "Y", "Z", "W"];
+    const CHANNELS: [&str; 4] = ["R", "G", "B", "A"];
+    let labels = if is_colorish { &CHANNELS } else { &AXES };
     for (i, &child) in children.iter().enumerate() {
-        if !is_colorish {
-            ui.label(RichText::new(AXES[i]).color(palette.dim).small());
-        }
+        ui.label(RichText::new(labels[i]).color(palette.dim).small());
         match values[i] {
             Scalar::Int(v) => {
                 let mut v = v;
-                if ui.add(DragValue::new(&mut v).speed(1)).changed() {
+                let mut drag = DragValue::new(&mut v).speed(1);
+                if is_colorish {
+                    drag = drag.range(0..=255);
+                }
+                if ui.add(drag).changed() {
                     actions.push(TreeAction::SetScalar {
                         id: child,
                         new: Scalar::Int(v),
-                        label: "Edit vector",
+                        label: if is_colorish { "Edit color" } else { "Edit vector" },
                     });
                 }
             }
             Scalar::Double(v) => {
                 let mut v = v;
                 let speed = (v.abs() * 0.01).clamp(0.01, 10.0);
-                if ui.add(DragValue::new(&mut v).speed(speed)).changed() {
+                if ui.add(DragValue::new(&mut v).speed(speed).max_decimals(6)).changed() {
                     actions.push(TreeAction::SetScalar {
                         id: child,
                         new: Scalar::Double(v),

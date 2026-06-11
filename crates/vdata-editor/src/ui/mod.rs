@@ -5,3 +5,4 @@ pub mod status;
 pub mod text;
 pub mod theme;
 pub mod tree;
+pub mod widgets;

@@ -122,6 +122,12 @@ pub struct TreeView {
     pub renaming: Option<(NodeId, String)>,
     /// Row index to scroll to on the next frame.
     pub scroll_to_row: Option<usize>,
+    /// Resource browse dialog in flight: target node, typed kind, receiver.
+    pub pending_pick: Option<(
+        NodeId,
+        String,
+        std::sync::mpsc::Receiver<Option<std::path::PathBuf>>,
+    )>,
 }
 
 impl TreeView {
