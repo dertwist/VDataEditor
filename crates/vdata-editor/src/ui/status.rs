@@ -55,9 +55,20 @@ pub fn status_bar(
             });
         }
 
-        if let Some(selected) = doc.tree_view.selected {
-            ui.separator();
-            ui.label(RichText::new(doc.model.path(selected)).color(palette.key).small());
+        match doc.tree_view.selected.len() {
+            0 => {}
+            1 => {
+                if let Some(selected) = doc.tree_view.last_selected() {
+                    ui.separator();
+                    ui.label(
+                        RichText::new(doc.model.path(selected)).color(palette.accent).small(),
+                    );
+                }
+            }
+            n => {
+                ui.separator();
+                ui.label(RichText::new(format!("{n} rows selected")).color(palette.accent).small());
+            }
         }
 
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {

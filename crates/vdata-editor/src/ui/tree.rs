@@ -13,6 +13,7 @@ use crate::history::Cmd;
 use crate::model::{DocModel, NodeId, Payload, Scalar};
 use crate::schema::SchemaDb;
 
+use super::icons;
 use super::theme::Palette;
 
 pub const ROW_HEIGHT: f32 = 22.0;
@@ -43,6 +44,11 @@ pub enum TreeAction {
     },
     ToggleSubclass(NodeId),
     MoveBy(NodeId, isize),
+    /// Bulk variants operate on the multi-selection as one undo step.
+    DeleteMany(Vec<NodeId>),
+    DuplicateMany(Vec<NodeId>),
+    CommentOutMany(Vec<NodeId>),
+    CastMany(Vec<NodeId>, CastTarget),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -167,6 +173,7 @@ pub fn show(
     // ---- Toolbar ----
     ui.horizontal(|ui| {
         ui.add_space(2.0);
+        ui.add(icons::img(icons::FILTER));
         let search =
             egui::TextEdit::singleline(&mut doc.tree_view.search).hint_text("Search… (Ctrl+F)");
         let resp = ui.add(search);
@@ -178,10 +185,18 @@ pub fn show(
             doc.tree_view.search.clear();
         }
         ui.separator();
-        if ui.small_button("Expand all").clicked() {
+        if ui
+            .add(egui::Button::image(icons::img(icons::EXPAND_ALL)))
+            .on_hover_text("Expand all")
+            .clicked()
+        {
             doc.model.expand_all(true);
         }
-        if ui.small_button("Collapse").clicked() {
+        if ui
+            .add(egui::Button::image(icons::img(icons::COLLAPSE_ALL)))
+            .on_hover_text("Collapse all")
+            .clicked()
+        {
             doc.model.expand_all(false);
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -209,7 +224,7 @@ pub fn show(
         ui.set_min_width(ui.available_width());
         for index in range {
             let (id, depth) = flat[index];
-            row_ui(ui, doc, schema, palette, id, depth, &mut actions);
+            row_ui(ui, doc, schema, palette, id, depth, &flat, &mut actions);
         }
     });
 
@@ -225,9 +240,8 @@ fn type_badge(model: &DocModel, id: NodeId, palette: &Palette) -> (&'static str,
         Payload::Object(_) => ("{}", palette.badge_object),
         Payload::Array(_) => ("[]", palette.badge_array),
         Payload::Scalar(Scalar::Str(_)) => ("ab", palette.badge_string),
-        Payload::Scalar(Scalar::Int(_)) | Payload::Scalar(Scalar::Double(_)) => {
-            ("#", palette.badge_number)
-        }
+        Payload::Scalar(Scalar::Int(_)) => ("#", palette.num_int),
+        Payload::Scalar(Scalar::Double(_)) => ("#", palette.num_float),
         Payload::Scalar(Scalar::Bool(_)) => ("✓", palette.badge_bool),
         Payload::Scalar(Scalar::Typed { .. }) => ("::", palette.badge_typed),
         Payload::Scalar(Scalar::Comment(_)) => ("//", palette.badge_comment),
@@ -235,6 +249,7 @@ fn type_badge(model: &DocModel, id: NodeId, palette: &Palette) -> (&'static str,
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn row_ui(
     ui: &mut egui::Ui,
     doc: &mut Document,
@@ -242,6 +257,7 @@ fn row_ui(
     palette: &Palette,
     id: NodeId,
     depth: u16,
+    flat: &[(NodeId, u16)],
     actions: &mut Vec<TreeAction>,
 ) {
     let total_width = ui.available_width();
@@ -254,15 +270,27 @@ fn row_ui(
             ui.spacing_mut().item_spacing.x = 4.0;
             ui.add_space(4.0 + depth as f32 * 14.0);
 
-            // Expand/collapse triangle.
+            // Expand/collapse triangle (Valve-style arrow PNGs, hover variant).
             let is_container = doc.model.is_container(id);
             if is_container {
                 let expanded = doc.model.node(id).expanded;
-                let icon = if expanded { "⏷" } else { "⏵" };
-                if ui
-                    .add(Label::new(RichText::new(icon).color(palette.dim)).sense(Sense::click()))
-                    .clicked()
-                {
+                let normal = if expanded { icons::ARROW_OPEN } else { icons::ARROW_CLOSED };
+                let resp = ui.add(
+                    egui::Image::new(normal)
+                        .fit_to_exact_size(egui::Vec2::splat(12.0))
+                        .sense(Sense::click()),
+                );
+                if resp.hovered() {
+                    let hover = if expanded {
+                        icons::ARROW_OPEN_HOVER
+                    } else {
+                        icons::ARROW_CLOSED_HOVER
+                    };
+                    egui::Image::new(hover)
+                        .fit_to_exact_size(egui::Vec2::splat(12.0))
+                        .paint_at(ui, resp.rect);
+                }
+                if resp.clicked() {
                     doc.model.set_expanded(id, !expanded);
                 }
             } else {
@@ -284,7 +312,7 @@ fn row_ui(
                     if renaming {
                         rename_ui(ui, doc, id, actions);
                     } else {
-                        key_ui(ui, doc, palette, id, is_container, actions);
+                        key_ui(ui, doc, palette, id, is_container, flat, actions);
                     }
                 },
             );
@@ -295,26 +323,32 @@ fn row_ui(
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn key_ui(
     ui: &mut egui::Ui,
     doc: &mut Document,
     palette: &Palette,
     id: NodeId,
     is_container: bool,
+    flat: &[(NodeId, u16)],
     actions: &mut Vec<TreeAction>,
 ) {
     let model = &doc.model;
     let node = model.node(id);
     let label = model.label(id);
-    let selected = doc.tree_view.selected == Some(id);
+    let selected = doc.tree_view.selected.contains(&id);
     let is_array_item = node.key.is_empty() && id != model.root();
     let is_comment = matches!(node.payload, Payload::Scalar(Scalar::Comment(_)));
 
     let mut text = RichText::new(if label.is_empty() { "·".to_owned() } else { label });
+    // Matches the original CSS: `.prop-key` uses --text-secondary while
+    // `.prop-row.is-object > .prop-key` uses --text-primary.
     text = if is_comment {
         text.color(palette.comment)
     } else if is_array_item {
         text.color(palette.dim)
+    } else if is_container {
+        text.color(palette.key_object)
     } else {
         text.color(palette.key)
     };
@@ -324,7 +358,31 @@ fn key_ui(
 
     let resp = ui.add(Label::new(text).truncate().sense(Sense::click()));
     if resp.clicked() {
-        doc.tree_view.selected = Some(id);
+        let modifiers = ui.input(|i| i.modifiers);
+        let view = &mut doc.tree_view;
+        if modifiers.shift {
+            // Range-select between the anchor row and this row.
+            let anchor = view.anchor.unwrap_or(id);
+            let a = flat.iter().position(|&(n, _)| n == anchor);
+            let b = flat.iter().position(|&(n, _)| n == id);
+            if let (Some(a), Some(b)) = (a, b) {
+                if !modifiers.command {
+                    view.selected.clear();
+                }
+                for &(n, _) in &flat[a.min(b)..=a.max(b)] {
+                    view.selected.insert(n);
+                }
+            } else {
+                view.select_only(id);
+            }
+        } else if modifiers.command {
+            if !view.selected.remove(&id) {
+                view.selected.insert(id);
+            }
+            view.anchor = Some(id);
+        } else {
+            view.select_only(id);
+        }
     }
     if resp.double_clicked() && !node.key.is_empty() {
         doc.tree_view.renaming = Some((id, node.key.clone()));
@@ -334,9 +392,81 @@ fn key_ui(
     }
 
     resp.context_menu(|ui| {
-        context_menu_ui(ui, doc, id, is_container, actions);
+        // Right-clicking an unselected row targets just that row.
+        if !doc.tree_view.selected.contains(&id) {
+            doc.tree_view.select_only(id);
+        }
+        if doc.tree_view.selected.len() > 1 {
+            bulk_context_menu_ui(ui, doc, actions);
+        } else {
+            context_menu_ui(ui, doc, id, is_container, actions);
+        }
     });
 }
+
+/// Context menu shown when several rows are selected: bulk operations that
+/// land in the history as a single undo step.
+fn bulk_context_menu_ui(ui: &mut egui::Ui, doc: &Document, actions: &mut Vec<TreeAction>) {
+    let ids: Vec<NodeId> = doc
+        .tree_view
+        .selected
+        .iter()
+        .copied()
+        .filter(|&id| id != doc.model.root())
+        .collect();
+    let n = ids.len();
+    ui.label(RichText::new(format!("{n} rows selected")).small());
+    ui.separator();
+    if ui
+        .add(egui::Button::image_and_text(
+            icons::img(icons::DUPLICATE),
+            format!("Duplicate {n}"),
+        ))
+        .clicked()
+    {
+        actions.push(TreeAction::DuplicateMany(ids.clone()));
+        ui.close();
+    }
+    if ui
+        .add(egui::Button::image_and_text(icons::img(icons::EDIT_PENCIL), format!("Comment out {n}")))
+        .clicked()
+    {
+        actions.push(TreeAction::CommentOutMany(ids.clone()));
+        ui.close();
+    }
+    ui.menu_button(format!("Cast {n} to"), |ui| {
+        for (label, target) in CAST_TARGETS {
+            if ui.button(*label).clicked() {
+                actions.push(TreeAction::CastMany(ids.clone(), *target));
+                ui.close();
+            }
+        }
+    });
+    ui.separator();
+    if ui
+        .add(egui::Button::image_and_text(
+            icons::img(icons::DELETE),
+            RichText::new(format!("Delete {n}")).color(ui.visuals().error_fg_color),
+        ))
+        .clicked()
+    {
+        actions.push(TreeAction::DeleteMany(ids));
+        ui.close();
+    }
+}
+
+const CAST_TARGETS: &[(&str, CastTarget)] = &[
+    ("String", CastTarget::Str),
+    ("Int", CastTarget::Int),
+    ("Float", CastTarget::Double),
+    ("Bool", CastTarget::Bool),
+    ("Null", CastTarget::Null),
+    ("Object", CastTarget::Object),
+    ("Array", CastTarget::Array),
+    ("resource_name:", CastTarget::Resource),
+    ("soundevent:", CastTarget::Soundevent),
+    ("panorama:", CastTarget::Panorama),
+];
 
 fn rename_ui(ui: &mut egui::Ui, doc: &mut Document, id: NodeId, actions: &mut Vec<TreeAction>) {
     let Some((_, buf)) = &mut doc.tree_view.renaming else {
@@ -374,7 +504,7 @@ fn context_menu_ui(
     let is_root = id == model.root();
 
     if is_container {
-        ui.menu_button("Add child", |ui| {
+        ui.menu_image_text_button(icons::img(icons::ADD), "Add child", |ui| {
             let into_object = matches!(node.payload, Payload::Object(_));
             for (label, value) in [
                 ("String", KvValue::String(String::new())),
@@ -410,19 +540,31 @@ fn context_menu_ui(
     }
 
     if !is_root {
-        if in_object_parent && !node.key.is_empty() && ui.button("Rename").clicked() {
-            doc.tree_view.renaming = Some((id, node.key.clone()));
-            ui.close();
+        if in_object_parent && !node.key.is_empty() {
+            let rename = egui::Button::image_and_text(icons::img(icons::EDIT_PENCIL), "Rename");
+            if ui.add(rename).clicked() {
+                doc.tree_view.renaming = Some((id, node.key.clone()));
+                ui.close();
+            }
         }
-        if ui.button("Duplicate").clicked() {
+        if ui
+            .add(egui::Button::image_and_text(icons::img(icons::DUPLICATE), "Duplicate"))
+            .clicked()
+        {
             actions.push(TreeAction::Duplicate(id));
             ui.close();
         }
-        if ui.button("Move up").clicked() {
+        if ui
+            .add(egui::Button::image_and_text(icons::img(icons::ARROW_UP), "Move up"))
+            .clicked()
+        {
             actions.push(TreeAction::MoveBy(id, -1));
             ui.close();
         }
-        if ui.button("Move down").clicked() {
+        if ui
+            .add(egui::Button::image_and_text(icons::img(icons::ARROW_DOWN), "Move down"))
+            .clicked()
+        {
             actions.push(TreeAction::MoveBy(id, 1));
             ui.close();
         }
@@ -439,20 +581,9 @@ fn context_menu_ui(
     }
 
     ui.menu_button("Cast to", |ui| {
-        for (label, target) in [
-            ("String", CastTarget::Str),
-            ("Int", CastTarget::Int),
-            ("Float", CastTarget::Double),
-            ("Bool", CastTarget::Bool),
-            ("Null", CastTarget::Null),
-            ("Object", CastTarget::Object),
-            ("Array", CastTarget::Array),
-            ("resource_name:", CastTarget::Resource),
-            ("soundevent:", CastTarget::Soundevent),
-            ("panorama:", CastTarget::Panorama),
-        ] {
-            if ui.button(label).clicked() {
-                actions.push(TreeAction::Cast { id, to: target });
+        for (label, target) in CAST_TARGETS {
+            if ui.button(*label).clicked() {
+                actions.push(TreeAction::Cast { id, to: *target });
                 ui.close();
             }
         }
@@ -467,10 +598,11 @@ fn context_menu_ui(
 
     if !is_root {
         ui.separator();
-        if ui
-            .button(RichText::new("Delete").color(ui.visuals().error_fg_color))
-            .clicked()
-        {
+        let delete = egui::Button::image_and_text(
+            icons::img(icons::DELETE),
+            RichText::new("Delete").color(ui.visuals().error_fg_color),
+        );
+        if ui.add(delete).clicked() {
             actions.push(TreeAction::Delete(id));
             ui.close();
         }
@@ -584,6 +716,36 @@ fn value_ui(
     }
 }
 
+/// Split a `"FLAG_A | FLAG_B"` bitmask string into its flags.
+pub fn parse_bitmask(value: &str) -> Vec<String> {
+    value
+        .split('|')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Join selected flags in schema order, unknown flags sorted at the end —
+/// same normalization as the original bitmask-enum widget.
+pub fn format_bitmask(order: &[String], selected: &[String]) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for name in order {
+        if selected.iter().any(|s| s == name) && !parts.contains(&name.as_str()) {
+            parts.push(name);
+        }
+    }
+    let mut unknown: Vec<&str> = selected
+        .iter()
+        .map(String::as_str)
+        .filter(|s| !parts.contains(s))
+        .collect();
+    unknown.sort_unstable();
+    unknown.dedup();
+    parts.extend(unknown);
+    parts.join(" | ")
+}
+
 fn string_value_ui(
     ui: &mut egui::Ui,
     doc: &mut Document,
@@ -597,10 +759,14 @@ fn string_value_ui(
 
     // Schema enum members plus values harvested from the document itself.
     let mut suggestions: Vec<String> = Vec::new();
+    let mut bitmask_members: Vec<String> = Vec::new();
     if !key.is_empty() {
         if let Some(db) = schema {
             if let Some(values) = db.enum_values_for_field(&key) {
                 suggestions.extend(values.iter().cloned());
+            }
+            if let Some(values) = db.bitmask_values_for_field(&key) {
+                bitmask_members.extend(values.iter().cloned());
             }
         }
         for value in doc.suggestions_for(&key) {
@@ -609,15 +775,53 @@ fn string_value_ui(
             }
         }
     }
+    // Heuristic fallback: a value that already looks like "A | B" gets the
+    // flag editor too, fed by its own flags plus harvested ones.
+    if bitmask_members.is_empty() && current.contains('|') {
+        for source in std::iter::once(current.to_owned()).chain(suggestions.iter().cloned()) {
+            for flag in parse_bitmask(&source) {
+                if !bitmask_members.contains(&flag) {
+                    bitmask_members.push(flag);
+                }
+            }
+        }
+    }
 
     let combo_width = if suggestions.is_empty() { 0.0 } else { 24.0 };
-    let avail = (ui.available_width() - combo_width - 12.0).max(40.0);
+    let flags_width = if bitmask_members.is_empty() { 0.0 } else { 30.0 };
+    let avail = (ui.available_width() - combo_width - flags_width - 12.0).max(40.0);
     if let Some(new) = editable_text(ui, ("str", id), current, avail, Some(palette.string)) {
         actions.push(TreeAction::SetScalar {
             id,
             new: Scalar::Str(new),
             label: "Edit value",
         });
+    }
+    if !bitmask_members.is_empty() {
+        let selected = parse_bitmask(current);
+        ui.menu_button("⚑", |ui| {
+            ui.set_min_width(220.0);
+            egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                for name in &bitmask_members {
+                    let mut on = selected.iter().any(|s| s == name);
+                    if ui.checkbox(&mut on, name).changed() {
+                        let mut next = selected.clone();
+                        if on {
+                            next.push(name.clone());
+                        } else {
+                            next.retain(|s| s != name);
+                        }
+                        actions.push(TreeAction::SetScalar {
+                            id,
+                            new: Scalar::Str(format_bitmask(&bitmask_members, &next)),
+                            label: "Toggle flag",
+                        });
+                    }
+                }
+            });
+        })
+        .response
+        .on_hover_text("Edit flags");
     }
     if !suggestions.is_empty() {
         ComboBox::from_id_salt(("enum", id))
@@ -812,7 +1016,7 @@ pub fn apply_action(doc: &mut Document, action: TreeAction) {
             doc.history
                 .push(model, Cmd::Insert { parent, index, id }, "Add property");
             model.set_expanded(parent, true);
-            doc.tree_view.selected = Some(id);
+            doc.tree_view.select_only(id);
             doc.mark_edited();
         }
         TreeAction::Duplicate(id) => {
@@ -835,7 +1039,7 @@ pub fn apply_action(doc: &mut Document, action: TreeAction) {
                 },
                 "Duplicate",
             );
-            doc.tree_view.selected = Some(copy);
+            doc.tree_view.select_only(copy);
             doc.mark_edited();
         }
         TreeAction::Delete(id) => {
@@ -844,9 +1048,7 @@ pub fn apply_action(doc: &mut Document, action: TreeAction) {
             };
             doc.history
                 .push(model, Cmd::Remove { parent, index, id }, "Delete");
-            if doc.tree_view.selected == Some(id) {
-                doc.tree_view.selected = None;
-            }
+            doc.tree_view.selected.remove(&id);
             doc.mark_edited();
         }
         TreeAction::CommentOut(id) => {
@@ -968,7 +1170,124 @@ pub fn apply_action(doc: &mut Document, action: TreeAction) {
             );
             doc.mark_edited();
         }
+        TreeAction::DeleteMany(ids) => {
+            let targets = bulk_targets(model, &ids);
+            if targets.is_empty() {
+                return;
+            }
+            let cmds: Vec<Cmd> = targets
+                .iter()
+                .map(|&(parent, index, id)| Cmd::Remove { parent, index, id })
+                .collect();
+            let label = format!("Delete {} items", cmds.len());
+            doc.history.push(model, Cmd::Batch(cmds), label);
+            for (_, _, id) in targets {
+                doc.tree_view.selected.remove(&id);
+            }
+            doc.mark_edited();
+        }
+        TreeAction::DuplicateMany(ids) => {
+            let targets = bulk_targets(model, &ids);
+            if targets.is_empty() {
+                return;
+            }
+            let mut cmds = Vec::with_capacity(targets.len());
+            for &(parent, index, id) in &targets {
+                let value = model.subtree_to_value(id);
+                let key = if model.node(id).key.is_empty() {
+                    String::new()
+                } else {
+                    unique_key(model, parent, &model.node(id).key.clone())
+                };
+                let copy = model.create_detached(&value, key);
+                cmds.push(Cmd::Insert {
+                    parent,
+                    index: index + 1,
+                    id: copy,
+                });
+            }
+            let label = format!("Duplicate {} items", cmds.len());
+            doc.history.push(model, Cmd::Batch(cmds), label);
+            doc.mark_edited();
+        }
+        TreeAction::CommentOutMany(ids) => {
+            let mut cmds = Vec::new();
+            for &(_, _, id) in &bulk_targets(model, &ids) {
+                let node = model.node(id);
+                let Payload::Scalar(scalar) = &node.payload else {
+                    continue;
+                };
+                if matches!(scalar, Scalar::Comment(_)) {
+                    continue;
+                }
+                let inline = scalar_to_inline_kv3(scalar);
+                let text = if node.key.is_empty() {
+                    format!(" {inline}")
+                } else {
+                    format!(" {} = {inline}", node.key)
+                };
+                cmds.push(Cmd::Rename {
+                    id,
+                    old: node.key.clone(),
+                    new: String::new(),
+                });
+                cmds.push(Cmd::SetPayload {
+                    id,
+                    old: node.payload.clone(),
+                    new: Payload::Scalar(Scalar::Comment(text)),
+                });
+            }
+            if cmds.is_empty() {
+                return;
+            }
+            let label = format!("Comment out {} items", cmds.len() / 2);
+            doc.history.push(model, Cmd::Batch(cmds), label);
+            doc.mark_edited();
+        }
+        TreeAction::CastMany(ids, target) => {
+            let mut cmds = Vec::new();
+            for id in ids {
+                let old = model.node(id).payload.clone();
+                let new = cast_payload(&old, target);
+                if old != new {
+                    cmds.push(Cmd::SetPayload { id, old, new });
+                }
+            }
+            if cmds.is_empty() {
+                return;
+            }
+            let label = format!("Cast {} items", cmds.len());
+            doc.history.push(model, Cmd::Batch(cmds), label);
+            doc.mark_edited();
+        }
     }
+}
+
+/// Resolve a multi-selection into `(parent, index, id)` triples safe to
+/// process as one batch: descendants of other selected nodes are dropped and
+/// siblings are ordered by descending index so removals/insertions don't
+/// shift each other.
+fn bulk_targets(model: &DocModel, ids: &[NodeId]) -> Vec<(NodeId, usize, NodeId)> {
+    let set: std::collections::BTreeSet<NodeId> = ids.iter().copied().collect();
+    let mut targets: Vec<(NodeId, usize, NodeId)> = Vec::with_capacity(ids.len());
+    'next: for &id in ids {
+        if id == model.root() {
+            continue;
+        }
+        let mut cur = model.node(id).parent;
+        while let Some(p) = cur {
+            if set.contains(&p) {
+                continue 'next; // ancestor handles this subtree
+            }
+            cur = model.node(p).parent;
+        }
+        if let Some((parent, index)) = model.index_in_parent(id) {
+            targets.push((parent, index, id));
+        }
+    }
+    // Parents ascending, indices descending within a parent.
+    targets.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)));
+    targets
 }
 
 fn scalar_as_string(s: &Scalar) -> String {
@@ -1108,6 +1427,85 @@ mod tests {
             cast_payload(&p, CastTarget::Bool),
             Payload::Scalar(Scalar::Bool(true))
         );
+    }
+
+    #[test]
+    fn bitmask_parse_and_format() {
+        assert_eq!(parse_bitmask("A | B | C"), vec!["A", "B", "C"]);
+        assert_eq!(parse_bitmask(""), Vec::<String>::new());
+        assert_eq!(parse_bitmask("  A|B "), vec!["A", "B"]);
+
+        let order: Vec<String> = ["FLAG_A", "FLAG_B", "FLAG_C"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        // Schema order is kept; unknown flags sort to the end.
+        let selected: Vec<String> = ["FLAG_C", "ZZ_CUSTOM", "FLAG_A"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(format_bitmask(&order, &selected), "FLAG_A | FLAG_C | ZZ_CUSTOM");
+        assert_eq!(format_bitmask(&order, &[]), "");
+    }
+
+    #[test]
+    fn bulk_delete_is_one_undo_step_and_skips_descendants() {
+        let mut doc = Document::from_text(
+            1,
+            "{ a = { inner = 1 } b = 2 c = 3 }",
+            "t.vdata".into(),
+            None,
+        );
+        let before = doc.model.to_value();
+        let root = doc.model.root();
+        let a = doc.model.children(root)[0];
+        let inner = doc.model.children(a)[0];
+        let b = doc.model.children(root)[1];
+
+        // Selecting a subtree plus a node inside it must not double-delete.
+        apply_action(&mut doc, TreeAction::DeleteMany(vec![a, inner, b]));
+        assert_eq!(doc.model.children(root).len(), 1);
+        assert_eq!(doc.history.depth(), 1, "bulk delete is a single undo entry");
+
+        doc.history.undo(&mut doc.model);
+        assert_eq!(doc.model.to_value(), before);
+    }
+
+    #[test]
+    fn bulk_duplicate_round_trips() {
+        let mut doc = Document::from_text(1, "{ a = 1 b = 2 }", "t.vdata".into(), None);
+        let before = doc.model.to_value();
+        let root = doc.model.root();
+        let ids: Vec<_> = doc.model.children(root).to_vec();
+        apply_action(&mut doc, TreeAction::DuplicateMany(ids));
+        assert_eq!(doc.model.children(root).len(), 4);
+        let keys: Vec<String> = doc
+            .model
+            .children(root)
+            .iter()
+            .map(|&c| doc.model.node(c).key.clone())
+            .collect();
+        assert_eq!(keys, ["a", "a_2", "b", "b_2"]);
+        doc.history.undo(&mut doc.model);
+        assert_eq!(doc.model.to_value(), before);
+    }
+
+    #[test]
+    fn bulk_comment_out_round_trips() {
+        let mut doc = Document::from_text(1, "{ a = 1 b = \"x\" }", "t.vdata".into(), None);
+        let before = doc.model.to_value();
+        let root = doc.model.root();
+        let ids: Vec<_> = doc.model.children(root).to_vec();
+        apply_action(&mut doc, TreeAction::CommentOutMany(ids.clone()));
+        for id in &ids {
+            assert!(matches!(
+                doc.model.node(*id).payload,
+                Payload::Scalar(Scalar::Comment(_))
+            ));
+        }
+        assert_eq!(doc.history.depth(), 1);
+        doc.history.undo(&mut doc.model);
+        assert_eq!(doc.model.to_value(), before);
     }
 
     #[test]

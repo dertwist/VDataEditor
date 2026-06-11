@@ -114,11 +114,28 @@ pub struct TreeView {
     /// Cached flattened rows: `(node, depth)`.
     pub flat: Vec<(NodeId, u16)>,
     pub flat_key: Option<(u64, u64, String)>,
-    pub selected: Option<NodeId>,
+    /// Multi-selection (click / Ctrl+click / Shift+click).
+    pub selected: std::collections::BTreeSet<NodeId>,
+    /// Anchor row for Shift+click range selection.
+    pub anchor: Option<NodeId>,
     /// Inline key rename in progress: node + edit buffer.
     pub renaming: Option<(NodeId, String)>,
     /// Row index to scroll to on the next frame.
     pub scroll_to_row: Option<usize>,
+}
+
+impl TreeView {
+    pub fn select_only(&mut self, id: NodeId) {
+        self.selected.clear();
+        self.selected.insert(id);
+        self.anchor = Some(id);
+    }
+
+    pub fn last_selected(&self) -> Option<NodeId> {
+        self.anchor
+            .filter(|id| self.selected.contains(id))
+            .or_else(|| self.selected.iter().next_back().copied())
+    }
 }
 
 pub struct Document {

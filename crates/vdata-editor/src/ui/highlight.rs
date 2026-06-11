@@ -81,7 +81,13 @@ pub fn highlight_line(job: &mut LayoutJob, line: &str, palette: &Palette, defaul
                 {
                     i += 1;
                 }
-                job.append(&line[start..i], 0.0, fmt(palette.number));
+                let word = &line[start..i];
+                let color = if word.contains('.') {
+                    palette.num_float
+                } else {
+                    palette.num_int
+                };
+                job.append(word, 0.0, fmt(color));
                 plain_start = i;
                 continue;
             }
@@ -106,7 +112,7 @@ pub fn highlight_line(job: &mut LayoutJob, line: &str, palette: &Palette, defaul
                         j += 1;
                     }
                     if bytes.get(j) == Some(&b'=') {
-                        palette.key
+                        palette.accent
                     } else {
                         default_color
                     }

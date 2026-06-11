@@ -30,6 +30,22 @@ VDataEditor is a fast desktop tool for viewing, editing, and saving Source 2 dat
 
 The text pane can additionally display and apply any document as JSON.
 
+## Performance vs. the JavaScript implementation
+
+Identical files, same machine, best of 3 runs (`crates/kv3/examples/bench.rs` vs the original `format/kv3.js` under Node 22):
+
+| Asset | JS parse | Rust parse | JS serialize | Rust serialize |
+|-------|---------:|-----------:|-------------:|---------------:|
+| abilities.vdata (7.0 MB) | 408 ms (17 MB/s) | **34 ms (207 MB/s)** | 154 ms | **17 ms** |
+| heroes.vdata (2.2 MB) | 134 ms | **12 ms** | 40 ms | **5 ms** |
+| synthetic 50 MB / 2M nodes | 4 534 ms | **252 ms** | 1 976 ms | **159 ms** |
+
+The UI side is no longer comparable like-for-like — the old app needed Web-Worker parsing (>50 KB), deferred first render (>350 KB) and 10 ms/frame incremental DOM building; the Rust editor renders the fully loaded 7.3 MB asset at **0.8 ms per frame** with no special casing.
+
+## Portable
+
+VDataEditor is a portable app: when the executable's directory is writable (unzip-anywhere / USB-stick use), all settings live in `vdata-editor-settings.ron` next to the binary and the bundled `schemas/` folder is found beside it. Nothing is installed; file-type association is **optional** and offered once on first launch (per-user, re-runnable from *File ▸ File associations…*).
+
 ## Building
 
 ```sh

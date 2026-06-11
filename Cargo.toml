@@ -12,6 +12,7 @@ license = "MIT"
 [workspace.dependencies]
 kv3 = { path = "crates/kv3" }
 egui = "0.34.3"
+egui_extras = { version = "0.34.3", features = ["image"] }
 eframe = { version = "0.34.3", features = ["persistence"] }
 egui_tiles = { version = "0.15.0", features = ["serde"] }
 rfd = "0.17.2"

@@ -29,6 +29,9 @@ pub struct SchemaDb {
     pub enums: HashMap<String, Arc<Vec<String>>>,
     /// field name -> enum name.
     pub field_enums: HashMap<String, String>,
+    /// field name -> enum name for bitmask fields (`CBitVecEnum<...>`),
+    /// edited as `FLAG_A | FLAG_B` strings.
+    pub field_bitmask_enums: HashMap<String, String>,
     /// field name -> widget hint (vectors, colors, resources).
     pub field_widgets: HashMap<String, WidgetHint>,
     pub class_count: usize,
@@ -37,6 +40,10 @@ pub struct SchemaDb {
 impl SchemaDb {
     pub fn enum_values_for_field(&self, field: &str) -> Option<&Arc<Vec<String>>> {
         self.enums.get(self.field_enums.get(field)?)
+    }
+
+    pub fn bitmask_values_for_field(&self, field: &str) -> Option<&Arc<Vec<String>>> {
+        self.enums.get(self.field_bitmask_enums.get(field)?)
     }
 }
 
@@ -95,6 +102,11 @@ fn resolve_type(ty: &SchemaType) -> Option<Resolved> {
             "CStrongHandle" | "CStrongHandleCopyable" | "CWeakHandle" => {
                 Some(Resolved::Widget(WidgetHint::Resource))
             }
+            // CBitVecEnum<E>: a flag set serialized as "A | B | C".
+            "CBitVecEnum" => match ty.inner.as_deref().and_then(resolve_type) {
+                Some(Resolved::Enum(name)) => Some(Resolved::BitmaskEnum(name)),
+                other => other,
+            },
             _ => ty.inner.as_deref().and_then(resolve_type),
         },
         "ptr" | "fixed_array" => ty.inner.as_deref().and_then(resolve_type),
@@ -104,6 +116,7 @@ fn resolve_type(ty: &SchemaType) -> Option<Resolved> {
 
 enum Resolved {
     Enum(String),
+    BitmaskEnum(String),
     Widget(WidgetHint),
 }
 
@@ -126,6 +139,9 @@ fn build_db(game: &str, file: SchemaFile) -> SchemaDb {
             match resolve_type(ty) {
                 Some(Resolved::Enum(name)) => {
                     db.field_enums.entry(field.name).or_insert(name);
+                }
+                Some(Resolved::BitmaskEnum(name)) => {
+                    db.field_bitmask_enums.entry(field.name).or_insert(name);
                 }
                 Some(Resolved::Widget(hint)) => {
                     db.field_widgets.entry(field.name).or_insert(hint);
@@ -250,5 +266,24 @@ mod tests {
             .iter()
             .any(|(field, _)| field.starts_with("m_e"));
         assert!(found, "expected m_e* enum fields");
+    }
+
+    #[test]
+    fn resolves_bitmask_enum_fields() {
+        // CBitVecEnum<SomeEnum> resolves to a bitmask widget, same as the
+        // original schema-db's `bitmaskEnum:` mapping.
+        let ty = SchemaType {
+            category: "atomic".into(),
+            name: "CBitVecEnum".into(),
+            inner: Some(Box::new(SchemaType {
+                category: "declared_enum".into(),
+                name: "EAbilityFlags".into(),
+                inner: None,
+            })),
+        };
+        match resolve_type(&ty) {
+            Some(Resolved::BitmaskEnum(name)) => assert_eq!(name, "EAbilityFlags"),
+            _ => panic!("expected bitmask enum resolution"),
+        }
     }
 }

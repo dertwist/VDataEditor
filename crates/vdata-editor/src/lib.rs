@@ -6,6 +6,7 @@
 //! headlessly via [`app::App::ui`].
 
 pub mod app;
+pub mod assoc;
 pub mod doc;
 pub mod history;
 pub mod json_bridge;

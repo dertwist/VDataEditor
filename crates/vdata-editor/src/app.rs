@@ -50,6 +50,7 @@ pub enum AppAction {
     LoadSchema(String),
     UnloadSchema,
     ClearRecent,
+    ShowAssocDialog,
     About,
     Quit,
 }
@@ -64,6 +65,9 @@ struct PersistedSettings {
     theme: Theme,
     recent: Vec<PathBuf>,
     schema_game: Option<String>,
+    /// The first-run file-association dialog was already answered.
+    #[serde(default)]
+    assoc_prompted: bool,
 }
 
 pub struct App {
@@ -80,9 +84,13 @@ pub struct App {
     dialog_rx: Option<Receiver<DialogMsg>>,
     focus_search: bool,
     pub last_error: Option<String>,
+    pub last_info: Option<String>,
     active_doc: Option<DocId>,
     theme_applied: bool,
     window_title: String,
+    /// First-run (or File-menu) file association dialog.
+    assoc_dialog_open: bool,
+    assoc_prompted: bool,
 }
 
 pub const FILE_FILTER: (&str, &[&str]) = (
@@ -114,9 +122,13 @@ impl App {
             dialog_rx: None,
             focus_search: false,
             last_error: None,
+            last_info: None,
             active_doc: None,
             theme_applied: false,
             window_title: String::new(),
+            // The association dialog shows once, on the very first launch.
+            assoc_dialog_open: !settings.assoc_prompted,
+            assoc_prompted: settings.assoc_prompted,
         };
         if let Some(game) = settings.schema_game {
             app.schema.request_load(&game);
@@ -145,9 +157,12 @@ impl App {
             dialog_rx: None,
             focus_search: false,
             last_error: None,
+            last_info: None,
             active_doc: None,
             theme_applied: false,
             window_title: String::new(),
+            assoc_dialog_open: false,
+            assoc_prompted: true,
         }
     }
 
@@ -473,6 +488,7 @@ impl App {
                 AppAction::LoadSchema(game) => self.schema.request_load(&game),
                 AppAction::UnloadSchema => self.schema.unload(),
                 AppAction::ClearRecent => self.recent.clear(),
+                AppAction::ShowAssocDialog => self.assoc_dialog_open = true,
                 AppAction::About => self.about_open = true,
                 AppAction::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
             }
@@ -549,6 +565,7 @@ impl App {
     pub fn run_frame(&mut self, ui: &mut egui::Ui) {
         let ctx = &ui.ctx().clone();
         if !self.theme_applied {
+            egui_extras::install_image_loaders(ctx);
             apply_theme(ctx, self.theme);
             self.theme_applied = true;
         }
@@ -613,13 +630,23 @@ impl App {
             ui::status::status_bar(ui, doc, schema, palette);
         });
 
-        // Error toast.
+        // Error / info toasts.
         if let Some(error) = self.last_error.clone() {
             egui::Panel::bottom("error").show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.colored_label(ui.visuals().error_fg_color, &error);
                     if ui.small_button("✕").clicked() {
                         self.last_error = None;
+                    }
+                });
+            });
+        }
+        if let Some(info) = self.last_info.clone() {
+            egui::Panel::bottom("info").show_inside(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(&info);
+                    if ui.small_button("✕").clicked() {
+                        self.last_info = None;
                     }
                 });
             });
@@ -653,6 +680,9 @@ impl App {
         });
 
         self.confirm_close_modal(ctx);
+        if self.confirm_close.is_none() {
+            self.assoc_dialog(ctx);
+        }
 
         if self.about_open {
             let mut open = self.about_open;
@@ -672,11 +702,56 @@ impl App {
         self.process_actions(ctx);
     }
 
+    /// Optional file-association dialog: shown on first launch, reopenable
+    /// from File ▸ File associations….
+    fn assoc_dialog(&mut self, ctx: &egui::Context) {
+        if !self.assoc_dialog_open {
+            return;
+        }
+        let mut decided: Option<bool> = None;
+        egui::Modal::new(egui::Id::new("assoc-dialog")).show(ctx, |ui| {
+            ui.set_max_width(440.0);
+            ui.heading("Open Source 2 files with VDataEditor?");
+            ui.add_space(6.0);
+            ui.label(
+                "VDataEditor can register itself as the handler for Source 2 data \
+                 files. This is optional, applies only to your user account, and \
+                 can be re-run later from File ▸ File associations….",
+            );
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new(format!(".{}", crate::assoc::EXTENSIONS.join("  .")))
+                    .monospace()
+                    .small(),
+            );
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                if ui.button("Associate file types").clicked() {
+                    decided = Some(true);
+                }
+                if ui.button("Not now").clicked() {
+                    decided = Some(false);
+                }
+            });
+        });
+        if let Some(associate) = decided {
+            self.assoc_dialog_open = false;
+            self.assoc_prompted = true;
+            if associate {
+                match crate::assoc::associate() {
+                    Ok(msg) => self.last_info = Some(msg),
+                    Err(err) => self.last_error = Some(format!("File associations: {err}")),
+                }
+            }
+        }
+    }
+
     fn persisted(&self) -> PersistedSettings {
         PersistedSettings {
             theme: self.theme,
             recent: self.recent.clone(),
             schema_game: self.schema.db.as_ref().map(|db| db.game.clone()),
+            assoc_prompted: self.assoc_prompted,
         }
     }
 }

@@ -6,7 +6,28 @@ use crate::app::AppAction;
 use crate::doc::Document;
 use crate::schema::{GAMES, SchemaStore};
 
+use super::icons;
 use super::theme::Theme;
+
+/// Menu entry with the original editor's PNG icon and a right-aligned
+/// shortcut, like the old `.menu-dropdown-item` rows.
+fn icon_item(
+    ui: &mut egui::Ui,
+    icon: egui::ImageSource<'static>,
+    label: &str,
+    shortcut: &str,
+    enabled: bool,
+) -> bool {
+    let mut button = egui::Button::image_and_text(icons::img(icon), label);
+    if !shortcut.is_empty() {
+        button = button.shortcut_text(shortcut);
+    }
+    let clicked = ui.add_enabled(enabled, button).clicked();
+    if clicked {
+        ui.close();
+    }
+    clicked
+}
 
 pub struct Shortcuts;
 
@@ -69,13 +90,11 @@ pub fn menu_bar(
 ) {
     egui::MenuBar::new().ui(ui, |ui| {
         ui.menu_button("File", |ui| {
-            if ui.button("New\tCtrl+N").clicked() {
+            if icon_item(ui, icons::NEW, "New", "Ctrl+N", true) {
                 actions.push(AppAction::NewDoc);
-                ui.close();
             }
-            if ui.button("Open…\tCtrl+O").clicked() {
+            if icon_item(ui, icons::IMPORT, "Open…", "Ctrl+O", true) {
                 actions.push(AppAction::OpenDialog);
-                ui.close();
             }
             ui.menu_button("Open Recent", |ui| {
                 if recent.is_empty() {
@@ -97,27 +116,20 @@ pub fn menu_bar(
             });
             ui.separator();
             let has_doc = active_doc.is_some();
-            if ui
-                .add_enabled(has_doc, egui::Button::new("Save\tCtrl+S"))
-                .clicked()
-            {
+            if icon_item(ui, icons::SAVE, "Save", "Ctrl+S", has_doc) {
                 actions.push(AppAction::Save);
-                ui.close();
             }
-            if ui
-                .add_enabled(has_doc, egui::Button::new("Save As…\tCtrl+Shift+S"))
-                .clicked()
-            {
+            if icon_item(ui, icons::SAVE_ALL, "Save As…", "Ctrl+Shift+S", has_doc) {
                 actions.push(AppAction::SaveAs);
+            }
+            ui.separator();
+            if ui.button("File associations…").clicked() {
+                actions.push(AppAction::ShowAssocDialog);
                 ui.close();
             }
             ui.separator();
-            if ui
-                .add_enabled(has_doc, egui::Button::new("Close Tab\tCtrl+W"))
-                .clicked()
-            {
+            if icon_item(ui, icons::CANCEL, "Close Tab", "Ctrl+W", has_doc) {
                 actions.push(AppAction::CloseActive);
-                ui.close();
             }
             if ui.button("Quit").clicked() {
                 actions.push(AppAction::Quit);
@@ -130,45 +142,39 @@ pub fn menu_bar(
                 Some(doc) => (
                     doc.history
                         .undo_label()
-                        .map(|l| format!("Undo {l}\tCtrl+Z"))
-                        .unwrap_or_else(|| "Undo\tCtrl+Z".into()),
+                        .map(|l| format!("Undo {l}"))
+                        .unwrap_or_else(|| "Undo".into()),
                     doc.history.can_undo(),
                     doc.history
                         .redo_label()
-                        .map(|l| format!("Redo {l}\tCtrl+Shift+Z"))
-                        .unwrap_or_else(|| "Redo\tCtrl+Shift+Z".into()),
+                        .map(|l| format!("Redo {l}"))
+                        .unwrap_or_else(|| "Redo".into()),
                     doc.history.can_redo(),
                 ),
-                None => ("Undo\tCtrl+Z".into(), false, "Redo\tCtrl+Shift+Z".into(), false),
+                None => ("Undo".into(), false, "Redo".into(), false),
             };
-            if ui.add_enabled(can_undo, egui::Button::new(undo_label)).clicked() {
+            if icon_item(ui, icons::UNDO, &undo_label, "Ctrl+Z", can_undo) {
                 actions.push(AppAction::Undo);
-                ui.close();
             }
-            if ui.add_enabled(can_redo, egui::Button::new(redo_label)).clicked() {
+            if icon_item(ui, icons::REDO, &redo_label, "Ctrl+Shift+Z", can_redo) {
                 actions.push(AppAction::Redo);
-                ui.close();
             }
             ui.separator();
-            if ui.button("Find\tCtrl+F").clicked() {
+            if icon_item(ui, icons::FILTER, "Find", "Ctrl+F", true) {
                 actions.push(AppAction::Find);
-                ui.close();
             }
             ui.separator();
-            if ui.button("Expand All").clicked() {
+            if icon_item(ui, icons::EXPAND_ALL, "Expand All", "", true) {
                 actions.push(AppAction::ExpandAll(true));
-                ui.close();
             }
-            if ui.button("Collapse All").clicked() {
+            if icon_item(ui, icons::COLLAPSE_ALL, "Collapse All", "", true) {
                 actions.push(AppAction::ExpandAll(false));
-                ui.close();
             }
         });
 
         ui.menu_button("View", |ui| {
-            if ui.button("Reset Layout").clicked() {
+            if icon_item(ui, icons::REFRESH, "Reset Layout", "", true) {
                 actions.push(AppAction::ResetLayout);
-                ui.close();
             }
             ui.separator();
             if ui

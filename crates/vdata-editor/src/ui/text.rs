@@ -289,7 +289,8 @@ pub fn apply_text(doc: &mut Document) {
         "Apply text",
     );
     doc.model.set_expanded(new_root, true);
-    doc.tree_view.selected = None;
+    doc.tree_view.selected.clear();
+    doc.tree_view.anchor = None;
     doc.text_pane.edited = false;
     doc.text_pane.synced_rev = Some(doc.model.rev);
     doc.text_pane.rebuild_line_index();
